@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
@@ -51,66 +52,136 @@ List<LintFileFix> planLintFixes(String root, List<LintRule> rules) {
 /// The changed lines between [before] and [after], as `dartisan lint
 /// --fix --dry-run` prints them: `--- path`/`+++ path`, then each run of
 /// changed lines with its line number (`@@ 12 @@`), `-` before and `+`
-/// after. Lines are matched with a longest common subsequence over the
-/// part between the common start and end.
+/// after. Lines are matched with Myers' shortest edit script, in time
+/// O((N + M) · D) and memory O(D²) for D changed lines, so a long file
+/// with a few fixes far apart costs little (a table of N × M cells did
+/// not: 20 000 lines took 3.9 GB).
 String lintFixDiff(String path, String before, String after) {
   final a = before.split('\n');
   final b = after.split('\n');
-  var start = 0;
-  while (start < a.length && start < b.length && a[start] == b[start]) {
-    start++;
-  }
-  var endA = a.length;
-  var endB = b.length;
-  while (endA > start && endB > start && a[endA - 1] == b[endB - 1]) {
-    endA--;
-    endB--;
-  }
-  final x = a.sublist(start, endA);
-  final y = b.sublist(start, endB);
-  // lcs[i][j]: the common subsequence of x[i..] and y[j..].
-  final lcs = List.generate(
-    x.length + 1,
-    (_) => List<int>.filled(y.length + 1, 0),
-  );
-  for (var i = x.length - 1; i >= 0; i--) {
-    for (var j = y.length - 1; j >= 0; j--) {
-      lcs[i][j] = x[i] == y[j]
-          ? lcs[i + 1][j + 1] + 1
-          : (lcs[i + 1][j] >= lcs[i][j + 1] ? lcs[i + 1][j] : lcs[i][j + 1]);
-    }
-  }
   final out = StringBuffer('--- $path\n+++ $path\n');
-  var i = 0;
-  var j = 0;
   var inHunk = false;
-  while (i < x.length || j < y.length) {
-    if (i < x.length && j < y.length && x[i] == y[j]) {
-      i++;
-      j++;
+  var line = 0;
+  for (final (op, text) in lineEdits(a, b)) {
+    if (op == ' ') {
+      line++;
       inHunk = false;
       continue;
     }
     if (!inHunk) {
-      out.writeln('@@ ${start + i + 1} @@');
+      out.writeln('@@ ${line + 1} @@');
       inHunk = true;
     }
-    if (i < x.length && (j == y.length || lcs[i + 1][j] >= lcs[i][j + 1])) {
-      out.writeln('-${x[i++]}');
-    } else {
-      out.writeln('+${y[j++]}');
+    out.writeln('$op$text');
+    if (op == '-') {
+      line++;
     }
   }
   return out.toString();
 }
 
+/// Myers' diff of [a] and [b] (the lines [lintFixDiff] prints): each line kept (`' '`), removed (`'-'`)
+/// or added (`'+'`), removals before additions within a change.
+List<(String, String)> lineEdits(List<String> a, List<String> b) {
+  final n = a.length;
+  final m = b.length;
+  final max = n + m;
+  // v[k + off]: the furthest x on diagonal k. Before each step d, the
+  // diagonals -(d + 1)..d + 1 of v are kept (all the walk back reads), so
+  // the trace holds O(D²) numbers, not D copies of v.
+  final off = max + 1;
+  final v = Int32List(2 * max + 4);
+  final trace = <Int32List>[];
+  int at(int d, int k) => trace[d][k + d + 1];
+  search:
+  for (var d = 0; d <= max; d++) {
+    trace.add(Int32List.sublistView(v, off - d - 1, off + d + 2).sublist(0));
+    for (var k = -d; k <= d; k += 2) {
+      final down = k == -d || (k != d && v[k - 1 + off] < v[k + 1 + off]);
+      var x = down ? v[k + 1 + off] : v[k - 1 + off] + 1;
+      var y = x - k;
+      while (x < n && y < m && a[x] == b[y]) {
+        x++;
+        y++;
+      }
+      v[k + off] = x;
+      if (x >= n && y >= m) {
+        break search;
+      }
+    }
+  }
+  final edits = <(String, String)>[];
+  var x = n;
+  var y = m;
+  for (var d = trace.length - 1; d >= 0; d--) {
+    final k = x - y;
+    final down = k == -d || (k != d && at(d, k - 1) < at(d, k + 1));
+    final prevK = down ? k + 1 : k - 1;
+    final prevX = at(d, prevK);
+    final prevY = prevX - prevK;
+    while (x > prevX && y > prevY) {
+      edits.add((' ', a[--x]));
+      y--;
+    }
+    if (d > 0) {
+      if (down) {
+        edits.add(('+', b[--y]));
+      } else {
+        edits.add(('-', a[--x]));
+      }
+    }
+  }
+  while (x > 0 && y > 0) {
+    edits.add((' ', a[--x]));
+    y--;
+  }
+  final ordered = edits.reversed.toList();
+  // Within each run of changes, removals first (`-` then `+`).
+  final result = <(String, String)>[];
+  var run = <(String, String)>[];
+  void flush() {
+    result
+      ..addAll(run.where((e) => e.$1 == '-'))
+      ..addAll(run.where((e) => e.$1 == '+'));
+    run = [];
+  }
+
+  for (final edit in ordered) {
+    if (edit.$1 == ' ') {
+      flush();
+      result.add(edit);
+    } else {
+      run.add(edit);
+    }
+  }
+  flush();
+  return result;
+}
+
 /// Writes [content] to [path] so the file is never half written: into a
 /// file next to it first, then renamed over it (a rename on one volume
 /// replaces the file at once). A process killed in between leaves the old
-/// file and a stray `*.lint-fix.tmp`, never a cut-off one.
+/// file and a stray `*.lint-fix.tmp`, never a cut-off one. On Linux and
+/// macOS the new file gets the permissions of the old one (a script in
+/// `bin/` stays executable); Windows has no such bits.
 void writeFileAtomically(String path, String content) {
   final temp = File('$path.lint-fix.tmp')
     ..writeAsStringSync(content, flush: true);
+  final target = File(path);
+  if (!Platform.isWindows && target.existsSync()) {
+    final permissions = target.statSync().mode & 0xFFF;
+    final chmod = Process.runSync('chmod', [
+      permissions.toRadixString(8),
+      temp.path,
+    ]);
+    if (chmod.exitCode != 0) {
+      temp.deleteSync();
+      throw FileSystemException(
+        'could not keep the permissions: ${chmod.stderr}'.trim(),
+        path,
+      );
+    }
+  }
   temp.renameSync(path);
 }
 
@@ -139,17 +210,22 @@ List<String> removeStaleLintFixFiles(String root, {bool dryRun = false}) {
   return removed..sort();
 }
 
-/// The project files among [paths] that git sees as changed (modified,
-/// staged or untracked): `--fix` leaves them alone without `--force`, so
-/// `git checkout` can always undo it. `null` when [root] is not in a git
-/// work tree, or git is missing.
-Future<List<String>?> uncommittedFiles(String root, List<String> paths) async {
+/// The project files among [paths] that `git checkout` could not bring
+/// back: changed (modified, staged or untracked), or ignored by git
+/// (`.gitignore`). `--fix` leaves them alone without `--force`. Each comes
+/// with why (`uncommitted` or `ignored by git`). `null` when [root] is not
+/// in a git work tree, or git is missing.
+Future<List<(String, String)>?> uncommittedFiles(
+  String root,
+  List<String> paths,
+) async {
   final ProcessResult result;
   try {
     result = await Process.run('git', [
       'status',
       '--porcelain',
       '--untracked-files=all',
+      '--ignored',
       '--',
       ...paths,
     ], workingDirectory: root);
@@ -161,23 +237,45 @@ Future<List<String>?> uncommittedFiles(String root, List<String> paths) async {
   }
   return [
     for (final line in (result.stdout as String).split('\n'))
-      if (line.trim().isNotEmpty) line.substring(3).trim(),
+      if (line.trim().isNotEmpty)
+        (
+          line.substring(3).trim(),
+          line.startsWith('!!') ? 'ignored by git' : 'uncommitted',
+        ),
   ];
 }
 
 /// The number of errors `dart analyze` reports in each of [paths]
-/// (project-relative) of the project at [root].
-Future<Map<String, int>> analyzeErrors(String root, List<String> paths) async {
-  final result = await Process.run(dartExecutable(), [
-    'analyze',
-    '--format=machine',
-    ...paths,
-  ], workingDirectory: root);
+/// (project-relative) of the project at [root], or `null` when it did not
+/// analyze them (it could not start, or ended without a result: an exit
+/// code other than 0 and no finding in its output), which is not the same
+/// as no errors. [executable] replaces the Dart SDK's `dart` (tests).
+Future<Map<String, int>?> analyzeErrors(
+  String root,
+  List<String> paths, {
+  String? executable,
+}) async {
+  final ProcessResult result;
+  try {
+    result = await Process.run(executable ?? dartExecutable(), [
+      'analyze',
+      '--format=machine',
+      ...paths,
+    ], workingDirectory: root);
+  } on ProcessException {
+    return null;
+  }
   final counts = {for (final path in paths) path: 0};
+  var findings = 0;
   // SEVERITY|TYPE|CODE|FILE|LINE|COLUMN|LENGTH|MESSAGE
   for (final line in '${result.stdout}\n${result.stderr}'.split('\n')) {
     final fields = line.split('|');
-    if (fields.length < 8 || fields[0] != 'ERROR') {
+    if (fields.length < 8 ||
+        !const {'ERROR', 'WARNING', 'INFO'}.contains(fields[0])) {
+      continue;
+    }
+    findings++;
+    if (fields[0] != 'ERROR') {
       continue;
     }
     final file = p.isAbsolute(fields[3])
@@ -188,5 +286,5 @@ Future<Map<String, int>> analyzeErrors(String root, List<String> paths) async {
       counts[path] = counts[path]! + 1;
     }
   }
-  return counts;
+  return result.exitCode == 0 || findings > 0 ? counts : null;
 }

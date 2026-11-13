@@ -1817,8 +1817,9 @@ String formatLintIssue(LintIssue issue) =>
 /// `diagnostics:` of the project's `analysis_options.yaml` ([lintConfig]),
 /// then `--enable`/`--disable` for this run.
 final class LintCommand extends Command<int> {
-  /// The `dartisan lint` command.
-  LintCommand() {
+  /// The `dartisan lint` command; [analyzer] replaces the `dart` that
+  /// `--fix` analyzes with (tests).
+  LintCommand({this.analyzer}) {
     argParser
       ..addFlag('json', negatable: false, help: 'Output JSON.')
       ..addMultiOption(
@@ -1853,6 +1854,9 @@ final class LintCommand extends Command<int> {
             'outside a git work tree (git checkout cannot undo that).',
       );
   }
+
+  /// The `dart` executable `--fix` analyzes with; the SDK's by default.
+  final String? analyzer;
 
   @override
   String get name => 'lint';
@@ -1988,48 +1992,92 @@ final class LintCommand extends Command<int> {
       if (dirty.isNotEmpty) {
         stderr
           ..writeln(
-            'lint --fix: these files have uncommitted changes; commit or '
-            'stash them first, or pass --force:',
+            'lint --fix: git checkout could not bring these files back; '
+            'commit or stash them first, or pass --force:',
           )
-          ..writeln(dirty.map((d) => '  $d').join('\n'));
+          ..writeln(
+            [for (final (path, why) in dirty) '  $path ($why)'].join('\n'),
+          );
         return 1;
       }
     }
-    for (final change in changes) {
-      writeFileAtomically(p.join(root, change.path), change.after);
-    }
-    await Process.run(dartExecutable(), [
-      'format',
-      ...paths,
-    ], workingDirectory: root);
-    // One analysis in the common case: a file without errors after the
-    // fix is kept as it is. Only a file with errors is put back (from the
-    // text this process read, not git) and analyzed again; it keeps the
-    // fix when it had as many errors before.
-    final errorsAfter = await analyzeErrors(root, paths);
-    final suspects = [
-      for (final change in changes)
-        if ((errorsAfter[change.path] ?? 0) > 0) change,
-    ];
-    final formatted = {
-      for (final change in suspects)
-        change.path: File(p.join(root, change.path)).readAsStringSync(),
-    };
-    for (final change in suspects) {
-      writeFileAtomically(p.join(root, change.path), change.before);
-    }
-    final errorsBefore = suspects.isEmpty
-        ? const <String, int>{}
-        : await analyzeErrors(root, [for (final c in suspects) c.path]);
-    final broken = {
-      for (final change in suspects)
-        if (errorsAfter[change.path]! > (errorsBefore[change.path] ?? 0))
-          change.path,
-    };
-    for (final change in suspects) {
-      if (!broken.contains(change.path)) {
-        writeFileAtomically(p.join(root, change.path), formatted[change.path]!);
+    // Every file touched goes back to the text this process read when a
+    // step fails: a write (a file open elsewhere, no permission), or an
+    // analysis that did not run (no verdict means no fix).
+    final written = <LintFileFix>[];
+    int putBack(String why) {
+      final stuck = <String>[];
+      for (final change in written) {
+        try {
+          writeFileAtomically(p.join(root, change.path), change.before);
+        } on FileSystemException {
+          stuck.add(change.path);
+        }
       }
+      stderr.writeln(
+        'lint --fix: $why; '
+        '${stuck.isEmpty ? 'every file is left as it was' : 'could not put back ${stuck.join(', ')} (git checkout will)'}.',
+      );
+      return 1;
+    }
+
+    late final Map<String, int> errorsAfter;
+    late final Set<String> broken;
+    try {
+      for (final change in changes) {
+        writeFileAtomically(p.join(root, change.path), change.after);
+        written.add(change);
+      }
+      await Process.run(dartExecutable(), [
+        'format',
+        ...paths,
+      ], workingDirectory: root);
+      // One analysis in the common case: a file without errors after the
+      // fix is kept as it is. Only a file with errors is put back (from
+      // the text this process read, not git) and analyzed again; it keeps
+      // the fix when it had as many errors before.
+      final after = await analyzeErrors(root, paths, executable: analyzer);
+      if (after == null) {
+        return putBack('dart analyze did not run, so no fix could be checked');
+      }
+      errorsAfter = after;
+      final suspects = [
+        for (final change in changes)
+          if ((errorsAfter[change.path] ?? 0) > 0) change,
+      ];
+      final formatted = {
+        for (final change in suspects)
+          change.path: File(p.join(root, change.path)).readAsStringSync(),
+      };
+      for (final change in suspects) {
+        writeFileAtomically(p.join(root, change.path), change.before);
+      }
+      final errorsBefore = suspects.isEmpty
+          ? const <String, int>{}
+          : await analyzeErrors(root, [
+              for (final c in suspects) c.path,
+            ], executable: analyzer);
+      if (errorsBefore == null) {
+        return putBack('dart analyze did not run, so no fix could be checked');
+      }
+      broken = {
+        for (final change in suspects)
+          if (errorsAfter[change.path]! > (errorsBefore[change.path] ?? 0))
+            change.path,
+      };
+      for (final change in suspects) {
+        if (!broken.contains(change.path)) {
+          writeFileAtomically(
+            p.join(root, change.path),
+            formatted[change.path]!,
+          );
+        }
+      }
+    } on FileSystemException catch (error) {
+      return putBack(
+        'could not write ${error.path ?? 'a file'} (${error.message}'
+        '${error.osError == null ? '' : ': ${error.osError!.message}'})',
+      );
     }
     var fixed = 0;
     var files = 0;

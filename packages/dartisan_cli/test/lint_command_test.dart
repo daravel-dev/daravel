@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:daravel_lints/daravel_lints.dart';
@@ -417,6 +418,95 @@ Future<void> store(Form form) => form.validate({'email': 'required'});
       },
       timeout: const Timeout(Duration(minutes: 3)),
     );
+
+    /// `lint` with [analyzer] as the `dart` that `--fix` analyzes with.
+    Future<int> lintWith(String analyzer, List<String> args) async {
+      // ignore: close_sinks (stdout of the zone, never opened)
+      final out = _Capture();
+      // ignore: close_sinks (stderr of the zone, never opened)
+      final err = _Capture();
+      errors = err.buffer;
+      final runner = CommandRunner<int>('dartisan', 'test')
+        ..addCommand(LintCommand(analyzer: analyzer));
+      return await IOOverrides.runZoned<Future<int?>>(
+            () => runner.run(['lint', ...args]),
+            getCurrentDirectory: () => root,
+            stdout: () => out,
+            stderr: () => err,
+          ) ??
+          0;
+    }
+
+    test('dart analyze that does not run puts every file back', () async {
+      await commitAll();
+      for (final analyzer in [
+        p.join(root.path, 'no-such-dart'),
+        // Runs, exits 1, reports nothing: no verdict either.
+        'git',
+      ]) {
+        expect(await lintWith(analyzer, ['--fix']), 1, reason: analyzer);
+        expect(
+          errors.toString(),
+          contains(
+            'dart analyze did not run, so no fix could be checked; every '
+            'file is left as it was.',
+          ),
+          reason: analyzer,
+        );
+        expect(file.readAsStringSync(), controller, reason: analyzer);
+      }
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a write that fails puts back the files already written', () async {
+      // Two files; the second (in path order) cannot be replaced.
+      final first = File(p.join(root.path, 'lib', 'app', 'a_first.dart'))
+        ..writeAsStringSync(controller);
+      await commitAll();
+      final locked = Platform.isWindows ? file.path : file.parent.path;
+      await Process.run(Platform.isWindows ? 'attrib' : 'chmod', [
+        ...Platform.isWindows ? ['+R'] : ['555'],
+        locked,
+      ]);
+      addTearDown(
+        () => Process.run(Platform.isWindows ? 'attrib' : 'chmod', [
+          ...Platform.isWindows ? ['-R'] : ['755'],
+          locked,
+        ]),
+      );
+      final (code, _) = await lint(['--fix']);
+      expect(code, 1);
+      expect(
+        errors.toString(),
+        allOf([
+          contains('lint --fix: could not write'),
+          contains('every file is left as it was.'),
+        ]),
+      );
+      expect(first.readAsStringSync(), controller, reason: 'put back');
+      expect(file.readAsStringSync(), controller);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a file git ignores is refused like an uncommitted one', () async {
+      File(p.join(root.path, '.gitignore'))
+          .writeAsStringSync('lib/app/controller.dart\n');
+      await commitAll();
+      expect((await lint(['--fix'])).$1, 1);
+      expect(
+        errors.toString(),
+        contains('lib/app/controller.dart (ignored by git)'),
+      );
+      expect(file.readAsStringSync(), controller);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a script keeps its permissions', () async {
+      final script = File(p.join(root.path, 'bin', 'tool.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old\n');
+      await Process.run('chmod', ['754', script.path]);
+      writeFileAtomically(script.path, 'new\n');
+      expect(script.readAsStringSync(), 'new\n');
+      expect(script.statSync().mode & 0xFFF, 0x1EC); // 0754
+    }, skip: Platform.isWindows ? 'no permission bits on Windows' : false);
 
     test('a file is replaced whole, with no temporary file left', () {
       writeFileAtomically(file.path, 'replaced\n');
