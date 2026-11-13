@@ -99,6 +99,26 @@ void main() {
         isEmpty,
         reason: 'a MySQL mode name feeds the unused pgsql entry too',
       );
+      // require + a CA: libpq checks the chain, this driver cannot.
+      expect(
+        check({
+          'DB_CONNECTION': 'pgsql',
+          'DB_SSLMODE': 'require',
+          'DB_SSLROOTCERT': '/ca.pem',
+        }).single.message,
+        allOf(contains('verify-full'), contains('remove DB_SSLROOTCERT')),
+      );
+      for (final env in [
+        {'DB_SSLMODE': 'verify-full', 'DB_SSLROOTCERT': '/ca.pem'},
+        {'DB_SSLMODE': 'require', 'DB_SSLCERT': '/c.pem', 'DB_SSLKEY': '/k'},
+        {'DB_SSLMODE': 'require'},
+      ]) {
+        expect(
+          check({'DB_CONNECTION': 'pgsql', ...env}),
+          isEmpty,
+          reason: '$env',
+        );
+      }
     });
 
     test('DB_SSLROOTCERT, DB_SSLCERT and DB_SSLKEY reach the options, from '

@@ -75,14 +75,23 @@ void main() {
     await expectLater(db.connect(), throwsA(anything));
   });
 
-  test('require with DB_SSLROOTCERT connects without checking, and says '
-      'so once', () async {
-    final warnings = <String>[];
-    final db = driver({
-      'sslmode': 'require',
-      'sslrootcert': ca,
-    }, warnings: warnings);
-    expect(await encrypted(db), isTrue);
-    expect(warnings, [contains('use verify-full')]);
+  // libpq checks the chain for require + a CA; this driver cannot, so the
+  // pair is refused rather than connecting unchecked (a .env from Laravel).
+  test('require with DB_SSLROOTCERT is refused when the driver is made, '
+      'naming both ways out', () {
+    expect(
+      () => driver({'sslmode': 'require', 'sslrootcert': ca}),
+      throwsA(
+        isA<ConfigException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('verify-full'), contains('remove DB_SSLROOTCERT')),
+        ),
+      ),
+    );
+  });
+
+  test('require without a CA connects, encrypted and unchecked', () async {
+    expect(await encrypted(driver({'sslmode': 'require'})), isTrue);
   });
 }

@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:1255f37c32f0 -->
+<!-- source: database.md sha256:e26c3c61fe51 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -155,10 +155,11 @@ PostgreSQL mengambil CA yang menandatangani sertifikat server dari
 `DB_SSLROOTCERT` (`?sslrootcert=` di `DB_URL`), serta sertifikat client dari
 `DB_SSLCERT` dengan key-nya di `DB_SSLKEY`, nama yang diteruskan
 `PostgresConnector` Laravel ke libpq; file yang tidak bisa dibaca membuat
-koneksi gagal dengan error yang menyebut nama pengaturannya. Dengan
-`require`, libpq memeriksa rantai sertifikat bila CA diberikan (seperti
-`verify-ca`); driver ini tidak, dan menyebutkannya saat boot: pakai
-`verify-full`.
+koneksi gagal dengan error yang menyebut nama pengaturannya. `require`
+bersama `DB_SSLROOTCERT` ditolak: libpq memeriksa rantai sertifikat untuk
+pasangan itu (seperti `verify-ca`), dan driver ini tidak bisa memeriksanya
+tanpa nama host. Pakai `verify-full` untuk memeriksa sertifikat, atau hapus
+`DB_SSLROOTCERT` untuk mengenkripsi tanpa pemeriksaan.
 
 MySQL dan MariaDB mengambil CA yang menandatangani sertifikat server dari
 `DB_SSLROOTCERT`, atau dari `MYSQL_ATTR_SSL_CA`, nama di

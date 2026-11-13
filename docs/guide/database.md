@@ -146,8 +146,10 @@ PostgreSQL takes the CA that signed the server certificate from
 `DB_SSLROOTCERT` (`?sslrootcert=` in `DB_URL`), and a client certificate
 from `DB_SSLCERT` with its key in `DB_SSLKEY`, the names Laravel's
 `PostgresConnector` passes to libpq; a file that cannot be read fails the
-connection with an error that names the setting. With `require`, libpq checks the chain when a CA is given (as
-`verify-ca`); this driver does not, and says so at boot: use `verify-full`.
+connection with an error that names the setting. `require` with `DB_SSLROOTCERT` is refused: libpq checks the chain for
+that pair (as `verify-ca`), and this driver cannot check it without the
+host name. Use `verify-full` to check the certificate, or remove
+`DB_SSLROOTCERT` to encrypt without checking.
 
 MySQL and MariaDB take the CA that signed the server certificate from
 `DB_SSLROOTCERT`, or from `MYSQL_ATTR_SSL_CA`, the name of Laravel's

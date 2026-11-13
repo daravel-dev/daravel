@@ -206,7 +206,7 @@ final class DatabaseConfig implements ConfigSection {
     // PostgreSQL does not know. Other connections fail when opened.
     if (connection.driver == 'pgsql') {
       try {
-        PostgresDriver.sslModeOf(connection.options['sslmode']);
+        PostgresDriver.sslModeFor(connection);
       } on ConfigException catch (error) {
         return [ConfigIssue(ConfigIssueLevel.error, error.message)];
       }

@@ -65,7 +65,7 @@ final class PostgresDriver
   /// `DB_POOL_SIZE`, `DB_SSLMODE`, ...), as a `DatabaseDriverFactory`:
   /// `withDatabaseDriver('pgsql', PostgresDriver.fromConfig)`.
   ///
-  /// `DB_SSLMODE` is read by [sslModeOf]; a value it does not know exactly
+  /// `DB_SSLMODE` is read by [sslModeFor]; a value it does not know exactly
   /// is reported once, at boot, through [onWarning] (standard error by
   /// default). `DB_SSLROOTCERT`, `DB_SSLCERT` and `DB_SSLKEY` (or
   /// `?sslrootcert=`, `?sslcert=`, `?sslkey=` in `DB_URL`) are read by
@@ -76,19 +76,12 @@ final class PostgresDriver
     ConnectionConfig connection, {
     void Function(String message)? onWarning,
   }) {
-    final ssl = sslModeOf(connection.options['sslmode']);
-    final void Function(String) warn = onWarning ?? stderr.writeln;
+    final ssl = sslModeFor(connection);
     if (ssl.warning case final warning?) {
+      final void Function(String) warn = onWarning ?? stderr.writeln;
       warn('[$name] $warning');
     }
     final rootCert = _path(connection.options['sslrootcert']);
-    if (rootCert != null && ssl.mode == PostgresSslMode.require) {
-      warn(
-        '[$name] DB_SSLROOTCERT is set but DB_SSLMODE=require does not check '
-        'the server certificate (libpq would check the chain, as '
-        'verify-ca); use verify-full to check it.',
-      );
-    }
     return PostgresDriver(
       securityContext: ssl.mode == PostgresSslMode.disable
           ? null
@@ -122,6 +115,28 @@ final class PostgresDriver
         connection.options['idle_transaction_timeout'],
       ),
     );
+  }
+
+  /// [sslModeOf] for [connection]'s `sslmode`, also refusing `require` with
+  /// `DB_SSLROOTCERT`: libpq checks the certificate's chain for that pair
+  /// (as `verify-ca`), and the `postgres` package cannot check a chain
+  /// without the host name. Rather than check less than asked, or more
+  /// (a host the certificate does not name would stop connecting), it is
+  /// a [ConfigException] naming both ways out.
+  static ({PostgresSslMode mode, String? warning}) sslModeFor(
+    ConnectionConfig connection,
+  ) {
+    final ssl = sslModeOf(connection.options['sslmode']);
+    if (ssl.mode == PostgresSslMode.require &&
+        _path(connection.options['sslrootcert']) != null) {
+      throw const ConfigException(
+        'DB_SSLMODE=require with DB_SSLROOTCERT: libpq would check the server '
+        'certificate against that CA, and this driver cannot check it '
+        'without the host name. Use DB_SSLMODE=verify-full to check it, or '
+        'remove DB_SSLROOTCERT to encrypt without checking.',
+      );
+    }
+    return ssl;
   }
 
   static String? _path(Object? value) {
