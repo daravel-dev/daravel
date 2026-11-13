@@ -1269,6 +1269,23 @@ final class FailedJob {
   };
 }
 
+/// The uuid a failed job is recorded with: the payload's own, or a new one
+/// when the payload has none to give. The payload may be the very one that
+/// could not be decoded (the reason the job failed): not JSON (`{{{`),
+/// JSON that is not an object (`[1, 2, 3]`), empty, or an object without a
+/// text `uuid`. Each is still recorded, never lost.
+String _failedJobUuid(String payload) {
+  try {
+    if (jsonDecode(payload) case {'uuid': final String uuid}
+        when uuid.isNotEmpty) {
+      return uuid;
+    }
+  } on FormatException {
+    // Not JSON: the reason it failed.
+  }
+  return const Uuid().v4();
+}
+
 /// Storage for failed jobs (Laravel `FailedJobProviderInterface`).
 abstract interface class FailedJobProvider {
   /// Records a failed job and returns its id.
@@ -1311,7 +1328,7 @@ final class MemoryFailedJobProvider implements FailedJobProvider {
     _jobs.add(
       FailedJob(
         id: id,
-        uuid: JobPayload.decode(payload).uuid,
+        uuid: _failedJobUuid(payload),
         connection: connection,
         queue: queue,
         payload: payload,
@@ -1385,19 +1402,8 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
     required String payload,
     required String exception,
   }) async {
-    // The payload may be the one that could not be decoded (the reason
-    // it failed): its uuid is read leniently, or made up.
-    String uuid;
-    try {
-      uuid = JobPayload.decode(payload).uuid;
-    } on Object {
-      final loose = jsonDecode(payload);
-      uuid = loose is Map && loose['uuid'] is String
-          ? loose['uuid'] as String
-          : const Uuid().v4();
-    }
     final id = await _query().insertGetId(<String, Object?>{
-      'uuid': uuid,
+      'uuid': _failedJobUuid(payload),
       'connection': connection,
       'queue': queue,
       'payload': payload,
