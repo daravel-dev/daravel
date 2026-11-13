@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -418,4 +420,188 @@ void main() {
       );
     });
   });
+
+  test('AU1: token abilities fail closed; a row of another shape is no '
+      'error', () async {
+    for (final (raw, abilities) in <(Object?, List<String>)>[
+      ('["*"]', ['*']),
+      ('["read"]', ['read']),
+      ('[]', <String>[]),
+      (null, <String>[]),
+      ('', <String>[]),
+      ('{bad', <String>[]),
+      ('null', <String>[]),
+      ('{"a":1}', <String>[]),
+      ('[123]', <String>[]),
+      ('["read",1,null]', ['read']),
+      (Uint8List.fromList(utf8.encode('["read"]')), ['read']),
+      (<Object?>['write', 2], ['write']),
+      (42, <String>[]),
+    ]) {
+      expect(PersonalAccessToken.abilitiesOf(raw), abilities, reason: '$raw');
+    }
+    final token = await app.run(
+      () => Auth.issueToken(ana, 'mobile', abilities: ['posts:read']),
+    );
+    for (final stored in <Object?>[null, '', '{bad', 'null', '[123]']) {
+      await app.run(
+        () => DB
+            .table('personal_access_tokens')
+            .where('id', token.accessToken.id)
+            .update({'abilities': stored}),
+      );
+      final response = await get('/abilities', token: token.plainTextToken);
+      expect(response.status, 200, reason: '$stored');
+      expect(response.json, {
+        'read': false,
+        'write': false,
+        'name': 'mobile',
+      }, reason: '$stored: none, not every one');
+    }
+    // A row with null name and owner type reads, without an error.
+    expect(
+      PersonalAccessToken.fromRow({
+        'id': 1,
+        'tokenable_type': null,
+        'tokenable_id': null,
+        'name': null,
+        'token': null,
+        'abilities': '["*"]',
+      }).name,
+      '',
+    );
+  });
+
+  test('AU2: invalidate verifies the token first', () async {
+    final jwt = await app.run(() => Auth.issueJwt(ana));
+    final jti = await app.run(
+      () async => (await Auth.jwtGuard().codec.verify(jwt)).jti,
+    );
+    String b64(Object json) =>
+        base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
+    // Forged (alg none) with the real token's jti: refused, nothing revoked.
+    final forged =
+        '${b64({'alg': 'none', 'typ': 'JWT'})}.${b64({'jti': jti, 'sub': 1})}.';
+    await expectLater(
+      app.run(() => Auth.jwtGuard().invalidate(forged)),
+      throwsA(isA<JwtException>()),
+    );
+    final signedBadSig =
+        '${jwt.substring(0, jwt.lastIndexOf('.'))}.${b64({'x': 1})}';
+    await expectLater(
+      app.run(() => Auth.jwtGuard().invalidate(signedBadSig)),
+      throwsA(isA<JwtException>()),
+    );
+    expect((await get('/jwt-me', token: jwt)).status, 200, reason: 'alive');
+    // A jti that is no string, an exp no date holds: JwtException.
+    for (final claims in [
+      {'jti': 5},
+      {'jti': 'x', 'exp': 1e308},
+    ]) {
+      final odd = await app.run(
+        () => Auth.jwtGuard().codec.sign({...claims, 'sub': '${ana.id}'}),
+      );
+      await expectLater(
+        app.run(() => Auth.jwtGuard().invalidate(odd)),
+        throwsA(isA<JwtException>()),
+        reason: '$claims',
+      );
+    }
+    // An expired but signed token may still be revoked.
+    final expired = await app.run(
+      () => Auth.jwtGuard().codec.sign({
+        'jti': 'old-one',
+        'sub': '${ana.id}',
+        'exp': DateTime.utc(2000).millisecondsSinceEpoch ~/ 1000,
+      }),
+    );
+    await app.run(() => Auth.jwtGuard().invalidate(expired));
+    // The real one still works, and revoking it works.
+    await app.run(() => Auth.jwtGuard().invalidate(jwt));
+    expect((await get('/jwt-me', token: jwt)).status, 401);
+  });
+
+  test('AU3: 100 000 random tokens: only JwtException, getters never '
+      'throw, HTTP answers 401', () async {
+    final random = Random(20261113);
+    Object? value(int depth) => switch (random.nextInt(depth > 1 ? 7 : 9)) {
+      0 => null,
+      1 => random.nextBool(),
+      2 => random.nextInt(1 << 31) - (1 << 30),
+      3 => [1e308, -1e308, double.maxFinite, 1.5, -0.0][random.nextInt(5)],
+      4 => 'k${random.nextInt(4)}',
+      5 => String.fromCharCodes(
+        List.generate(random.nextInt(8), (_) => random.nextInt(0x3000)),
+      ),
+      6 => ['HS256', 'EdDSA', 'none', 'RS256'][random.nextInt(4)],
+      7 => [for (var i = random.nextInt(3); i > 0; i--) value(depth + 1)],
+      _ => {
+        for (var i = random.nextInt(3); i > 0; i--)
+          'k${random.nextInt(5)}': value(depth + 1),
+      },
+    };
+    String b64(Object? json) =>
+        base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
+    const headerKeys = ['alg', 'kid', 'typ'];
+    const claimKeys = ['jti', 'iss', 'sub', 'aud', 'exp', 'nbf', 'iat'];
+    await app.run(() async {
+      final codec = Auth.jwtGuard().codec;
+      for (var i = 0; i < 100000; i++) {
+        final header = {
+          for (final key in headerKeys)
+            if (random.nextInt(4) != 0) key: value(0),
+          if (i.isEven) 'alg': 'HS256',
+        };
+        final payload = {
+          for (final key in claimKeys)
+            if (random.nextInt(3) != 0) key: value(0),
+        };
+        final token = switch (i % 10) {
+          0 => 'not.a.token$i',
+          1 => '${b64(value(0))}.${b64(value(0))}.x',
+          _ => '${b64(header)}.${b64(payload)}.${b64(value(0))}',
+        };
+        try {
+          await codec.verify(token);
+          fail('verified a random token: $token');
+        } on JwtException {
+          // Expected.
+        } on Object catch (error) {
+          fail('${error.runtimeType} from verify($token): $error');
+        }
+        try {
+          final parts = JwtCodec.decodeUnverified(token);
+          final claims = JwtClaims(parts.payload, header: parts.header);
+          claims
+            ..subject
+            ..issuer
+            ..jti
+            ..kid
+            ..expiresAt
+            ..notBefore
+            ..issuedAt;
+        } on JwtException {
+          // Malformed.
+        } on Object catch (error) {
+          fail('${error.runtimeType} from decode/claims($token): $error');
+        }
+      }
+    });
+    for (final claims in [
+      {'kid': 5},
+      {'exp': 1e308},
+      {'jti': 5, 'iss': 7},
+    ]) {
+      final header = {
+        'alg': 'HS256',
+        ...claims.containsKey('kid') ? claims : const <String, Object>{},
+      };
+      final token = '${b64(header)}.${b64(claims)}.${b64('sig')}';
+      expect(
+        (await get('/jwt-me', token: token)).status,
+        401,
+        reason: '$claims',
+      );
+    }
+  }, timeout: const Timeout(Duration(minutes: 5)));
 }
