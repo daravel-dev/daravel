@@ -110,8 +110,40 @@ abstract interface class LogHandler {
   Future<void> close();
 }
 
-String _encodeContext(Map<String, Object?> context) =>
-    jsonEncode(context, toEncodable: (Object? value) => '$value');
+String _encodeContext(Map<String, Object?> context) => _jsonLine(context);
+
+/// [value] as one line of JSON. `jsonEncode` escapes C0 controls but writes
+/// DEL, the C1 controls (`\x9b` is a one-byte CSI on 8-bit terminals) and
+/// the Unicode line and paragraph separators as they are; line-based log
+/// readers split on the latter. They can only occur inside JSON strings, so
+/// they become `\uXXXX` escapes there.
+String _jsonLine(Object? value) {
+  final json = jsonEncode(value, toEncodable: (Object? value) => '$value');
+  if (!_jsonUnsafe.hasMatch(json)) {
+    return json;
+  }
+  return json.replaceAllMapped(
+    _jsonUnsafe,
+    (m) => '\\u${m[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
+  );
+}
+
+/// DEL, C1 and U+2028/U+2029, built from code points so no tool rewrites
+/// the separators into the characters themselves.
+final RegExp _jsonUnsafe = RegExp(
+  '[\\x7f-\\x9f${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]',
+);
+
+/// The values left for one [Logger.redact] call.
+final class _RedactBudget {
+  int _left = 10000;
+
+  /// Whether the budget is used up.
+  bool get spent => _left <= 0;
+
+  /// Takes one value; false when none is left.
+  bool take() => _left-- > 0;
+}
 
 /// Log lines waiting for one asynchronous writer, bounded in bytes.
 ///
@@ -359,12 +391,19 @@ final class ConsoleHandler implements LogHandler {
       (m) => switch (m[0]!) {
         '\n' => r'\n',
         '\r' => r'\r',
+        final c when c.codeUnitAt(0) > 0xff =>
+          '\\u${c.codeUnitAt(0).toRadixString(16)}',
         final c => '\\x${c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')}',
       },
     );
   }
 
-  static final RegExp _controls = RegExp('[\\x00-\\x08\\x0a-\\x1f\\x7f]');
+  /// C0 (tab kept), DEL, C1 and U+2028/U+2029, built from code points so no
+  /// tool rewrites the separators into the characters themselves.
+  static final RegExp _controls = RegExp(
+    '[\\x00-\\x08\\x0a-\\x1f\\x7f-\\x9f'
+    '${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]',
+  );
 }
 
 /// One JSON object per line (containers, log shippers).
@@ -381,9 +420,7 @@ final class JsonHandler implements LogHandler {
   final bool _std;
 
   @override
-  void handle(LogRecord record) => _write(
-    jsonEncode(record.toJson(), toEncodable: (Object? value) => '$value'),
-  );
+  void handle(LogRecord record) => _write(_jsonLine(record.toJson()));
 
   @override
   Future<void> close() => _std ? _flushStd() : Future<void>.value();
@@ -458,10 +495,8 @@ final class DailyFileHandler implements LogHandler {
   }
 
   @override
-  void handle(LogRecord record) => _queue.add(
-    jsonEncode(record.toJson(), toEncodable: (Object? value) => '$value'),
-    target: pathFor(record.time),
-  );
+  void handle(LogRecord record) =>
+      _queue.add(_jsonLine(record.toJson()), target: pathFor(record.time));
 
   /// Runs in the queue's loop only, one call at a time.
   Future<void> _writeTo(Uint8List bytes, Object? target) async {
@@ -905,31 +940,77 @@ final class Logger {
   /// in every map whatever its key type (keys written with `toString`), in
   /// every list, set and other iterable, and in a [Loggable] such as
   /// `Headers`. Keys match whatever their case and `-` or `_`
-  /// (`X-Api-Key` matches `api_key`). Nesting past 32 levels is cut.
+  /// (`X-Api-Key` matches `api_key`).
+  ///
+  /// It never throws and always ends, since logging must not fail the code
+  /// that logs: nesting past 32 levels is written as `[DEPTH]`; past 10 000
+  /// values per call (an endless `sync*` iterable, a structure that holds
+  /// itself twice) the rest is `[TRUNCATED]`; and a value whose iteration,
+  /// `toLogValue()` or key `toString()` throws is written as
+  /// `[UNLOGGABLE: <type>]`.
   Map<String, Object?> redact(Map<String, Object?> context) =>
-      _redactMap(context, 0);
+      _redactMap(context, 0, _RedactBudget());
 
-  Map<String, Object?> _redactMap(Map<Object?, Object?> map, int depth) => {
-    for (final MapEntry(:key, :value) in map.entries)
-      '$key': _isSensitive('$key')
+  Map<String, Object?> _redactMap(
+    Map<Object?, Object?> map,
+    int depth,
+    _RedactBudget budget,
+  ) {
+    final out = <String, Object?>{};
+    for (final MapEntry(:key, :value) in map.entries) {
+      if (budget.spent) {
+        out['[TRUNCATED]'] = '[TRUNCATED]';
+        break;
+      }
+      final String name;
+      try {
+        name = '$key';
+      } catch (_) {
+        out['[UNLOGGABLE: ${key.runtimeType}]'] = '[REDACTED]';
+        continue;
+      }
+      out[name] = _isSensitive(name)
           ? '[REDACTED]'
-          : _redactValue(value, depth + 1),
-  };
+          : _redactValue(value, depth + 1, budget);
+    }
+    return out;
+  }
 
-  Object? _redactValue(Object? value, int depth) {
+  Object? _redactValue(Object? value, int depth, _RedactBudget budget) {
     if (depth > _maxDepth) {
       return '[DEPTH]';
     }
-    return switch (value) {
-      Loggable() => _redactValue(value.toLogValue(), depth + 1),
-      Map<Object?, Object?>() => _redactMap(value, depth),
-      // Bytes stay as they are (not a structure that holds keys).
-      Uint8List() => value,
-      Iterable<Object?>() => [
-        for (final v in value) _redactValue(v, depth + 1),
-      ],
-      _ => value,
-    };
+    if (!budget.take()) {
+      return '[TRUNCATED]';
+    }
+    try {
+      return switch (value) {
+        Loggable() => _redactValue(value.toLogValue(), depth + 1, budget),
+        Map<Object?, Object?>() => _redactMap(value, depth, budget),
+        // Bytes stay as they are (not a structure that holds keys).
+        Uint8List() => value,
+        Iterable<Object?>() => _redactIterable(value, depth, budget),
+        _ => value,
+      };
+    } catch (_) {
+      return '[UNLOGGABLE: ${value.runtimeType}]';
+    }
+  }
+
+  List<Object?> _redactIterable(
+    Iterable<Object?> values,
+    int depth,
+    _RedactBudget budget,
+  ) {
+    final out = <Object?>[];
+    for (final v in values) {
+      if (budget.spent) {
+        out.add('[TRUNCATED]');
+        break;
+      }
+      out.add(_redactValue(v, depth + 1, budget));
+    }
+    return out;
   }
 
   static const int _maxDepth = 32;

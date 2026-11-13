@@ -539,6 +539,8 @@ on each.
 - Run `queue:work` and `schedule:work` as separate processes.
 - Logs: `LOG_STACK=json` for structured logs; secrets are redacted: values
   under `LOG_REDACT` keys (whatever their case and `-`/`_`, as `X-Api-Key`)
-  in every map, list and set of the context, and in `Headers`. The console
-  writes control characters of a message as escapes, so one log entry stays
-  one line.
+  in every map, list and set of the context, and in `Headers`; a value
+  that cannot be read is marked, and logging never throws or hangs on one.
+  Control characters (also DEL, C1 and the Unicode line separators) are
+  written as escapes, in the console and in JSON lines, so one log entry
+  stays one line.

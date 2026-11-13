@@ -132,6 +132,103 @@ void main() {
       }
       expect(secrets, greaterThan(100));
     });
+
+    test('a throwing iterable, toLogValue() or key: the record is still '
+        'written, the value marked', () {
+      final memory = MemoryHandler();
+      final logger = Logger(handlers: [memory]);
+      Iterable<int> throwing() sync* {
+        yield 1;
+        throw StateError('lazy');
+      }
+
+      expect(
+        () => logger.info('ctx', {
+          'lazy': throwing(),
+          'loggable': _ThrowingLoggable(),
+          'keys': {_ThrowingKey(): 'v', 'password': 's1'},
+          'ok': 'kept',
+        }),
+        returnsNormally,
+      );
+      final context = memory.records.single.context;
+      expect(context['lazy'], startsWith('[UNLOGGABLE: '));
+      expect(context['loggable'], '[UNLOGGABLE: _ThrowingLoggable]');
+      expect(context['keys'], {
+        '[UNLOGGABLE: _ThrowingKey]': '[REDACTED]',
+        'password': '[REDACTED]',
+      });
+      expect(context['ok'], 'kept');
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('an endless iterable ends at the budget', () {
+      Iterable<int> endless() sync* {
+        for (var i = 0; ; i++) {
+          yield i;
+        }
+      }
+
+      final list = logger.redact({'n': endless()})['n']! as List<Object?>;
+      expect(list.last, '[TRUNCATED]');
+      expect(list.length, lessThanOrEqualTo(10001));
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test(
+      'a structure holding itself twice ends at the budget, not 2^32 nodes',
+      () {
+        final a = <Object?>[];
+        a
+          ..add(a)
+          ..add(a);
+        final text = jsonEncode(logger.redact({'a': a}));
+        expect(text, contains('[TRUNCATED]'));
+        expect(text, contains('[DEPTH]'));
+      },
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
+  });
+
+  test('DEL, C1 and the Unicode line separators are escaped in the console '
+      'message, error and context, and in JSON lines', () {
+    final unsafe = [
+      0x7f,
+      0x85,
+      0x9b,
+      0x2028,
+      0x2029,
+    ].map(String.fromCharCode).join();
+    final record = LogRecord(
+      time: DateTime.utc(2026),
+      level: LogLevel.error,
+      message: 'm$unsafe',
+      channel: 'app',
+      context: {'v': 'c$unsafe'},
+      error: StateError('e$unsafe'),
+    );
+    final err = StringBuffer();
+    ConsoleHandler(out: StringBuffer(), err: err).handle(record);
+    final json = StringBuffer();
+    JsonHandler(json).handle(record);
+    final unsafeChar = RegExp(
+      '[${[0x7f, 0x85, 0x9b, 0x2028, 0x2029].map(String.fromCharCode).join()}]',
+    );
+    for (final (name, text) in [
+      ('console', err.toString()),
+      ('json', json.toString()),
+    ]) {
+      expect(text, isNot(matches(unsafeChar)), reason: name);
+    }
+    // Built in code: a literal backslash-u escape can be rewritten into the
+    // character by the tools that edit this file.
+    final separators = [
+      0x2028,
+      0x2029,
+    ].map((c) => '${String.fromCharCode(92)}u${c.toRadixString(16)}').join();
+    expect(err.toString(), contains(r'm\x7f\x85\x9b' + separators));
+    expect(err.toString(), contains(r'e\x7f\x85\x9b' + separators));
+    expect(err.toString(), contains(r'c\u007f\u0085\u009b' + separators));
+    final decoded = jsonDecode(json.toString()) as Map<String, Object?>;
+    expect(decoded['message'], 'm$unsafe', reason: 'valid JSON, same text');
   });
 
   test('a console line cannot be forged: control characters escaped, the '
@@ -195,4 +292,14 @@ void main() {
     expect(text, contains(r'path="a\rb"'));
     expect(text, isNot(contains('a\rb')));
   });
+}
+
+final class _ThrowingLoggable implements Loggable {
+  @override
+  Object? toLogValue() => throw StateError('no');
+}
+
+final class _ThrowingKey {
+  @override
+  String toString() => throw StateError('no');
 }

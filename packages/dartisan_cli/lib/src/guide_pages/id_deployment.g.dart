@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/deployment.md`.
 const String pageIdDeployment =
-    r'''<!-- source: deployment.md sha256:eaf13a3db803 -->
+    r'''<!-- source: deployment.md sha256:72cef39351a9 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -565,7 +565,9 @@ berada di storage yang dipakai bersama, atau jalankan `down` di setiap server.
 - Jalankan `queue:work` dan `schedule:work` sebagai proses terpisah.
 - Log: `LOG_STACK=json` untuk log terstruktur; secret di-redaksi: nilai di
   bawah key `LOG_REDACT` (apa pun huruf besar/kecil dan `-`/`_`-nya, seperti
-  `X-Api-Key`) di setiap map, list, dan set pada context, serta di `Headers`.
-  Console menulis karakter kontrol dalam pesan sebagai escape, sehingga satu
-  entri log tetap satu baris.
+  `X-Api-Key`) di setiap map, list, dan set pada context, serta di `Headers`;
+  nilai yang tidak bisa dibaca ditandai, dan pencatatan log tidak pernah
+  melempar atau macet karenanya. Karakter kontrol (juga DEL, C1, dan pemisah
+  baris Unicode) ditulis sebagai escape, di console maupun di baris JSON,
+  sehingga satu entri log tetap satu baris.
 ''';
