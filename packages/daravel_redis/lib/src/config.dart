@@ -137,7 +137,28 @@ final class RedisConnectionConfig {
   /// and `redis+cluster://[user:password@]host:6379,host:6379`, the
   /// credentials being the data servers' (`REDIS_SENTINEL_PASSWORD` is the
   /// Sentinels').
+  ///
+  /// A malformed URL throws a [ConfigException] that quotes it only with
+  /// its password masked (`redactUrlPassword`; a lone `secret@` counts as
+  /// the password, as Redis reads it).
   factory RedisConnectionConfig.fromUrl(String url) {
+    try {
+      return RedisConnectionConfig._fromUrl(url);
+    } on FormatException {
+      throw ConfigException(
+        'Malformed REDIS_URL: '
+        '"${redactUrlPassword(url, loneUserIsPassword: true)}".',
+      );
+    } on ArgumentError {
+      // Uri.decodeComponent's malformed escapes, substring ranges.
+      throw ConfigException(
+        'Malformed REDIS_URL: '
+        '"${redactUrlPassword(url, loneUserIsPassword: true)}".',
+      );
+    }
+  }
+
+  factory RedisConnectionConfig._fromUrl(String url) {
     final scheme = url.contains('://')
         ? url.substring(0, url.indexOf('://'))
         : '';

@@ -23,6 +23,19 @@ Stores: `memory` (per isolate, LRU), `process` (shared by every isolate of
 the server through the coordinator), `file` and `database` (Laravel's
 `cache` table). `Cache.remember`, `flexible` (stale-while-revalidate),
 `increment`, `pull`, `lock` (atomic locks, fail closed) mirror Laravel.
+A lock on the `file` store holds across the processes sharing its
+directory (a lock file) and across the isolates of each process (the
+coordinator), taken and released in both together; it costs a few
+milliseconds per acquire and release (about 2.5 ms on Linux, 5.5 ms on
+Windows). `increment` on the `database` store counts only a whole number
+(digits, or a whole number stored as one) and otherwise leaves the value
+alone and throws, where Laravel's answers `false`; the `memory` and `file`
+stores count anything else as 0, as Laravel's array and file stores do.
+The `database` store's `key` and lock `owner` columns hold 255 characters:
+`acquireLock`, `add` and `increment` refuse a longer key with an
+`ArgumentError`, other writes fail with a `QueryException`. Cache values
+are not shared between Laravel and Daravel (each serializes its own way):
+give each its own `CACHE_PREFIX` on a shared table.
 On the `process` store, a lock the coordinator granted after its answer
 timed out is released at once rather than held until its TTL, and
 `lock.block` counts such a try as not acquired and tries again.

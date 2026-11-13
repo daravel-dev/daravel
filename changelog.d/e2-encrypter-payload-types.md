@@ -1,3 +1,0 @@
-### Fixed
-
-- Security: `Encrypter` refuses a payload whose `mac` or `tag` is not a string with a `DecryptException`, as Laravel's `Encrypter::validPayload` does (`iv`, `value` and `mac` strings, `tag` a string when set). Before, such a payload raised a type error instead (a `500`), and because `EncryptCookiesMiddleware` decrypts every cookie, one cookie of that shape set for the application's domain (for instance by another application on a shared parent domain) made each of that browser's requests to `web` routes fail until the cookie was removed; in `X-XSRF-TOKEN` it gave a `500` instead of a `419`. Affected since 1.0.0. There is no easy mitigation in the application other than limiting who can write cookies to the parent domain; upgrading fixes it.

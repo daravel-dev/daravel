@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/database.md`.
 const String pageIdDatabase =
-    r'''<!-- source: database.md sha256:e26c3c61fe51 -->
+    r'''<!-- source: database.md sha256:3a91a1c4248e -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -127,8 +127,11 @@ Laravel sendiri:
   `mysql2` berarti `mysql`, dan `sqlite3` berarti `sqlite`.
 - Host, port, user, password, dan database yang ada di URL menggantikan
   nilai `DB_*`. Bagian yang tidak disebut mempertahankannya (`DB_PORT`,
-  `DB_DATABASE`, ...). User dan password di-decode dari URL, jadi tulis `@`
-  sebagai `%40`.
+  `DB_DATABASE`, ...). User tanpa password (`app@db`) mempertahankan
+  `DB_PASSWORD`, seperti di Laravel; `app:@db` menetapkan password kosong.
+  User dan password di-decode dari URL, jadi tulis `@` sebagai `%40`. URL
+  yang rusak menghentikan boot dengan galat yang menampilkannya dengan
+  password disamarkan.
 - Query string menambahkan opsi (`sslmode`, `charset`, `timezone`, ...);
   `true`, `false`, `null`, dan angka dibaca sesuai tipenya.
 

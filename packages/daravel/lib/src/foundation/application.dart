@@ -88,6 +88,7 @@ import 'env.dart';
 import 'ids.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
+import 'url_redaction.dart';
 
 part 'cache_jwt_denylist.dart';
 part 'cache_rate_limit_store.dart';
@@ -850,8 +851,17 @@ final class Application {
           'withUpstream() needs a URL: pass one or set UPSTREAM_URL.',
         );
       }
+      final Uri upstreamUri;
+      try {
+        upstreamUri = Uri.parse(url);
+      } on FormatException {
+        // Uri.parse's message quotes the URL, credentials included.
+        throw ConfigException(
+          'Malformed upstream URL: "${redactUrlPassword(url)}".',
+        );
+      }
       final proxy = UpstreamProxy(
-        Uri.parse(url),
+        upstreamUri,
         preserveHost: upstream.preserveHost,
         stripResponseHeaders: upstream.stripResponseHeaders,
         timeout: upstream.timeout,
@@ -1335,8 +1345,30 @@ final class Application {
       }, status: 503);
     }
     final result = await _readiness();
-    return Response.json(result.body, status: result.healthy ? 200 : 503);
+    final debug = config.section<AppConfig>().debug;
+    return Response.json(
+      debug ? result.body : _publicReadiness(result.body),
+      status: result.healthy ? 200 : 503,
+    );
   }
+
+  /// The readiness body anyone may read: each check's name, `ok`, time and
+  /// the meta its author chose to show (`HealthResult.ok({'size': 0})`).
+  /// What a failing check said (a connection string, a host, a password in
+  /// a URL) is in the log ([_readiness]), and in the body only with
+  /// `APP_DEBUG`.
+  static Map<String, Object?> _publicReadiness(Map<String, Object?> body) => {
+    'status': body['status'],
+    'checks': <String, Object?>{
+      for (final MapEntry(:key, :value)
+          in (body['checks']! as Map<String, Object?>).entries)
+        if (value case final Map<String, Object?> check)
+          key: <String, Object?>{
+            for (final MapEntry(:key, :value) in check.entries)
+              if (key != 'error') key: value,
+          },
+    },
+  };
 
   /// How long a readiness result answers further probes.
   static const Duration readinessCacheTtl = Duration(seconds: 1);
@@ -1361,6 +1393,16 @@ final class Application {
           _readinessAge
             ..reset()
             ..start();
+          // At most once per readinessCacheTtl per worker.
+          final checks = result.body['checks']! as Map<String, Object?>;
+          for (final MapEntry(:key, :value) in checks.entries) {
+            final check = value! as Map<String, Object?>;
+            if (check['ok'] != true) {
+              logger.warning('Readiness check [$key] failed', <String, Object?>{
+                'error': check['error'],
+              });
+            }
+          }
           return result;
         })
         .whenComplete(() => _readinessRun = null);
