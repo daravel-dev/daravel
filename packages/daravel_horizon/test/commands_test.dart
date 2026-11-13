@@ -131,6 +131,40 @@ void main() {
     }
   });
 
+  test('a status the store holds that is not a state: the commands report '
+      'Horizon inactive instead of failing', () async {
+    final signals = app.container.make<QueueManager>().signalStore!;
+    final key = HorizonSignals.statusKey('horizon');
+    for (final value in [
+      'not json',
+      '[1, 2]',
+      '"text"',
+      '{"at": "yesterday"}',
+      '{"state": 5}',
+      '{"supervisors": [1]}',
+      '{"timedOut": 5}',
+    ]) {
+      await signals.store.forever(key, value);
+      expect(
+        (await HorizonSignals.status(signals, 'horizon'))['state'],
+        'inactive',
+        reason: value,
+      );
+      for (final command in [
+        ['horizon:status'],
+        ['horizon:list'],
+        ['horizon:supervisors'],
+        ['horizon:terminate', '--wait'],
+      ]) {
+        await expectLater(
+          dartisan(command),
+          completion(isA<int>()),
+          reason: '$command with $value',
+        );
+      }
+    }
+  });
+
   test('horizon:list marks a busy worker that does not report as running a '
       'job that blocks it, and lists the jobs killed past their timeout', () {
     final lines = horizonWorkerLines({

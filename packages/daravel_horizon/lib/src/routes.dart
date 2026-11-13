@@ -408,6 +408,13 @@ abstract final class HorizonDashboard {
   static int _limit(Request request) =>
       (int.tryParse(request.query['limit'] ?? '') ?? 50).clamp(1, 500);
 
+  /// `starting_at`: a negative one is the start (PostgreSQL refuses a
+  /// negative `OFFSET`).
+  static int _offset(Request request) {
+    final offset = int.tryParse(request.query['starting_at'] ?? '') ?? 0;
+    return offset < 0 ? 0 : offset;
+  }
+
   static Future<Object?> _pending(Request request) async {
     final jobs = <Object?>[];
     for (final plan in _config.plans) {
@@ -435,7 +442,7 @@ abstract final class HorizonDashboard {
           (s) => s.recent(
             status,
             limit: _limit(request),
-            offset: int.tryParse(request.query['starting_at'] ?? '') ?? 0,
+            offset: _offset(request),
           ),
         ))?.map((job) => job.toJson()).toList() ??
         const <Object?>[],
