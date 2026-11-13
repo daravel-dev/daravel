@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:48c2d17b970c -->
+<!-- source: responses.md sha256:3cbd472039d8 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -457,6 +457,14 @@ client (1006 bila ia pergi tanpa close), dan yang tertahan dibuang. Client
 yang lebih dulu mengirim melebihi batas itu lalu pergi diam-diam tidak
 terlihat pergi, dan sesinya bertahan sampai server berhenti. Dengarkan bila
 bisa, dengan `socket.listen((_) {})` bila pesannya tidak penting.
+
+Begitu ada yang mendengarkan, tidak ada yang dibuang: pendengar yang
+menjeda (`await for` yang lama mengerjakan tiap pesan) menerima semua pesan
+lalu close-nya saat ia membaca lagi, berapa pun lamanya; pendengar yang
+tidak pernah membaca lagi mempertahankan sesinya, seperti pembaca yang
+macet selama ini. Pesan terfragmentasi yang masih tiba saat server menahan
+client (lebih dari batas di atas menunggu) tetap menjalankan
+`assembleTimeout`-nya.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame

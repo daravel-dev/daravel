@@ -443,6 +443,13 @@ is not seen leaving, and its session lasts until the server stops. Listen
 when you can, with `socket.listen((_) {})` when the messages do not
 matter.
 
+Once something listens, nothing is dropped: a listener that pauses (an
+`await for` that takes its time over each message) gets every message
+and then the close when it reads on, however long it took; one that never
+reads on keeps its session, as a stalled reader always did. A fragmented
+message that is still arriving while the server holds the client back
+(more than the bound above waiting) keeps its `assembleTimeout` running.
+
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
 once more than `maxBufferedBytes` (4 MiB) wait, the queue is dropped and

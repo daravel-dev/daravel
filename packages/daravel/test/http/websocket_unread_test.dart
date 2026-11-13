@@ -70,6 +70,63 @@ void main() {
               controlFrameBurst: 1 << 30,
             )
             ..ws('/never', neverListen, compress: false)
+            ..ws('/slow-reader', (socket, request) async {
+              // Listens at once, and takes a while over each message.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              final each = Duration(
+                milliseconds: int.parse(request.uri.queryParameters['ms']!),
+              );
+              await for (final message in socket) {
+                into.add(message as String);
+                await Future<void>.delayed(each);
+              }
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
+            ..ws('/pause-first', (socket, request) async {
+              // Pauses for a long while after the first message.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              final done = Completer<void>();
+              late final StreamSubscription<dynamic> reading;
+              reading = socket.listen((message) {
+                into.add(message as String);
+                if (into.length == 1) {
+                  reading.pause(
+                    Future<void>.delayed(const Duration(seconds: 8)),
+                  );
+                }
+              }, onDone: done.complete);
+              await done.future;
+              await reading.cancel();
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
+            ..ws('/reenter', (socket, request) async {
+              // Pauses and resumes inside its own onData.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              final done = Completer<void>();
+              var depth = 0;
+              late final StreamSubscription<dynamic> reading;
+              reading = socket.listen((message) {
+                depth++;
+                if (depth > 1) {
+                  into.add('nested');
+                }
+                into.add(message as String);
+                if (into.length == 1) {
+                  // The rest waits meanwhile.
+                  reading.pause(
+                    Future<void>.delayed(const Duration(milliseconds: 300)),
+                  );
+                } else {
+                  reading
+                    ..pause()
+                    ..resume();
+                }
+                depth--;
+              }, onDone: done.complete);
+              await done.future;
+              await reading.cancel();
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
             ..ws('/loop', (socket, request) async {
               // Writes in a loop, never listening.
               final into = seen[request.uri.queryParameters['id']!] = [];
@@ -216,6 +273,68 @@ void main() {
       });
     });
   }
+
+  group('a handler that listens and reads slowly loses nothing', () {
+    const five = ['m1', 'm2', 'm3', 'm4', 'm5'];
+
+    for (final (how, code) in [
+      ('a close (1000)', 1000),
+      ('a TCP drop', 1006),
+    ]) {
+      test('(a/b) 2 s per message, five messages then $how: all five, then '
+          'done with $code', () async {
+        final id = 'slow-$code';
+        final client = await open('/slow-reader?id=$id&ms=2000');
+        // One every 300 ms: the later ones arrive while the reader is busy
+        // (paused) with an earlier one.
+        for (final text in five) {
+          client.send(0x1, utf8.encode(text));
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        if (code == 1000) {
+          client.send(0x8, const [0x03, 0xE8]);
+        } else {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          await client.socket.close();
+        }
+        final ms = await sessionEndsWithin(const Duration(seconds: 20));
+        printOnFailure('ended after $ms ms; seen ${seen[id]}');
+        expect(seen[id], [...five, 'done:$code']);
+        client.socket.destroy();
+        expectNoErrors();
+      });
+    }
+
+    test('(c) a listener paused for 8 s after the first message: nothing is '
+        'lost', () async {
+      final client = await open('/pause-first?id=pause');
+      for (final text in five) {
+        client.send(0x1, utf8.encode(text));
+      }
+      client.send(0x8, const [0x03, 0xE8]);
+      final ms = await sessionEndsWithin(const Duration(seconds: 20));
+      printOnFailure('ended after $ms ms; seen ${seen['pause']}');
+      expect(seen['pause'], [...five, 'done:1000']);
+      client.socket.destroy();
+      expectNoErrors();
+    });
+
+    test('a listener that pauses and resumes inside its onData gets each '
+        'message once, in order, never nested', () async {
+      final client = await open('/reenter?id=reenter');
+      // Spread out, so they wait while the first message pauses the
+      // listener (300 ms), and are handed on one by one afterwards.
+      for (final text in five) {
+        client.send(0x1, utf8.encode(text));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      client.send(0x8, const [0x03, 0xE8]);
+      await sessionEndsWithin(const Duration(seconds: 10));
+      expect(seen['reenter'], [...five, 'done:1000']);
+      client.socket.destroy();
+      expectNoErrors();
+    });
+  });
 
   test(
     'a handler that writes in a loop while readyState is open, never '

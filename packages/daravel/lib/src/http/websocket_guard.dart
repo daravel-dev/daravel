@@ -760,16 +760,29 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _in.add(aligned);
   }
 
+  /// [_flushHeld] is handing items on: the WebSocket can pause and resume
+  /// inside one of them (its controller is synchronous), and the resume
+  /// must not hand on the next item before this one is done.
+  bool _flushing = false;
+
   /// Hands on what [_held] holds, in order, while the WebSocket reads.
   void _flushHeld() {
-    while (!_handOnPaused && _held.isNotEmpty && !_destroyed) {
-      final item = _held.removeFirst();
-      if (item is Uint8List) {
-        _heldBytes -= item.length;
-        _in.add(item);
-      } else if (item is _TcpEnd) {
-        _endIn(item);
+    if (_flushing) {
+      return; // the loop below goes on once the current item is handed on
+    }
+    _flushing = true;
+    try {
+      while (!_handOnPaused && _held.isNotEmpty && !_destroyed) {
+        final item = _held.removeFirst();
+        if (item is Uint8List) {
+          _heldBytes -= item.length;
+          _in.add(item);
+        } else if (item is _TcpEnd) {
+          _endIn(item);
+        }
       }
+    } finally {
+      _flushing = false;
     }
     assert(_heldBytes >= 0, 'what is held is counted once');
     if (_held.isEmpty) {
@@ -791,24 +804,36 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     }
   }
 
+  /// The application listens to the socket (paused or not). Only before
+  /// it does is what waits in [_held] given up after [unreadWait]: a
+  /// listener that reads slowly gets everything, the close included, and
+  /// one that stays paused for good keeps the session, as any WebSocket
+  /// whose reader stalls does.
+  bool get _appListens =>
+      _guard._attached is BufferedWebSocket &&
+      (_guard._attached! as BufferedWebSocket).isListened;
+
   /// The client's TCP stream ended (FIN) or failed (RST).
   void _tcpEnd([Object? error, StackTrace? stackTrace]) {
     final end = _TcpEnd(error, stackTrace);
     if (!_handOnPaused && _held.isEmpty) {
       _endIn(end);
-    } else if (_held.isEmpty) {
+    } else if (_held.isEmpty && !_appListens) {
       // Nothing waits that a reader could still want: the session ends.
       _guard._closedUnread(null, null, clientGone: true);
     } else {
       _held.add(end);
-      _startUnreadWait(null, null);
+      if (!_appListens) {
+        _startUnreadWait(null, null);
+      }
     }
   }
 
   /// The client's CLOSE was handed on, with [code] and [reason]; if it
-  /// waits in [_held], the WebSocket has [unreadWait] to read it.
+  /// waits in [_held] and the application has not listened, it has
+  /// [unreadWait] to do so.
   void _clientClose(int? code, Uint8List? reason) {
-    if (_held.isNotEmpty) {
+    if (_held.isNotEmpty && !_appListens) {
       _startUnreadWait(code, reason);
     }
   }
@@ -816,8 +841,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   void _startUnreadWait(int? code, Uint8List? reason) {
     _unreadWait ??= Timer(unreadWait, () {
       _unreadWait = null;
-      if (_held.isEmpty || _destroyed) {
-        return; // read in time
+      if (_held.isEmpty || _destroyed || _appListens) {
+        return; // read in time, or listened to: nothing is given up
       }
       // Nobody read: what waits is dropped, and the session ends.
       final ended = _held.last is _TcpEnd;
