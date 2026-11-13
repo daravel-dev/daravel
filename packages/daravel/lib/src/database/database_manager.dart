@@ -830,6 +830,19 @@ final class DatabaseManager {
   Future<bool> isRetryable(Object error, {String? connection}) async =>
       _isRetryable(await this.connection(connection), error);
 
+  /// Whether [error], thrown by a query on [connection], is the database
+  /// refusing a value as its column's type (a data exception, SQLSTATE
+  /// class 22: PostgreSQL's, or a driver's [DataExceptionErrors]). Route
+  /// model binding answers `404` for it.
+  Future<bool> isDataException(Object error, {String? connection}) async {
+    final cause = error is QueryException ? error.previous : error;
+    return PostgresDriver.isDataException(cause) ||
+        switch (await this.connection(connection)) {
+          final DataExceptionErrors errors => errors.isDataException(cause),
+          _ => false,
+        };
+  }
+
   static bool _isRetryable(DatabaseDriver driver, Object error) {
     // A statement's error arrives wrapped; the driver knows its own.
     final cause = error is QueryException ? error.previous : error;

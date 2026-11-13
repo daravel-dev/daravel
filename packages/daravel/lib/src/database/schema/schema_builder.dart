@@ -15,6 +15,21 @@ final class SchemaBuilder {
   final SchemaGrammar grammar;
   SqliteVersion? _sqliteVersion;
 
+  /// How many times a schema builder of this isolate created, altered,
+  /// renamed or dropped a table: what the column types read for route
+  /// model binding are checked against.
+  static int get changes => _changes;
+  static int _changes = 0;
+
+  /// Runs [change], then counts it, whether it worked or not.
+  static Future<T> _changing<T>(Future<T> Function() change) async {
+    try {
+      return await change();
+    } finally {
+      _changes++;
+    }
+  }
+
   /// Creates [table] using the columns defined by [define].
   Future<void> create(
     String table,
@@ -25,9 +40,11 @@ final class SchemaBuilder {
     if (blueprint.columns.isEmpty) {
       throw ArgumentError('Table [$table] must define at least one column.');
     }
-    for (final statement in grammar.compileCreate(blueprint)) {
-      await _executor.execute(statement);
-    }
+    await _changing(() async {
+      for (final statement in grammar.compileCreate(blueprint)) {
+        await _executor.execute(statement);
+      }
+    });
   }
 
   /// Creates [table] unless it exists.
@@ -49,21 +66,23 @@ final class SchemaBuilder {
     final blueprint = Blueprint(table, alter: true);
     define(blueprint);
     final g = grammar;
-    if (g is SqliteSchemaGrammar) {
-      final version = await _sqlite();
-      if (g.requiresRebuild(blueprint, version)) {
-        await SqliteTableRebuilder(_executor, grammar: g).rebuild(blueprint);
-        return;
+    await _changing(() async {
+      if (g is SqliteSchemaGrammar) {
+        final version = await _sqlite();
+        if (g.requiresRebuild(blueprint, version)) {
+          await SqliteTableRebuilder(_executor, grammar: g).rebuild(blueprint);
+          return;
+        }
       }
-    }
-    for (final statement in grammar.compileAlter(blueprint)) {
-      await _executor.execute(statement);
-    }
+      for (final statement in grammar.compileAlter(blueprint)) {
+        await _executor.execute(statement);
+      }
+    });
   }
 
   /// Drops [table]; fails when it does not exist.
   Future<void> drop(String table) =>
-      _executor.execute(grammar.compileDrop(table));
+      _changing(() => _executor.execute(grammar.compileDrop(table)));
 
   /// Creates the `pgvector` extension (`Schema::ensureVectorExtensionExists`).
   Future<void> ensureVectorExtensionExists({String? schema}) =>
@@ -82,11 +101,11 @@ final class SchemaBuilder {
 
   /// Drops [table] when it exists.
   Future<void> dropIfExists(String table) =>
-      _executor.execute(grammar.compileDropIfExists(table));
+      _changing(() => _executor.execute(grammar.compileDropIfExists(table)));
 
   /// Renames the table [from] to [to].
   Future<void> rename(String from, String to) =>
-      _executor.execute(grammar.compileRename(from, to));
+      _changing(() => _executor.execute(grammar.compileRename(from, to)));
 
   /// Whether the table [table] exists.
   Future<bool> hasTable(String table) async {
@@ -165,7 +184,9 @@ final class SchemaBuilder {
   /// `FOREIGN_KEY_CHECKS = 0` instead, which holds for one session only: on
   /// a pool the drops can run on another connection, and the connection
   /// that took the setting would go back to the pool with its checks off.
-  Future<void> dropAllTables() async {
+  Future<void> dropAllTables() => _changing(_dropAllTables);
+
+  Future<void> _dropAllTables() async {
     final tables = await getTables();
     if (grammar.dialect.isMySqlFamily) {
       final keys = await _executor.select(

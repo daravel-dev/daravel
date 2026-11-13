@@ -1,4 +1,4 @@
-<!-- source: security.md sha256:db5e87f5bf6f -->
+<!-- source: security.md sha256:3ac57b1f6826 -->
 # Keamanan Sistem (Security Guide)
 
 Pelaporan kerentanan keamanan secara privat dijelaskan pada berkas
@@ -28,7 +28,7 @@ flowchart TD
     ClientReq["Permintaan HTTP Klien"] --> TLS["TLS Termination / HSTS Check"]
     TLS --> ProxyGuard["TrustProxiesMiddleware\n(Abaikan X-Forwarded-* liar)"]
     ProxyGuard --> SecHeaders["SecurityHeadersMiddleware\n(nosniff, anti-clickjacking)"]
-    ProxyGuard --> BodyGuard["BodyLimitsMiddleware\n(Maksimal 2MB, JSON kedalaman 64)"]
+    ProxyGuard --> BodyGuard["BodyLimitsMiddleware\n(JSON dan form 1 MiB, lainnya 50 MiB, kedalaman JSON 64)"]
     BodyGuard --> RateLimit["RateLimiter Middleware\n(Batas kuota request O(1))"]
     RateLimit --> Pipeline["Controller & FormRequest"]
     Pipeline --> DB["Database (Prepared statements & quoted identifiers)"]

@@ -27,7 +27,7 @@ flowchart TD
     ClientReq["Incoming HTTP Request"] --> TLS["TLS Termination / HSTS Check"]
     TLS --> ProxyGuard["TrustProxiesMiddleware\n(Rejects untrusted X-Forwarded-*)"]
     ProxyGuard --> SecHeaders["SecurityHeadersMiddleware\n(nosniff, frame guard, CSP)"]
-    SecHeaders --> BodyGuard["BodyLimitsMiddleware\n(Max 2MB, JSON depth max 64)"]
+    SecHeaders --> BodyGuard["BodyLimitsMiddleware\n(JSON and forms 1 MiB, other 50 MiB, JSON depth 64)"]
     BodyGuard --> RateLimit["RateLimiter Middleware\n(Leased O(1) sliding window)"]
     RateLimit --> Pipeline["App Controllers & FormRequest"]
     Pipeline --> DB["Database (Bound parameters & quoted identifiers)"]

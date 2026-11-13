@@ -262,6 +262,12 @@ final class PostgresDriver
   static bool isRetryable(Object error) =>
       error is pg.ServerException && retryableCodes.contains(error.code);
 
+  /// Whether [error] is a data exception (SQLSTATE class 22): a value the
+  /// server could not read as its column's type (`'abc'` for a uuid, a
+  /// date or a boolean, a number out of range).
+  static bool isDataException(Object error) =>
+      error is pg.ServerException && (error.code?.startsWith('22') ?? false);
+
   Future<void> _configure(pg.Connection connection) async {
     if (searchPath.isNotEmpty) {
       await connection.execute(searchPathStatement(searchPath));

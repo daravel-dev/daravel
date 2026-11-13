@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/routing.md`.
-const String pageIdRouting = r'''<!-- source: routing.md sha256:8ff00f9d6356 -->
+const String pageIdRouting = r'''<!-- source: routing.md sha256:1cb549c95f26 -->
 # Routing
 
 Route didaftarkan di `routes/api.dart` (di-mount di bawah `/api`) dan
@@ -319,6 +319,16 @@ grup. Tanpa salah satunya, path bersarang tidak memeriksa kepemilikan.
 
 `withTrashed()` juga menemukan model yang di-soft delete, dan
 `missing((request) => ...)` menggantikan 404.
+
+Kolom kustom dibandingkan dengan nilai dari URL sesuai tipe kolomnya, yang
+dibaca Daravel dari database sekali per tabel (`Schema.getColumns`). Untuk
+kolom integer, nilainya harus berupa integer seperti yang dibaca PostgreSQL
+(spasi di sekelilingnya, tanda, dan nol di depan diterima, sehingga `007`
+menemukan 7), dan kolom desimal menerima desimal polos. Nilai lain menjadi
+404 di semua database. Laravel menjawabnya dengan 500 di PostgreSQL, dan di
+MySQL mengikat baris hasil koersi nilai itu (`abc` menjadi 0). Kolom uuid,
+tanggal, atau boolean yang diberi nilai berbentuk lain juga menjadi 404, begitu
+pula primary key uuid.
 
 ## Padanan Laravel
 

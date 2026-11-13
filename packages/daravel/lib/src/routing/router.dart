@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import '../database/column_values.dart';
 import '../database/database_manager.dart';
 import '../database/orm/model.dart';
 import '../database/orm/model_definition.dart';
 import '../database/orm/keys.dart';
 import '../database/orm/relations.dart';
+import '../database/query_executor.dart';
 import '../foundation/clock.dart';
 import '../foundation/container.dart';
 
@@ -451,7 +453,31 @@ final class Router {
     Object? parent,
   ) async {
     final column = route?.bindingFields[param] ?? definition.primaryKey;
-    final Object? key = _keyValue(definition, column, value);
+    final manager = Container.current.make<DatabaseManager>();
+    final connection = definition.connection;
+    final Object? key;
+    // Whether the database may refuse the value as the column's type.
+    var refusable = false;
+    if (column == definition.primaryKey) {
+      key = _keyValue(definition, column, value);
+      // A key kept as text (uuid and string keys) may be refused by the
+      // column, as `abc` by a PostgreSQL uuid; an integer key was parsed,
+      // and a ulid column is text. No schema read here: the lookup's SQL
+      // stays the same.
+      refusable = key is String && definition.keyType != KeyType.ulid;
+    } else {
+      // Another column (`{post:number}`): read the value as the column's
+      // type, so a word for an integer column finds no row on every
+      // database (PostgreSQL refused it with a 500, MySQL compared it as 0).
+      final type = await ColumnValueTypes.of(
+        manager,
+        connection,
+        definition.table,
+        column,
+      );
+      key = type == null ? value : type.parse(value);
+      refusable = type == null || type.kind == ColumnValueKind.other;
+    }
     if (key == null) {
       return null;
     }
@@ -461,16 +487,32 @@ final class Router {
         ((route?.enforcesScopedBindings ?? false) ||
             (route?.bindingFields.containsKey(param) ?? false));
     final query = scoped
-        ? _relationOn(
-            parent,
-            param,
-          ).queryFor(parent, Container.current.make<DatabaseManager>())
+        ? _relationOn(parent, param).queryFor(parent, manager)
         : definition.query();
     if ((route?.includesTrashed ?? false) && definition.softDeletes) {
       query.withTrashed();
     }
     // Qualified: a BelongsToMany joins a pivot that has an `id` too.
-    return query.where('${definition.table}.$column', key).first();
+    Future<Model?> find() =>
+        query.where('${definition.table}.$column', key).first();
+    if (!refusable) {
+      return find();
+    }
+    try {
+      // On PostgreSQL a refused statement aborts the transaction it is in:
+      // inside one, the lookup runs in a savepoint.
+      return manager.inTransactionOn(connection) &&
+              manager.dialectOf(connection) == SqlDialect.postgres
+          ? await manager.transaction(find, connection: connection)
+          : await find();
+    } on QueryException catch (error) {
+      // A uuid, date or boolean column given a value of another shape: no
+      // row, as for an integer column given a word.
+      if (await manager.isDataException(error, connection: connection)) {
+        return null;
+      }
+      rethrow;
+    }
   }
 
   /// A word in an integer key can only miss, and PostgreSQL would refuse it.

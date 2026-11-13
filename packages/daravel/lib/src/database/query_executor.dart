@@ -259,6 +259,14 @@ abstract interface class RetryableErrors {
   bool isRetryableError(Object error);
 }
 
+/// A driver that recognises a value its database refused to read as the
+/// column's type (a data exception, SQLSTATE class 22), so route model
+/// binding answers `404` for it instead of `500`. PostgreSQL's is built in.
+abstract interface class DataExceptionErrors {
+  /// Whether [error] is the database refusing a value as its column's type.
+  bool isDataException(Object error);
+}
+
 /// A driver that recognises a unique index or primary key refusing a row
 /// among its errors (Laravel's `isUniqueConstraintError`), so it surfaces
 /// as [UniqueConstraintViolationException].
