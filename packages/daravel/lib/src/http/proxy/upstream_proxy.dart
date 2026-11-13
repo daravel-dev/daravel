@@ -131,6 +131,7 @@ final class UpstreamProxy {
     final HttpClientResponse answer;
     final deadline = Stopwatch()..start();
     HttpClientRequest? outgoing;
+    var answered = false;
     try {
       final sending = await _open(request, timeout);
       outgoing = sending;
@@ -150,14 +151,19 @@ final class UpstreamProxy {
         }
         return sending.close();
       }).timeout(_left(deadline));
+      answered = true;
     } on TimeoutException {
-      // Without this the upstream keeps the connection (and, behind
-      // PHP-FPM, a worker) until it answers a client that is gone.
-      outgoing?.abort();
       throw const HttpException(504, 'Gateway Timeout');
     } on IOException {
-      outgoing?.abort();
       throw const HttpException(502, 'Bad Gateway');
+    } finally {
+      // On any failure before the answer (a timeout, the network, or the
+      // client's body refused as too large half way): without this the
+      // upstream keeps the connection (and, behind PHP-FPM, a worker)
+      // until its own timeout.
+      if (!answered) {
+        outgoing?.abort();
+      }
     }
     final headers = Headers();
     final dropped = _connectionHeaders(
@@ -288,26 +294,31 @@ final class UpstreamProxy {
   void _copyRequestHeaders(Request request, HttpHeaders out) {
     final dropped = _connectionHeaders(request.headers.all('connection'));
     for (final MapEntry(key: name, value: values) in request.headers.entries) {
-      if (hopByHop.contains(name) ||
-          dropped.contains(name) ||
-          name.startsWith('x-forwarded-')) {
-        continue;
-      }
       if (name == 'host') {
         // As the client sent it: setting `host` alone would keep the
         // upstream's port (`example.test:9000`), and Laravel builds
-        // `fullUrl()` and every URL it generates from this header.
+        // `fullUrl()` and every URL it generates from this header. First,
+        // so a `Connection: host` from the client cannot turn
+        // [preserveHost] off.
         if (preserveHost && values.isNotEmpty) {
           out.set('host', values.first);
         }
+        continue;
+      }
+      if (hopByHop.contains(name) ||
+          dropped.contains(name) ||
+          name.startsWith('x-forwarded-')) {
         continue;
       }
       for (final value in values) {
         out.add(name, value, preserveHeaderCase: true);
       }
     }
-    // What the client sent through any proxy in front, then this hop.
-    final chain = request.headers.first('x-forwarded-for');
+    // What the client sent through any proxy in front, then this hop; not
+    // when `Connection` names it (it was for the hop before only).
+    final chain = dropped.contains('x-forwarded-for')
+        ? null
+        : request.headers.first('x-forwarded-for');
     final peer = request.remoteAddress;
     out
       ..set(
