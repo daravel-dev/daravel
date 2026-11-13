@@ -131,7 +131,6 @@ extension type const RInput(ValidatedData _d) implements ValidatedData {}
   group('the command', () {
     late Directory project;
     late File file;
-    final original = Directory.current;
 
     setUp(() {
       project = Directory.systemTemp.createTempSync('request_sync_');
@@ -145,18 +144,20 @@ extension type const RInput(ValidatedData _d) implements ValidatedData {}
       File(
         p.join(requests.path, 'legacy_request.dart'),
       ).writeAsStringSync('final class LegacyRequest extends FormRequest {}\n');
-      Directory.current = project;
     });
 
-    tearDown(() {
-      Directory.current = original;
-      project.deleteSync(recursive: true);
-    });
+    tearDown(() => project.deleteSync(recursive: true));
 
-    Future<int?> run(List<String> args) => (CommandRunner<int>(
-      'dartisan',
-      'test',
-    )..addCommand(RequestSyncCommand())).run(['request:sync', ...args]);
+    // The project is this zone's working directory, never the process's:
+    // `dart test` runs the test files as isolates of one process, and
+    // setting the current directory there moves every other file's too.
+    Future<int?> run(List<String> args) => IOOverrides.runZoned(
+      () => (CommandRunner<int>(
+        'dartisan',
+        'test',
+      )..addCommand(RequestSyncCommand())).run(['request:sync', ...args]),
+      getCurrentDirectory: () => project,
+    );
 
     test('--check exits 1 on a stale input and writes nothing', () async {
       final before = file.readAsStringSync();
@@ -197,8 +198,10 @@ extension type const RInput(ValidatedData _d) implements ValidatedData {}
       );
       final runner = GlobalDartisanRunner();
       final inPackage = {GlobalDartisanRunner.inProjectPackage: '1'};
-      Future<int> sync([List<String> args = const []]) =>
-          runner.execute(['request:sync', ...args], environment: inPackage);
+      Future<int> sync([List<String> args = const []]) => IOOverrides.runZoned(
+        () => runner.execute(['request:sync', ...args], environment: inPackage),
+        getCurrentDirectory: () => project,
+      );
       expect(await sync(['--check']), 1);
       expect(await sync(), 0);
       expect(

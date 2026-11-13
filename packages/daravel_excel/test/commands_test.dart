@@ -8,28 +8,29 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory project;
-  late String previous;
+  // The package directory: no test moves the working directory.
+  final package = Directory.current.path;
 
   setUp(() {
     project = Directory.systemTemp.createTempSync('daravel_excel_make_');
     File(p.join(project.path, 'pubspec.yaml'))
         .writeAsStringSync('name: demo\n');
     Directory(p.join(project.path, 'bootstrap')).createSync();
-    previous = Directory.current.path;
-    Directory.current = project;
   });
 
-  tearDown(() {
-    Directory.current = previous;
-    project.deleteSync(recursive: true);
-  });
+  tearDown(() => project.deleteSync(recursive: true));
 
+  // The project is this zone's working directory, never the process's:
+  // `dart test` runs the test files as isolates of one process.
   Future<int?> run(List<String> args) {
     final runner = CommandRunner<int>('dartisan', 'test');
     for (final factory in excelCommands) {
       runner.addCommand(factory(() => throw UnimplementedError()));
     }
-    return runner.run(args);
+    return IOOverrides.runZoned(
+      () => runner.run(args),
+      getCurrentDirectory: () => project,
+    );
   }
 
   String read(String path) =>
@@ -64,7 +65,7 @@ void main() {
     await run(['make:import', 'StudentsImport', '--model=Student']);
     await run(['make:export', 'Totals']);
     await run(['make:import', 'Rows']);
-    final out = Directory(p.join(previous, 'test', '_generated'))..createSync();
+    final out = Directory(p.join(package, 'test', '_generated'))..createSync();
     addTearDown(() => out.deleteSync(recursive: true));
     for (final path in [
       'exports/students_export.dart',
@@ -83,7 +84,7 @@ void main() {
       'analyze',
       '--fatal-infos',
       out.path,
-    ], workingDirectory: previous);
+    ], workingDirectory: package);
     expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     // Keep the import of package:daravel used by the model template.
     expect(Model, isNotNull);
