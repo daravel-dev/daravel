@@ -430,7 +430,11 @@ socket. A handler that returns without listening is fine: the server then
 listens itself and drops what the client sends. A handler that waits on
 `socket.done` without listening never learns that the client left, and
 its session lasts until the server stops; listen instead, with
-`socket.listen((_) {})` when the messages do not matter.
+`socket.listen((_) {})` when the messages do not matter. A handler that
+writes in a loop should loop while `socket.readyState == WebSocket.open`:
+`socket.closeCode` stays `null` until the client's close is read, so
+`while (socket.closeCode == null)` never ends in a handler that does not
+listen.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
