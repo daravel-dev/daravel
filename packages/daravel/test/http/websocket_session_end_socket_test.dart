@@ -13,6 +13,7 @@ import 'support/raw_ws_client.dart';
 void main() {
   late Application app;
   late ServerEngine engine;
+  late MemoryHandler log;
 
   setUp(() async {
     app = Application.configure(basePath: Directory.systemTemp.path)
@@ -29,6 +30,13 @@ void main() {
             ..ws('/greet', (socket, _) {
               // Writes once and returns, never listening.
               socket.add('hello');
+            }, compress: false)
+            ..ws('/greet-later', (socket, _) {
+              // Returns at once; writes once more a little later.
+              Timer(
+                const Duration(milliseconds: 200),
+                () => socket.add('later'),
+              );
             }, compress: false),
         )
         .create();
@@ -37,7 +45,7 @@ void main() {
       app,
       const ServeOptions(host: '127.0.0.1', port: 0, handleSignals: false),
       kernel: app.kernel,
-      logger: Logger(handlers: [MemoryHandler()]),
+      logger: Logger(handlers: [log = MemoryHandler()]),
     );
     await engine.start();
   });
@@ -79,4 +87,50 @@ void main() {
       });
     });
   }
+
+  group('a handler that returned without listening, then a client that '
+      'breaks the protocol', () {
+    Future<void> expectEndedQuietly() async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(engine.openWebSockets, 0, reason: 'the session ended');
+      expect(
+        log.records.where((r) => r.level.index >= LogLevel.error.index),
+        isEmpty,
+        reason: 'nothing logged as an error',
+      );
+      // The server goes on serving.
+      final next = await RawWsClient.connect(engine.port!, '/greet');
+      expect(String.fromCharCodes((await next.next()).payload), 'hello');
+      await next.close();
+    }
+
+    test('an unmasked frame', () async {
+      final client = await RawWsClient.connect(engine.port!, '/greet');
+      await client.next(); // hello
+      client.socket.add(const [0x81, 0x02, 0x68, 0x69]);
+      await expectEndedQuietly();
+    });
+
+    test('a text message that is not UTF-8', () async {
+      final client = await RawWsClient.connect(engine.port!, '/greet');
+      await client.next(); // hello
+      client.send(0x1, const [0xFF, 0xFE, 0xFD]);
+      await expectEndedQuietly();
+    });
+
+    test('a reset in the middle of a frame', () async {
+      final client = await RawWsClient.connect(engine.port!, '/greet-later');
+      // Unread data when the socket closes makes the OS reset it.
+      client.pauseReading();
+      client.socket
+        ..add(RawWsClient.header(0x2, 1000))
+        ..add(List<int>.filled(10, 0));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      client.socket.destroy();
+      await expectEndedQuietly();
+    });
+  });
 }
