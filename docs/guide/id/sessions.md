@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:82ac8f2f55e7 -->
+<!-- source: sessions.md sha256:cab85e0c7986 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -67,6 +67,17 @@ Dengan beberapa isolate atau server, pakai `database` atau `redis` (atau
 driver `file` di satu mesin): driver `array` hanya memori satu isolate.
 `CreateSessionsTable` membuat tabel Laravel dan tidak berbuat apa-apa bila
 tabelnya sudah ada.
+
+Seperti di Laravel, 2 dari 100 request membersihkan sesi yang kedaluwarsa.
+Pembersihan driver `database` adalah satu `DELETE` di request itu, di dalam
+transaksinya (sehingga `refreshDatabase` ikut me-rollback-nya bersama uji).
+Pembersihan driver `file` justru berjalan di background, satu per satu per
+isolate, dalam putaran berisi paling banyak 2.000 berkas atau 250 ms,
+masing-masing melanjutkan dari posisi putaran sebelumnya, sehingga
+direktori dengan banyak sesi tidak pernah menahan request lain di isolate
+itu; shutdown menunggu putaran yang sedang berjalan. Kedaluwarsa
+membandingkan waktu modifikasi berkas dengan `Clock.now()`, jadi `travel()`
+di uji membuat berkas menua.
 
 ### Driver redis dan cache
 
@@ -191,6 +202,10 @@ Inertia. `session.errors` dan `session.old('name')` tersedia di request
 berikutnya, dan password tidak pernah di-flash. Client yang mengharapkan JSON
 tetap menerima 422. Form menyebut verb-nya dengan `_method`, atau lewat header
 `X-HTTP-Method-Override`; `middleware.methodOverride = false` mematikannya.
+Body form dibaca untuk `_method`-nya hanya bila path itu punya route `PUT`,
+`PATCH`, atau `DELETE`, dalam batas body dan timeout terbesar dari route yang
+mungkin dituju; route yang akhirnya dituju lalu memeriksa `bodyLimit`-nya
+sendiri terhadap apa yang sudah dibaca.
 
 Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
 `COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang

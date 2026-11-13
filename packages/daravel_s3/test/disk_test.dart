@@ -24,6 +24,15 @@ void main() {
     });
   });
 
+  group('ReadThroughDisk (reference)', () {
+    diskContract(
+      () async => ReadThroughDisk(
+        primary: MemoryDisk('primary'),
+        fallback: MemoryDisk('fallback'),
+      ),
+    );
+  });
+
   group('S3Disk', () {
     late FakeS3 s3;
     tearDown(() => s3.close());

@@ -17,23 +17,60 @@ abstract interface class SessionHandler {
   /// Deletes session [id].
   Future<void> destroy(String id);
 
-  /// Deletes sessions idle for longer than [lifetime].
+  /// Deletes sessions idle for longer than [lifetime]. The session
+  /// middleware awaits it in the request that wins the lottery, inside that
+  /// request's zone and transaction, as Laravel's `StartSession` does; a
+  /// handler that is also [SweepsInRounds] is swept outside the request
+  /// instead ([SessionGarbageCollector]).
   Future<void> gc(Duration lifetime);
 }
 
+/// A [SessionHandler] whose [SessionHandler.gc] does a bounded part of the
+/// sweep per call and holds no database connection, so the session
+/// middleware runs it detached from the request ([SessionGarbageCollector])
+/// instead of making the request wait.
+///
+/// A handler whose sweep is one query (the `database`, `cache` and `redis`
+/// drivers) is not one: run detached, its `DELETE` would leave the request's
+/// transaction, which under `refreshDatabase` deletes rows committed
+/// outside the test and, on MySQL, waits for the test's row locks.
+abstract interface class SweepsInRounds implements SessionHandler {}
+
 /// One file per session under `storage/framework/sessions`, named by the
 /// id and holding the `serialize()` payload: Laravel's `file` driver, so
-/// both frameworks on one machine can read each other's files. Expiry is
-/// the file's modification time (wall clock, as Laravel reads it).
-final class FileSessionHandler implements SessionHandler {
-  /// Sessions as files in [directory].
-  FileSessionHandler(this.directory, {required this.lifetime});
+/// both frameworks on one machine can read each other's files.
+///
+/// Expiry compares the file's modification time, which the file system
+/// stamps with the wall clock, with `Clock.now()`, as Laravel compares it
+/// with `Carbon::now()`: in tests `travel()` forward ages the files without
+/// waiting, and a clock moved back makes them younger, never expired.
+final class FileSessionHandler implements SweepsInRounds {
+  /// Sessions as files in [directory]. Each [gc] call examines at most
+  /// [gcBatch] files or runs for at most [gcBudget], then stops; the next
+  /// call resumes where it stopped.
+  FileSessionHandler(
+    this.directory, {
+    required this.lifetime,
+    this.gcBatch = 2000,
+    this.gcBudget = const Duration(milliseconds: 250),
+  });
 
   /// The directory of the session files.
   final String directory;
 
   /// How long a session lasts.
   final Duration lifetime;
+
+  /// The files one [gc] call examines at most.
+  final int gcBatch;
+
+  /// How long one [gc] call examines files at most (wall clock).
+  final Duration gcBudget;
+
+  /// Where the next [gc] call resumes: the number of directory entries it
+  /// skips first. Back to 0 once a call reached the end.
+  int get gcPosition => _gcPosition;
+  int _gcPosition = 0;
 
   File _file(String id) => File(p.join(directory, id));
 
@@ -44,7 +81,7 @@ final class FileSessionHandler implements SessionHandler {
       return null;
     }
     final modified = file.lastModifiedSync();
-    if (DateTime.now().difference(modified) > lifetime) {
+    if (Clock.now().difference(modified) > lifetime) {
       return null;
     }
     return file.readAsString();
@@ -65,18 +102,54 @@ final class FileSessionHandler implements SessionHandler {
     }
   }
 
+  /// One bounded round: skips the [gcPosition] entries examined before,
+  /// then deletes the expired files among the next [gcBatch] (or as many as
+  /// [gcBudget] allows), all asynchronously, so a directory of many files
+  /// never holds the event loop. A round that reaches the end of the
+  /// listing starts the next one from the beginning; files deleted meanwhile
+  /// by another process or isolate are skipped.
   @override
   Future<void> gc(Duration lifetime) async {
     final dir = Directory(directory);
-    if (!dir.existsSync()) {
+    if (!await dir.exists()) {
+      _gcPosition = 0;
       return;
     }
-    final cutoff = DateTime.now().subtract(lifetime);
-    for (final entry in dir.listSync()) {
-      if (entry is File && entry.lastModifiedSync().isBefore(cutoff)) {
-        entry.deleteSync();
+    final cutoff = Clock.now().subtract(lifetime);
+    final watch = Stopwatch();
+    var skipped = 0;
+    var examined = 0;
+    var deleted = 0;
+    var reachedEnd = true;
+    // Breaking out of `await for` cancels the listing, which releases the
+    // directory handle (Windows refuses to delete a directory being read).
+    await for (final entry in dir.list(followLinks: false)) {
+      if (skipped < _gcPosition) {
+        skipped++;
+        continue;
+      }
+      watch.start();
+      if (examined >= gcBatch || (examined > 0 && watch.elapsed >= gcBudget)) {
+        reachedEnd = false;
+        break;
+      }
+      examined++;
+      if (entry is! File) {
+        continue;
+      }
+      try {
+        final stat = await entry.stat();
+        if (stat.type == FileSystemEntityType.file &&
+            stat.modified.isBefore(cutoff)) {
+          await entry.delete();
+          deleted++;
+        }
+      } on FileSystemException {
+        // Gone already (another isolate or Laravel swept it) or locked.
       }
     }
+    // The deleted files left the listing: the entries after them moved up.
+    _gcPosition = reachedEnd ? 0 : skipped + examined - deleted;
   }
 }
 

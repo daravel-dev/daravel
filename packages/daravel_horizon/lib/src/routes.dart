@@ -408,8 +408,10 @@ abstract final class HorizonDashboard {
   static int _limit(Request request) =>
       (int.tryParse(request.query['limit'] ?? '') ?? 50).clamp(1, 500);
 
-  /// `starting_at`: a negative one is the start (PostgreSQL refuses a
-  /// negative `OFFSET`).
+  /// `starting_at`: a negative one is the start. The process store skips
+  /// that many with `Iterable.skip`, which throws for a negative count, and
+  /// the list came back empty (the database store's query already reads
+  /// it as 0).
   static int _offset(Request request) {
     final offset = int.tryParse(request.query['starting_at'] ?? '') ?? 0;
     return offset < 0 ? 0 : offset;
@@ -488,9 +490,41 @@ abstract final class HorizonDashboard {
     return {'retried': retried.uuid};
   }
 
-  static Future<Object?> _retryAll(Request request) async => {
-    'retried': [for (final job in await _queues.retryAllFailed()) job.uuid],
-  };
+  /// The most jobs one retry-all request pushes back.
+  static const int retryAllLimit = 1000;
+
+  /// How long one retry-all request runs, well inside a request's timeout.
+  static const Duration retryAllBudget = Duration(seconds: 10);
+
+  /// Retries failed jobs, at most [retryAllLimit] or [retryAllBudget] per
+  /// request; nothing goes on after the answer. `remaining` says how many
+  /// are left: the dashboard calls again with the `after` and `up_to` it
+  /// got, until none are. A retry-all already running answers 409.
+  /// (Laravel Horizon has no retry-all: its dashboard retries one job.)
+  static Future<Object?> _retryAll(Request request) async {
+    final RetryAllResult result;
+    try {
+      result = await _queues.retryAllFailed(
+        limit: retryAllLimit,
+        budget: retryAllBudget,
+        after: int.tryParse(request.query['after'] ?? '') ?? 0,
+        upTo: int.tryParse(request.query['up_to'] ?? ''),
+      );
+    } on RetryAllRunningException catch (error) {
+      return laravelErrorResponse({'message': error.message}, status: 409);
+    }
+    return {
+      'retried': result.retried.length,
+      'skipped': [
+        for (final job in result.skipped)
+          {'id': job.id, 'uuid': job.uuid, 'reason': job.reason},
+      ],
+      'skipped_count': result.skippedCount,
+      'remaining': result.remaining,
+      'after': result.after,
+      'up_to': result.upTo,
+    };
+  }
 }
 
 /// One tick of the dashboard's figures ([HorizonDashboard._snapshot]).

@@ -493,6 +493,7 @@ final class Request {
     final cached = _bodyBytes;
     if (cached != null) {
       _enforceLimit(cached.length);
+      _cacheHandedOut = true;
       return cached;
     }
     final declared = contentLength;
@@ -521,24 +522,37 @@ final class Request {
     var refused = false;
     var total = 0;
     final controller = StreamController<List<int>>(sync: true);
+    void refuse(Object error) {
+      if (refused) {
+        return;
+      }
+      refused = true;
+      _abortRead = null;
+      _refuseRest(subscription);
+      controller
+        ..addError(error)
+        ..close();
+    }
+
     controller
       ..onListen = () {
+        _abortRead = refuse;
         subscription = source.listen(
           (chunk) {
             total += chunk.length;
+            _streamedBytes += chunk.length;
             final limit = maxBodyBytes;
             if (limit != null && total > limit) {
-              refused = true;
-              _refuseRest(subscription);
-              controller
-                ..addError(const PayloadTooLargeHttpException())
-                ..close();
+              refuse(const PayloadTooLargeHttpException());
               return;
             }
             controller.add(chunk);
           },
           onError: controller.addError,
-          onDone: controller.close,
+          onDone: () {
+            _abortRead = null;
+            unawaited(controller.close());
+          },
         );
       }
       ..onPause = (() => subscription.pause())
@@ -546,6 +560,27 @@ final class Request {
       ..onCancel = () => refused ? null : subscription.cancel();
     return controller.stream;
   }
+
+  /// Stops the read of the body under way with [error], as going over
+  /// [maxBodyBytes] does: what reads it (the body parser) fails, and the
+  /// rest is left to the server ([bodyRefusedWhileReading]). Used when the
+  /// read takes too long. Nothing happens when no read is under way.
+  void abortBodyRead(Object error) => _abortRead?.call(error);
+
+  void Function(Object error)? _abortRead;
+
+  int _streamedBytes = 0;
+  bool _cacheHandedOut = false;
+
+  /// How many bytes of the body have been read so far, by anything.
+  int get bodyBytesRead =>
+      _cacheHandedOut ? (_bodyBytes?.length ?? 0) : _streamedBytes;
+
+  /// Throws [PayloadTooLargeHttpException] when more of the body than
+  /// [maxBodyBytes] was already read: a limit set after something read the
+  /// body early (a route's `bodyLimit`, applied after the global
+  /// middleware, which may have parsed a form to find `_method`).
+  void enforceLimitOnBodyRead() => _enforceLimit(bodyBytesRead);
 
   /// At most this much of a body refused while reading is thrown away
   /// before the response; then the body is paused (the client waits) until
@@ -621,6 +656,7 @@ final class Request {
   ) async* {
     if (cached != null) {
       _enforceLimit(cached.length);
+      _cacheHandedOut = true;
       yield cached;
       return;
     }

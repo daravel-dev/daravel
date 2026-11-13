@@ -101,6 +101,20 @@ String normalizeDiskPath(String path) {
   return normalized == '.' ? '' : normalized;
 }
 
+/// [normalizeDiskPath] for an operation on a file: a path that names the
+/// disk root itself (`''`, `'.'`, `'dir/..'`) is refused, since no file is
+/// there. A read answers "not found" for it instead (see each disk).
+String normalizeFilePath(String path) {
+  final normalized = normalizeDiskPath(path);
+  if (normalized.isEmpty) {
+    throw StorageException('Path [$path] names the disk root, not a file.');
+  }
+  return normalized;
+}
+
+/// Whether [path] names the disk root: no file can be there.
+bool _isRoot(String path) => normalizeDiskPath(path).isEmpty;
+
 List<int> _bytesOf(Object contents) => switch (contents) {
   String() => utf8.encode(contents),
   List<int>() => contents,
@@ -137,9 +151,13 @@ final class LocalDisk implements Disk {
     return full;
   }
 
-  File _file(String relative) => File(path(relative));
+  /// The file at [relative]; the disk root is not a file.
+  File _file(String relative) => File(path(normalizeFilePath(relative)));
 
   Future<File> _existing(String relative) async {
+    if (_isRoot(relative)) {
+      throw StorageException('File not found at path: $relative');
+    }
     final file = _file(relative);
     if (!await file.exists()) {
       throw StorageException('File not found at path: $relative');
@@ -154,8 +172,16 @@ final class LocalDisk implements Disk {
     final temp = File(
       '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
     );
-    await temp.writeAsBytes(_bytesOf(contents), flush: true);
-    await temp.rename(file.path);
+    try {
+      await temp.writeAsBytes(_bytesOf(contents), flush: true);
+      await temp.rename(file.path);
+    } on Object {
+      // As putStream: a write or rename that fails leaves no `.tmp`.
+      if (await temp.exists()) {
+        await temp.delete();
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -211,7 +237,8 @@ final class LocalDisk implements Disk {
   }
 
   @override
-  Future<bool> exists(String path) => _file(path).exists();
+  Future<bool> exists(String path) async =>
+      !_isRoot(path) && await _file(path).exists();
 
   @override
   Future<bool> missing(String path) async => !await exists(path);
@@ -223,6 +250,10 @@ final class LocalDisk implements Disk {
         : (paths as List<Object?>).cast<String>();
     var all = true;
     for (final item in list) {
+      if (_isRoot(item)) {
+        all = false;
+        continue;
+      }
       final file = _file(item);
       if (await file.exists()) {
         await file.delete();
@@ -233,9 +264,18 @@ final class LocalDisk implements Disk {
     return all;
   }
 
+  /// Whether [from] and [to] are one file: copying or moving onto itself
+  /// does nothing (as Flysystem's local adapter). `File.copy` onto itself
+  /// empties the file on Linux.
+  static bool _same(String from, String to) =>
+      normalizeFilePath(from) == normalizeFilePath(to);
+
   @override
   Future<void> copy(String from, String to) async {
     final source = await _existing(from);
+    if (_same(from, to)) {
+      return;
+    }
     final target = _file(to);
     await target.parent.create(recursive: true);
     await source.copy(target.path);
@@ -244,6 +284,9 @@ final class LocalDisk implements Disk {
   @override
   Future<void> move(String from, String to) async {
     final source = await _existing(from);
+    if (_same(from, to)) {
+      return;
+    }
     final target = _file(to);
     await target.parent.create(recursive: true);
     try {
@@ -267,7 +310,7 @@ final class LocalDisk implements Disk {
     if (base == null) {
       throw StorageException('Disk [$name] has no public URL.');
     }
-    final relative = normalizeDiskPath(path);
+    final relative = normalizeFilePath(path);
     final encoded = relative.split('/').map(Uri.encodeComponent).join('/');
     return '${base.endsWith('/') ? base.substring(0, base.length - 1) : base}/$encoded';
   }
@@ -344,7 +387,7 @@ final class MemoryDisk implements Disk {
 
   @override
   Future<void> put(String path, Object contents) async {
-    final key = normalizeDiskPath(path);
+    final key = normalizeFilePath(path);
     _files[key] = (
       bytes: Uint8List.fromList(_bytesOf(contents)),
       modified: DateTime.now().toUtc(),
@@ -362,7 +405,7 @@ final class MemoryDisk implements Disk {
 
   @override
   Future<void> append(String path, String contents) async {
-    final key = normalizeDiskPath(path);
+    final key = normalizeFilePath(path);
     final existing = _files[key];
     final current = existing == null ? '' : utf8.decode(existing.bytes);
     await put(key, current.isEmpty ? contents : '$current\n$contents');
@@ -409,12 +452,16 @@ final class MemoryDisk implements Disk {
 
   @override
   Future<void> copy(String from, String to) async =>
-      _files[normalizeDiskPath(to)] = _existing(from);
+      _files[normalizeFilePath(to)] = _existing(from);
 
   @override
   Future<void> move(String from, String to) async {
     await copy(from, to);
-    _files.remove(normalizeDiskPath(from));
+    // Moved onto itself: copied onto itself, nothing to remove (removing
+    // it lost the file).
+    if (normalizeFilePath(from) != normalizeFilePath(to)) {
+      _files.remove(normalizeFilePath(from));
+    }
   }
 
   @override
@@ -429,7 +476,7 @@ final class MemoryDisk implements Disk {
     if (base == null) {
       throw StorageException('Disk [$name] has no public URL.');
     }
-    return '$base/${normalizeDiskPath(path)}';
+    return '$base/${normalizeFilePath(path)}';
   }
 
   bool _inDir(String file, String dir, bool recursive) {

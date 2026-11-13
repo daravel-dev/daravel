@@ -209,6 +209,10 @@ final class HttpKernel {
       if (limit != null) {
         request.maxBodyBytes = limit;
       }
+      // A body read before routing (the global middleware: a form parsed
+      // for its `_method`) was read under the limits then; it must fit the
+      // route's too.
+      request.enforceLimitOnBodyRead();
       // Without binders the route's list is used as it is: no extra layer.
       Future<Response> run() => MiddlewarePipeline.run(
         router.hasBindings

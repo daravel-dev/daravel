@@ -54,6 +54,35 @@ void main() {
         await events.cancel();
       });
 
+      test('a Last-Event-ID that is no stream id is no header: live events '
+          'arrive, nothing is thrown', () async {
+        await orders.publish('old');
+        final uncaught = <Object>[];
+        await runZonedGuarded(() async {
+          final listeners = [
+            for (final id in [
+              'abc',
+              '18446744073709551616-0', // over 64 bits
+              '1-',
+              '-1',
+              '1-2-3',
+            ])
+              StreamIterator(orders.listen(lastEventId: id)),
+          ];
+          final next = [for (final events in listeners) events.moveNext()];
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          await orders.publish('live');
+          for (var i = 0; i < listeners.length; i++) {
+            expect(await next[i], isTrue, reason: '#$i');
+            expect(listeners[i].current.data, 'live', reason: '#$i');
+          }
+          for (final events in listeners) {
+            await events.cancel();
+          }
+        }, (error, _) => uncaught.add(error));
+        expect(uncaught, isEmpty);
+      });
+
       test('without Last-Event-ID, only live events', () async {
         await orders.publish('old');
         final events = StreamIterator(orders.listen());

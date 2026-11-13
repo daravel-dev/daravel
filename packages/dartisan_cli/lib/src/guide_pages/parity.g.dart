@@ -164,6 +164,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `session()->flash('status', 'Saved') / reflash / keep / now` | `session.flash('status', 'Saved') / reflash / keep / now` |  |
 | `session()->regenerate() / invalidate()` | `await session.regenerate() / invalidate()` | **async** |
 | `csrf_token()` | `session.token` |  |
+| `$exceptions->dontFlash(['card.number'])` | `withSession(dontFlash: ['card.number'])` | Added to current_password, password and password_confirmation; dot notation as Arr::forget. Uploaded files are never flashed, at any depth (RedirectResponse::removeFilesFromInput); a list that loses one keeps the other indices, as a PHP array. |
 | `Auth::guard('web')->attempt($credentials) / login($user) / logout()` | `guard.attempt(credentials) / login(user) / logout()` | **async**; auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides, with remember-me cookies. |
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
@@ -421,7 +422,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
 | `$request->getRealMethod()` | `request.originalMethod` |  |
-| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` | The header first, then a form body, then the query, as Symfony. A form body is read for it only where the path has a PUT, PATCH or DELETE route, under the loosest limit and timeout of the routes it may reach; elsewhere it stays unread, so a _method in the body of a path with only POST stays POST (Laravel: 405), while one in the query still gives 405. JSON bodies are not read for it (Laravel does). X-HTTP-Method-Override GET, HEAD, CONNECT, TRACE or anything but PUT, PATCH and DELETE is ignored (Symfony 7.4: honoured but deprecated, 400 for a value that is not letters). |
 | `back()` | `Response.back(request)` |  |
 | `session()->get('errors') / old('name')` | `session.errors / session.old('name')` |  |
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
@@ -459,7 +460,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `public function tags() (Horizon)` | `List<String> get tags` |  |
 | `Queue::size('default')` | `await Queue.connection().size('default')` | **async** |
 | `(none)` | `await (Queue.connection() as BrowsableQueueDriver).pending('default', limit: 50)` | **async**; Daravel-only: the waiting jobs of a queue without reserving them (memory, database, redis), for queue dashboards such as daravel_horizon. |
-| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. |
+| `php artisan queue:retry {id\|all}` | `await App.make<QueueManager>().retryFailed(uuid) / retryAllFailed()` | **async**; What queue:retry and the Horizon dashboard's retry use. retryAllFailed reads failed_jobs a page at a time up to the last id there was when it began, one run at a time (a lock), and leaves a job whose payload cannot be read in failed_jobs, reported as skipped; Laravel pushes such a payload as null. queue:retry --queue=name retries a queue's failed jobs, as Laravel; all --queue=name retries that queue only, where Laravel's all takes every queue. |
 | `Horizon's routes/web.php (horizon.stats.index, horizon.failed-jobs.show, horizon.retry-jobs.show, ...)` | `.withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])` | daravel_horizon: the same route names under HORIZON_PATH, plus horizon.stream (server-sent events) and horizon.retry-all; batches wait for a core batch repository. |
 | `(none)` | `await (Queue.connection() as ReclaimableQueueDriver).reclaim('default', jobId)` | **async**; Daravel-only: a reserved job of a worker known to be gone is available again at once, attempts kept, instead of after retry_after. |
 | `(none)` | `worker.reassign(['high', 'default'])` | Daravel-only: a running worker polls other queues from its next job on (daravel_horizon auto-scaling). |
@@ -493,6 +494,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->when($cond, $value) / whenLoaded('posts')` | `when(cond, value) / whenLoaded('posts')` |  |
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
+| `Storage::copy($from, $to) / Storage::move($from, $to)` | `await Storage.disk().copy(from, to) / move(from, to)` | Onto the same normalised path, both do nothing once the file is found (Flysystem 3.36: ResolveIdenticalPathConflict::TRY, and its local adapter skips an identical copy), on every disk. A path naming the disk root (an empty one, '.', 'dir/..') is no file: exists is false, reads are not found, writes and URLs throw StorageException. |
 | `Storage::url($path)` | `Storage.url(path)` |  |
 | `Storage read-through driver` | `ReadThroughDisk(primary: a, fallback: b)` |  |
 | `Cache::touch($key, $ttl)` | `Cache.touch(key, ttl)` |  |
