@@ -277,6 +277,11 @@ const Map<String, (int, String)> _knownLongLived = {
     'per SSE response: its events and its keep-alive (beat), which end '
         'with the response',
   ),
+  'http/request.dart': (
+    1,
+    'per request body read; one refused while reading is left to the '
+        'server, which answers and closes the connection',
+  ),
   'http/server_engine.dart': (
     6,
     'the engine at start (lag sampler, sockets), and per connection',

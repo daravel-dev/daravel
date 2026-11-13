@@ -505,11 +505,78 @@ final class Request {
       return _bodyBytes = const <int>[];
     }
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in stream) {
+    await for (final chunk in _guarded(stream)) {
       builder.add(chunk);
-      _enforceLimit(builder.length);
     }
     return _bodyBytes = builder.takeBytes();
+  }
+
+  /// [source] limited to [maxBodyBytes] as it arrives. Going over it is a
+  /// [PayloadTooLargeHttpException], and the rest of the body is left to
+  /// the server ([bodyRefusedWhileReading]) instead of cancelled: on a
+  /// socket, cancelling it closed the connection before the `413` was
+  /// written, so the client got no response at all.
+  Stream<List<int>> _guarded(Stream<List<int>> source) {
+    late final StreamSubscription<List<int>> subscription;
+    var refused = false;
+    var total = 0;
+    final controller = StreamController<List<int>>(sync: true);
+    controller
+      ..onListen = () {
+        subscription = source.listen(
+          (chunk) {
+            total += chunk.length;
+            final limit = maxBodyBytes;
+            if (limit != null && total > limit) {
+              refused = true;
+              _refuseRest(subscription);
+              controller
+                ..addError(const PayloadTooLargeHttpException())
+                ..close();
+              return;
+            }
+            controller.add(chunk);
+          },
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+      }
+      ..onPause = (() => subscription.pause())
+      ..onResume = (() => subscription.resume())
+      ..onCancel = () => refused ? null : subscription.cancel();
+    return controller.stream;
+  }
+
+  /// At most this much of a body refused while reading is thrown away
+  /// before the response; then the body is paused (the client waits) until
+  /// the server answers and closes the connection.
+  static const int refusedBodyDiscardBytes = 256 * 1024;
+
+  StreamSubscription<List<int>>? _refusedBody;
+
+  void _refuseRest(StreamSubscription<List<int>> subscription) {
+    var discarded = 0;
+    subscription.onData((chunk) {
+      discarded += chunk.length;
+      if (discarded >= refusedBodyDiscardBytes && !subscription.isPaused) {
+        subscription.pause();
+      }
+    });
+    _refusedBody = subscription;
+  }
+
+  /// Whether the body went over [maxBodyBytes] while it was read (a
+  /// chunked body, or one longer than it declared): the rest is still on
+  /// the connection, so the server answers and then closes it.
+  bool get bodyRefusedWhileReading => _refusedBody != null;
+
+  /// Cancels the body [bodyRefusedWhileReading] kept, which ends the
+  /// connection: only once the response has been written and flushed (a
+  /// streamed one). A socket detached to answer reads the rest off itself.
+  Future<void> releaseRefusedBody() async {
+    final subscription = _refusedBody;
+    _refusedBody = null;
+    await subscription?.cancel();
   }
 
   /// Lets go of the socket's body: a request upgraded to a WebSocket has
@@ -570,12 +637,7 @@ final class Request {
     if (stream == null) {
       return;
     }
-    var total = 0;
-    await for (final chunk in stream) {
-      total += chunk.length;
-      _enforceLimit(total);
-      yield chunk;
-    }
+    yield* _guarded(stream);
   }
 
   /// The uploaded file at [key] (dot notation: `photos.0`), or `null`
