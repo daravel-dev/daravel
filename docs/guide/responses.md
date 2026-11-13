@@ -422,15 +422,18 @@ turns it off, which saves CPU and memory per connection when one message
 goes to many sockets.
 
 The server sees a client leave only while something listens to its
-socket. A handler that returns without listening is fine: the server then
-listens itself and drops what the client sends. A handler that waits on
-`socket.done` without listening never learns that the client left, and
-its session lasts until the server stops; listen instead, with
-`socket.listen((_) {})` when the messages do not matter. A handler that
-writes in a loop should loop while `socket.readyState == WebSocket.open`:
-`socket.closeCode` stays `null` until the client's close is read, so
-`while (socket.closeCode == null)` never ends in a handler that does not
-listen.
+socket. Listen before the handler returns, or within 5 s after: a handler
+may return and listen once its setup is done. When nothing has listened
+5 s after the handler returned, the server listens itself and drops what
+the client sends, so the client's close or its going away still ends the
+session; a `listen` after that takes the reading over and gets what
+arrives from then on. A handler that waits on `socket.done` without
+listening never learns that the client left, and its session lasts until
+the server stops; listen instead, with `socket.listen((_) {})` when the
+messages do not matter. The same goes for a handler that writes in a loop:
+without a listener, neither `socket.readyState` nor `socket.closeCode`
+changes when the client closes or goes away, so listen as well, and loop
+while `socket.readyState == WebSocket.open`.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
