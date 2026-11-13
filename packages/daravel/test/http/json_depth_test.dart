@@ -329,7 +329,9 @@ void main() {
     });
 
     test('linear in the length, whatever the nesting', () {
-      // n against 4n, the fastest of three runs, under 10x.
+      // n against 8n, the fastest of three runs, under 20x: linear is 8x,
+      // quadratic 64x, so a noisy runner (a Windows CI host measured
+      // 10.7x for 4n) still cannot pass a quadratic one.
       Duration time(List<int> bytes) {
         var best = const Duration(days: 1);
         for (var run = 0; run < 3; run++) {
@@ -348,10 +350,10 @@ void main() {
         (n) => utf8.encode('[${'"\\"[{",' * n}1]'),
         (n) => utf8.encode('${'{"a":[' * n}1${']}' * n}'),
       ]) {
-        final small = time(shape(250000));
+        final small = time(shape(125000));
         final large = time(shape(1000000));
         final ratio = large.inMicroseconds / (small.inMicroseconds + 1);
-        expect(ratio, lessThan(10), reason: '$small -> $large');
+        expect(ratio, lessThan(20), reason: '$small -> $large');
       }
     });
   });
