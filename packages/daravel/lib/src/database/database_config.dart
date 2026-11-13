@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
 import '../foundation/env.dart';
+import '../foundation/url_redaction.dart';
 
 /// A single named connection (`config/database.php` parity).
 final class ConnectionConfig {
@@ -22,7 +23,11 @@ final class ConnectionConfig {
   /// (`postgres`/`postgresql` → `pgsql`, `mysql2` → `mysql`, `sqlite3` →
   /// `sqlite`), the host, port, user, password and database it contains
   /// replace this connection's, and its query string adds options. Parts
-  /// the URL leaves out keep their values.
+  /// the URL leaves out keep their values: as in Laravel, a URL that names
+  /// a user but no password (`pgsql://app@db/shop`) keeps the configured
+  /// password (`DB_PASSWORD`), and `app:@` sets an empty one. A malformed
+  /// URL throws a [FormatException] that quotes it only through
+  /// [redactUrl].
   ConnectionConfig withUrl(String url, {String basePath = '.'}) {
     if (url.startsWith('sqlite:') || url.startsWith('sqlite3:')) {
       final file = ConnectionConfig.fromUrl(
@@ -35,7 +40,7 @@ final class ConnectionConfig {
         options: options,
       );
     }
-    final uri = Uri.parse(url);
+    final uri = _parse(url);
     final driver = switch (uri.scheme) {
       'postgres' || 'postgresql' => 'pgsql',
       'mysql2' => 'mysql',
@@ -46,15 +51,13 @@ final class ConnectionConfig {
     final database = uri.path.length > 1 ? uri.path.substring(1) : null;
     return ConnectionConfig(
       driver: driver,
-      database: database == null
-          ? this.database
-          : Uri.decodeComponent(database),
+      database: database == null ? this.database : _decode(database, url),
       host: uri.host.isEmpty ? host : uri.host,
       port: uri.hasPort ? uri.port : port,
-      username: user == null ? username : Uri.decodeComponent(user.first),
+      username: user == null ? username : _decode(user.first, url),
       password: user == null || user.length < 2
           ? password
-          : Uri.decodeComponent(user.sublist(1).join(':')),
+          : _decode(user.sublist(1).join(':'), url),
       options: <String, Object?>{
         ...options,
         for (final MapEntry(:key, :value) in uri.queryParameters.entries)
@@ -73,11 +76,31 @@ final class ConnectionConfig {
 
   /// [url] with its password masked, for messages: the error of a
   /// malformed `DB_URL` reaches `doctor`'s output, the boot log and error
-  /// trackers, where `user:secret@` must not.
-  static String redactUrl(String url) =>
-      url.replaceFirstMapped(RegExp(r'^([a-z]+://[^:/@]*):[^@/]*@'), (m) {
-        return '${m.group(1)}:***@';
-      });
+  /// trackers, where `user:secret@` must not. It needs no valid URL; see
+  /// [redactUrlPassword].
+  static String redactUrl(String url) => redactUrlPassword(url);
+
+  /// [url] parsed, or a [FormatException] that names it only redacted:
+  /// `Uri.parse`'s own message quotes the whole URL, password included.
+  static Uri _parse(String url) {
+    try {
+      return Uri.parse(url);
+    } on FormatException {
+      throw FormatException('Malformed database URL: "${redactUrl(url)}".');
+    }
+  }
+
+  /// [part] of [url] percent-decoded; a malformed escape names [url] only
+  /// redacted, as [_parse] does.
+  static String _decode(String part, String url) {
+    try {
+      return Uri.decodeComponent(part);
+    } catch (_) {
+      throw FormatException(
+        'Malformed percent-encoding in database URL: "${redactUrl(url)}".',
+      );
+    }
+  }
 
   /// A connection from a URL, as Laravel's `DB_URL`:
   /// `pgsql://user:secret@host:5432/app?sslmode=require&pool=5`,
@@ -121,12 +144,12 @@ final class ConnectionConfig {
     final query = uri.queryParameters;
     return ConnectionConfig(
       driver: driver,
-      database: Uri.decodeComponent(database),
+      database: _decode(database, url),
       host: uri.host.isEmpty ? '127.0.0.1' : uri.host,
       port: uri.hasPort ? uri.port : (driver == 'pgsql' ? 5432 : 3306),
-      username: user.first.isEmpty ? null : Uri.decodeComponent(user.first),
+      username: user.first.isEmpty ? null : _decode(user.first, url),
       password: user.length > 1
-          ? Uri.decodeComponent(user.sublist(1).join(':'))
+          ? _decode(user.sublist(1).join(':'), url)
           : null,
       options: <String, Object?>{
         'pool': int.tryParse(query['pool'] ?? '') ?? 10,
