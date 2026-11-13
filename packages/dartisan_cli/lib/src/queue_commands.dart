@@ -138,6 +138,8 @@ final class QueueFailedCommand extends DaravelCommand {
 /// `all` (or `--queue`, all of that queue, as in Laravel) reads the failed
 /// jobs a page at a time and goes past one whose payload cannot be read: it
 /// stays in `failed_jobs`, is printed, and the command ends with 1.
+/// `all --queue=name` retries that queue only; Laravel's `all` takes every
+/// queue whatever `--queue` says.
 final class QueueRetryCommand extends DaravelCommand {
   /// The `dartisan queue:retry` command.
   QueueRetryCommand(super.createApp) {
@@ -166,7 +168,25 @@ final class QueueRetryCommand extends DaravelCommand {
       'The failed job [${failed.uuid}] has been pushed back onto the queue.',
     );
     if ((ids.length == 1 && ids.first == 'all') || queue != null) {
-      return _retryAll(manager, queue, pushed);
+      final RetryAllTotals totals;
+      try {
+        totals = await retryAll(
+          manager,
+          queue: queue,
+          onRetried: pushed,
+          onSkipped: (failed, error) => stderr.writeln(
+            'The failed job [${failed.uuid}] (id ${failed.id}) cannot be '
+            'read and stays in failed_jobs: $error',
+          ),
+        );
+      } on RetryAllRunningException catch (error) {
+        stderr.writeln(error.message);
+        return 1;
+      }
+      if (totals.retried == 0 && totals.skipped == 0) {
+        stdout.writeln('No failed jobs matched.');
+      }
+      return totals.skipped == 0 ? 0 : 1;
     }
     var found = false;
     for (final id in ids) {
@@ -182,50 +202,48 @@ final class QueueRetryCommand extends DaravelCommand {
     return 0;
   });
 
-  Future<int> _retryAll(
-    QueueManager manager,
+  /// Retries every failed job of [manager] (of [queue] when given), in
+  /// locked passes of [passBudget] that go on from where the last one
+  /// stopped, up to the last failed job there was at the start. A failed
+  /// job provider without pages ([FailedJobPages]) is read once, in a single
+  /// pass without a budget: each pass would read all of it again, and on
+  /// `sync` a job failing again at once would keep a pass busy for ever.
+  static Future<RetryAllTotals> retryAll(
+    QueueManager manager, {
     String? queue,
-    void Function(FailedJob failed) pushed,
-  ) async {
+    Duration passBudget = QueueRetryCommand.passBudget,
+    void Function(FailedJob failed)? onRetried,
+    void Function(FailedJob failed, Object error)? onSkipped,
+  }) async {
+    final paged = manager.processor.failedJobs is FailedJobPages;
     var retried = 0;
     var skipped = 0;
     var after = 0;
     int? upTo;
     while (true) {
-      final RetryAllResult result;
-      try {
-        result = await manager.retryAllFailed(
-          queue: queue,
-          budget: passBudget,
-          after: after,
-          upTo: upTo,
-          onRetried: pushed,
-          onSkipped: (failed, error) => stderr.writeln(
-            'The failed job [${failed.uuid}] (id ${failed.id}) cannot be '
-            'read and stays in failed_jobs: $error',
-          ),
-        );
-      } on RetryAllRunningException catch (error) {
-        stderr.writeln(error.message);
-        return 1;
-      }
+      final result = await manager.retryAllFailed(
+        queue: queue,
+        budget: paged ? passBudget : null,
+        after: after,
+        upTo: upTo,
+        onRetried: onRetried,
+        onSkipped: onSkipped,
+      );
       retried += result.retried.length;
       skipped += result.skippedCount;
-      // Without pages (upTo null) each pass reads them all again: go on
-      // while passes retry something, so skipped ones do not loop.
-      if (result.remaining == 0 ||
-          (result.upTo == null && result.retried.isEmpty)) {
+      if (!paged || result.remaining == 0) {
         break;
       }
       after = result.after;
       upTo = result.upTo;
     }
-    if (retried == 0 && skipped == 0) {
-      stdout.writeln('No failed jobs matched.');
-    }
-    return skipped == 0 ? 0 : 1;
+    return (retried: retried, skipped: skipped);
   }
 }
+
+/// How many failed jobs [QueueRetryCommand.retryAll] pushed back and how
+/// many it left behind (unreadable).
+typedef RetryAllTotals = ({int retried, int skipped});
 
 /// `queue:forget <id>` — deletes a failed job.
 final class QueueForgetCommand extends DaravelCommand {

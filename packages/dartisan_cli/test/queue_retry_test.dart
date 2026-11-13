@@ -14,6 +14,57 @@ final class Note extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+/// Always fails: on `sync`, retried, it fails again at once.
+final class Doomed extends Job {
+  const Doomed();
+
+  static int runs = 0;
+
+  @override
+  String get jobName => 'doomed';
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async {
+    runs++;
+    throw StateError('doomed');
+  }
+}
+
+/// A failed job provider without pages (a third party's): only
+/// [FailedJobProvider].
+final class _NoPages implements FailedJobProvider {
+  final MemoryFailedJobProvider _inner = MemoryFailedJobProvider();
+
+  @override
+  Future<Object> log({
+    required String connection,
+    required String queue,
+    required String payload,
+    required String exception,
+  }) => _inner.log(
+    connection: connection,
+    queue: queue,
+    payload: payload,
+    exception: exception,
+  );
+
+  @override
+  Future<List<FailedJob>> all() => _inner.all();
+
+  @override
+  Future<FailedJob?> find(Object id) => _inner.find(id);
+
+  @override
+  Future<bool> forget(Object id) => _inner.forget(id);
+
+  @override
+  Future<int> flush() => _inner.flush();
+
+  @override
+  Future<int> prune(Duration olderThan) => _inner.prune(olderThan);
+}
+
 /// `queue:retry` before and after it moved onto `QueueManager.retryFailed`
 /// (Blueprint #134 H4a): the same lines, the same jobs pushed back.
 void main() {
@@ -135,6 +186,46 @@ void main() {
     final (code2, _) = await retry(['--queue=mail']);
     expect(code2, 0);
     expect(await counts(), (0, 2));
+  });
+
+  test('a provider without pages is read once: on sync, a job failing '
+      'again at once does not keep the passes going', () async {
+    Doomed.runs = 0;
+    final container = Container();
+    final events = EventDispatcher();
+    final registry = JobRegistry([
+      JobDefinition('doomed', (_) => const Doomed()),
+    ]);
+    final failed = _NoPages();
+    final manager = QueueManager(
+      config: const QueueConfig(),
+      registry: registry,
+      events: events,
+      container: container,
+      processor: JobProcessor(
+        registry: registry,
+        events: events,
+        failedJobs: failed,
+        container: container,
+      ),
+    )..extend('sync', SyncQueue.new);
+    for (var i = 0; i < 5; i++) {
+      await failed.log(
+        connection: 'sync',
+        queue: 'default',
+        payload: JobPayload.forJob(const Doomed(), uuid: 'd$i').encode(),
+        exception: 'StateError: doomed',
+      );
+    }
+    // A pass budget of nothing: each pass would stop after one job and
+    // the next read them all again, the new failures included.
+    final totals = await QueueRetryCommand.retryAll(
+      manager,
+      passBudget: Duration.zero,
+    ).timeout(const Duration(seconds: 20));
+    expect(totals, (retried: 5, skipped: 0));
+    expect(Doomed.runs, 5, reason: 'each of the 5 once');
+    expect(await failed.all(), hasLength(5), reason: 'their new failures');
   });
 }
 
