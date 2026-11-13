@@ -455,6 +455,53 @@ Future<void> store(Form form) => form.validate({'email': 'required'});
         );
         expect(file.readAsStringSync(), controller, reason: analyzer);
       }
+      // The missing executable could not format either, and says so.
+      await lintWith(p.join(root.path, 'no-such-dart'), ['--fix']);
+      expect(
+        errors.toString(),
+        contains('lint --fix: dart format did not run ('),
+      );
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test(
+      '--fix --json and --fix --dry-run --json: stdout is the JSON',
+      () async {
+        await commitAll();
+        for (final args in [
+          ['--fix', '--dry-run', '--json'],
+          ['--fix', '--json'],
+        ]) {
+          final (_, output) = await lint(args);
+          expect(
+            () => jsonDecode(output) as List<Object?>,
+            returnsNormally,
+            reason: '$args: $output',
+          );
+          expect(errors.toString(), contains('fix'), reason: '$args');
+        }
+        // After the real fix nothing is left: an empty list.
+        expect(jsonDecode((await lint(['--json'])).$2), isEmpty);
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    test('a part not generated yet is not analyzed', () async {
+      final dir = p.join(root.path, 'lib', 'app');
+      File(p.join(dir, 'user.dart'))
+          .writeAsStringSync("part 'user.g.dart';\n\nclass User {}\n");
+      expect(libraryFiles(root.path, 'lib/app/user.dart'), {
+        'lib/app/user.dart',
+      });
+    });
+
+    test('git status -z: a non-ASCII path comes back as it is', () async {
+      await commitAll();
+      final cafe = File(p.join(root.path, 'lib', 'app', 'café.dart'))
+        ..writeAsStringSync('// new\n');
+      expect(await uncommittedFiles(root.path, ['lib/app/café.dart']), [
+        ('lib/app/café.dart', 'uncommitted'),
+      ]);
+      cafe.deleteSync();
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('a write that fails puts back the files already written', () async {

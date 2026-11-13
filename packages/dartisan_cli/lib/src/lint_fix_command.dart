@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -57,7 +58,10 @@ List<LintFileFix> planLintFixes(String root, List<LintRule> rules) {
 /// after. Lines are matched with Myers' shortest edit script, in time
 /// O((N + M) · D) and memory O(D²) for D changed lines, so a long file
 /// with a few fixes far apart costs little (a table of N × M cells did
-/// not: 20 000 lines took 3.9 GB).
+/// not: 20 000 lines took 3.9 GB). The bound is about D² four-byte
+/// numbers: D = 1 000 changed lines ≈ 4 MB, D = 10 000 ≈ 400 MB. D counts
+/// the lines `fixSource` changed (`--dry-run` diffs its unformatted
+/// output), which is small in practice.
 String lintFixDiff(String path, String before, String after) {
   final a = before.split('\n');
   final b = after.split('\n');
@@ -223,35 +227,52 @@ Future<List<(String, String)>?> uncommittedFiles(
 ) async {
   final ProcessResult result;
   try {
-    result = await Process.run('git', [
-      'status',
-      '--porcelain',
-      '--untracked-files=all',
-      '--ignored',
-      '--',
-      ...paths,
-    ], workingDirectory: root);
+    result = await Process.run(
+      'git',
+      [
+        'status',
+        '--porcelain',
+        // NUL-separated, paths as they are (no C quoting of non-ASCII).
+        '-z',
+        '--untracked-files=all',
+        '--ignored',
+        '--',
+        ...paths,
+      ],
+      workingDirectory: root,
+      stdoutEncoding: utf8,
+    );
   } on ProcessException {
     return null;
   }
   if (result.exitCode != 0) {
     return null;
   }
-  return [
-    for (final line in (result.stdout as String).split('\n'))
-      if (line.trim().isNotEmpty)
-        (
-          line.substring(3).trim(),
-          line.startsWith('!!') ? 'ignored by git' : 'uncommitted',
-        ),
-  ];
+  final entries = (result.stdout as String).split(String.fromCharCode(0));
+  final found = <(String, String)>[];
+  for (var i = 0; i < entries.length; i++) {
+    final entry = entries[i];
+    if (entry.length < 4) {
+      continue;
+    }
+    found.add((
+      entry.substring(3),
+      entry.startsWith('!!') ? 'ignored by git' : 'uncommitted',
+    ));
+    // A rename or copy is followed by the path it came from.
+    if (entry[0] == 'R' || entry[0] == 'C') {
+      i++;
+    }
+  }
+  return found;
 }
 
 /// The files of the library [path] (project-relative, in the project at
 /// [root]) belongs to: the library file and its `part`s, found from
 /// either side (`part 'x.dart';`, `part of 'lib.dart';`). A file outside
 /// any such library is its own library. `part of` a library name (no URI)
-/// cannot be followed and leaves the file on its own.
+/// cannot be followed and leaves the file on its own; a part that does
+/// not exist (not generated yet) is left out.
 Set<String> libraryFiles(String root, String path) {
   String? read(String relative) {
     final file = File(p.join(root, relative));
@@ -279,10 +300,16 @@ Set<String> libraryFiles(String root, String path) {
   final libraryUnit = library == path ? ownUnit : parse(library);
   return {
     path,
-    library,
-    for (final directive in libraryUnit?.directives ?? const <Directive>[])
-      if (directive is PartDirective && directive.uri.stringValue != null)
-        resolve(library, directive.uri.stringValue!),
+    for (final file in [
+      library,
+      for (final directive in libraryUnit?.directives ?? const <Directive>[])
+        if (directive is PartDirective && directive.uri.stringValue != null)
+          resolve(library, directive.uri.stringValue!),
+    ])
+      // A part not generated yet (`part 'user.g.dart';`) is not a file to
+      // analyze: passed to dart analyze, it would end the run with no
+      // verdict.
+      if (File(p.join(root, file)).existsSync()) file,
   };
 }
 

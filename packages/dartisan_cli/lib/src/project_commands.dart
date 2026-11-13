@@ -1855,7 +1855,8 @@ final class LintCommand extends Command<int> {
       );
   }
 
-  /// The `dart` executable `--fix` analyzes with; the SDK's by default.
+  /// The `dart` executable `--fix` formats and analyzes with; the SDK's
+  /// by default.
   final String? analyzer;
 
   @override
@@ -1954,9 +1955,12 @@ final class LintCommand extends Command<int> {
   /// an exit code when it refuses to write, otherwise `null` and the
   /// command goes on to report what is left.
   Future<int?> _fix(String root, List<LintRule> rules) async {
+    // With --json, stdout holds only the JSON of what is left.
+    // ignore: close_sinks (the process's stdout or stderr, not ours to close)
+    final IOSink out = argResults!['json'] as bool ? stderr : stdout;
     final dryRun = argResults!['dry-run'] as bool;
     for (final stale in removeStaleLintFixFiles(root, dryRun: dryRun)) {
-      stdout.writeln(
+      out.writeln(
         '${dryRun ? 'Would remove' : 'Removed'} $stale, left by a lint --fix '
         'that did not finish.',
       );
@@ -1967,14 +1971,14 @@ final class LintCommand extends Command<int> {
         '$verb $count finding${count == 1 ? '' : 's'} in ${changes.length} '
         'file${changes.length == 1 ? '' : 's'}.';
     if (changes.isEmpty) {
-      stdout.writeln('Nothing to fix.');
+      out.writeln('Nothing to fix.');
       return null;
     }
     if (argResults!['dry-run'] as bool) {
       for (final change in changes) {
-        stdout.write(lintFixDiff(change.path, change.before, change.after));
+        out.write(lintFixDiff(change.path, change.before, change.after));
       }
-      stdout
+      out
         ..writeln(summary('Would fix'))
         ..writeln();
       return null;
@@ -2028,10 +2032,26 @@ final class LintCommand extends Command<int> {
         writeFileAtomically(p.join(root, change.path), change.after);
         written.add(change);
       }
-      await Process.run(dartExecutable(), [
-        'format',
-        ...paths,
-      ], workingDirectory: root);
+      // A format that cannot run leaves the files unformatted, which is
+      // said; they are still analyzed, so nothing broken is kept.
+      try {
+        final format = await Process.run(analyzer ?? dartExecutable(), [
+          'format',
+          ...paths,
+        ], workingDirectory: root);
+        final said = '${format.stdout}${format.stderr}'.trim();
+        if (format.exitCode > 1 && said.isEmpty) {
+          stderr.writeln(
+            'lint --fix: dart format did not run (exit ${format.exitCode}); '
+            'the fixed files are not formatted.',
+          );
+        }
+      } on ProcessException catch (error) {
+        stderr.writeln(
+          'lint --fix: dart format did not run (${error.message}); the '
+          'fixed files are not formatted.',
+        );
+      }
       // A file is judged with the rest of its library (its parts, or the
       // library it is part of): parts share the library's imports, so an
       // import a fix adds can break a part that was not changed.
@@ -2109,10 +2129,10 @@ final class LintCommand extends Command<int> {
       files++;
       fixed += change.messages.length;
       for (final message in change.messages) {
-        stdout.writeln('  fixed - $message');
+        out.writeln('  fixed - $message');
       }
     }
-    stdout
+    out
       ..writeln(
         'Fixed $fixed finding${fixed == 1 ? '' : 's'} in $files '
         'file${files == 1 ? '' : 's'}'
