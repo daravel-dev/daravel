@@ -83,7 +83,11 @@ Daravel does not use reflection. Drivers: `sync`, `database` (Laravel's
 `jobs` / `failed_jobs` tables) and `memory`. Retries, backoff, timeouts,
 unique jobs, job middleware, `queue:work`, `queue:failed`, `queue:retry` and
 `queue:restart` are supported. Dispatch inside a transaction is deferred
-until commit by default.
+until commit by default. The `sync` driver runs a job inside its dispatch,
+in the dispatching isolate: a loop that dispatches through it without real
+I/O (retrying jobs that fail again at once against an in-memory store) can
+keep the isolate busy with microtasks, so a timer around that loop (a
+`timeout`, a time budget) does not fire until the loop ends.
 
 ### Attempts, timeouts and `retry_after`
 
@@ -198,6 +202,11 @@ until commit by default.
   once; the job of a worker that stops responding waits `retry_after`. As in
   Laravel, keep `QUEUE_RETRY_AFTER` above the longest job `timeout`: the
   worker warns when a job's timeout (or `--timeout`) is not below it.
+  On Redis, a worker that lost its reservation anyway (a handler that blocked
+  its isolate past `retry_after`, so the extension could not run) no longer
+  deletes or releases the job another worker has taken since: the call does
+  nothing, and the worker logs one warning per job ("ran past
+  retry_after"). Raise `retry_after` above the longest job when you see it.
 - `Queue.dispatch(job)` pushes the job even when nothing awaits it (in a
   microtask, after the setters chained on it), as Laravel pushes a
   `PendingDispatch` when it goes out of scope. Awaiting it gives the job id
