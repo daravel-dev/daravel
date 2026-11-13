@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.4
+
+- Version aligned with Daravel 1.27.4; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.27.3
 
 A security patch of the core; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

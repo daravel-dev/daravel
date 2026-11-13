@@ -19,6 +19,16 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.4
+
+A security patch: fixes only. Upgrade every application that sends markdown mail or mail to addresses given as strings, and every application that validates input with `gt`, `gte`, `lt`, `lte`, `decimal` or `multiple_of`.
+
+### Security
+
+- Markdown mail and mail addresses were read with regular expressions that scanned to the end of the text from every opening tag, bracket, attribute name or address without its closing part: the plain-text version of a markdown mail (`markdownToText`, made for every markdown `Mailable` without its own text), the `<x-mail::button>` and `<x-mail::panel>` components, the button's attributes and the inline styles of `MailTheme.render`, the footer links of `MailTheme.layout`, and `MailAddress.parse` (`Mail.to('Name <address>')` and the other recipient strings). A 64 KiB body took up to 80 s in `markdownToText`, 128 000 characters up to 84 s in `render`, and a 64 KiB address 57 s, in the queue worker or in the request that sent the mail; an application that put text from its users into a mail (a contact form, a comment notification) was affected. They are now read in one pass, with the same results. Since 1.9.0.
+- The validation rules `gt`, `gte`, `lt`, `lte`, `decimal` and `multiple_of` turned the digits of a numeric value into one big integer (`BigInt.parse`), which takes time quadratic in their number: 1 000 000 digits held a request for 35 to 46 s. With the starter's `BodyLimitsMiddleware` a JSON or form body, and a multipart field, is at most 1 MiB, which is that much per request; without it the body limit is 50 MiB, and a query string can carry up to about 1 MiB in any case. Any endpoint validating a field with one of these rules was affected. They now compare the digits in linear time, with the same results as before and as Laravel 13's exact `BigDecimal` comparison (`multiple_of` takes the digits modulo the rule's factor). Since 1.22.0.
+- Before upgrading, limit the length of user text that goes into mail (`max:` rules) and validate addresses with the `email` rule; keep request bodies small (`BodyLimitsMiddleware`, `HTTP_MAX_BODY`) and limit the length of the request URL at the proxy in front of the application (for example 8 KiB).
+
 ## 1.27.3
 
 A security patch: fixes only. Upgrade every application served by `dartisan serve` or the AOT server, above all those behind a proxy or load balancer and those with domain routes.
