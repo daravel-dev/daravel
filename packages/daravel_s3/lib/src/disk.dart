@@ -126,8 +126,18 @@ final class S3Disk implements Disk {
     return normalized.isEmpty ? '' : '$normalized/';
   }
 
-  /// The object key of a disk path.
+  /// The object key of a disk path; for the disk root (`''`), the root's
+  /// prefix, to list or clean under it.
   String key(String path) => '$_prefix${normalizeDiskPath(path)}';
+
+  /// The key of the object at [path], for an operation on it: a path that
+  /// names the disk root (`''`, `'.'`, `'dir/..'`) has none and throws a
+  /// [StorageException] (with an empty root its key was `''`, the bucket
+  /// itself, and a signed URL of it listed the bucket).
+  String _objectKey(String path) => '$_prefix${normalizeFilePath(path)}';
+
+  /// Whether [path] names the disk root: no object is there.
+  static bool _isRoot(String path) => normalizeDiskPath(path).isEmpty;
 
   String _dirPrefix(String directory) {
     final dir = normalizeDiskPath(directory);
@@ -148,7 +158,7 @@ final class S3Disk implements Disk {
   /// the core disks.
   @override
   Future<void> put(String path, Object contents) async {
-    await client.putObject(key(path), switch (contents) {
+    await client.putObject(_objectKey(path), switch (contents) {
       String() => utf8.encode(contents),
       List<int>() => contents,
       _ => throw ArgumentError.value(
@@ -164,7 +174,7 @@ final class S3Disk implements Disk {
   /// when it does not.
   @override
   Future<void> putStream(String path, Stream<List<int>> stream) async {
-    final objectKey = key(path);
+    final objectKey = _objectKey(path);
     final headers = _writeHeaders(path);
     var buffer = BytesBuilder(copy: false);
     final etags = <String>[];
@@ -226,30 +236,36 @@ final class S3Disk implements Disk {
 
   @override
   Future<Uint8List> getBytes(String path) async {
-    final response = await client.getObject(key(path));
+    if (_isRoot(path)) {
+      throw _notFound(path);
+    }
+    final response = await client.getObject(_objectKey(path));
     if (response == null) {
       throw _notFound(path);
     }
     final builder = BytesBuilder(copy: false);
     // With the client's quiet timeout: a half-open connection would
     // otherwise hold the handler for ever.
-    await client.readBody(response, builder.add, client.uri(key(path)));
+    await client.readBody(response, builder.add, client.uri(_objectKey(path)));
     return builder.takeBytes();
   }
 
   @override
   Stream<List<int>> readStream(String path) async* {
-    final response = await client.getObject(key(path));
+    if (_isRoot(path)) {
+      throw _notFound(path);
+    }
+    final response = await client.getObject(_objectKey(path));
     if (response == null) {
       throw _notFound(path);
     }
     // With the client's quiet timeout, like getBytes.
-    yield* client.bodyStream(response, client.uri(key(path)));
+    yield* client.bodyStream(response, client.uri(_objectKey(path)));
   }
 
   @override
   Future<bool> exists(String path) async =>
-      await client.headObject(key(path)) != null;
+      !_isRoot(path) && await client.headObject(_objectKey(path)) != null;
 
   @override
   Future<bool> missing(String path) async => !await exists(path);
@@ -261,7 +277,12 @@ final class S3Disk implements Disk {
     final list = paths is String
         ? <String>[paths]
         : (paths as List<Object?>).cast<String>();
-    final keys = list.map(key).toList();
+    // The disk root is no object: it counts as not there.
+    final keys = [
+      for (final path in list)
+        if (!_isRoot(path)) _objectKey(path),
+    ];
+    final roots = list.length - keys.length;
     final found = <String>[];
     for (var start = 0; start < keys.length; start += 16) {
       final batch = keys.skip(start).take(16).toList();
@@ -281,14 +302,33 @@ final class S3Disk implements Disk {
         );
       }
     }
-    return found.length == keys.length;
+    return roots == 0 && found.length == keys.length;
+  }
+
+  /// Whether [from] and [to] are one object: copying or moving it onto
+  /// itself does nothing (a store that allows a self-copy then deleted it).
+  Future<bool> _ontoItself(String from, String to) async {
+    if (_objectKey(from) != _objectKey(to)) {
+      return false;
+    }
+    if (!await exists(from)) {
+      throw _notFound(from);
+    }
+    return true;
   }
 
   /// A server-side copy: the bytes never pass through this process.
   @override
   Future<void> copy(String from, String to) async {
+    if (await _ontoItself(from, to)) {
+      return;
+    }
     try {
-      await client.copyObject(key(from), key(to), headers: _writeHeaders(to));
+      await client.copyObject(
+        _objectKey(from),
+        _objectKey(to),
+        headers: _writeHeaders(to),
+      );
     } on S3Exception catch (error) {
       if (error.status == 404 && error.code != 'NoSuchBucket') {
         throw _notFound(from);
@@ -299,12 +339,19 @@ final class S3Disk implements Disk {
 
   @override
   Future<void> move(String from, String to) async {
+    if (await _ontoItself(from, to)) {
+      return;
+    }
     await copy(from, to);
-    await client.deleteObject(key(from));
+    await client.deleteObject(_objectKey(from));
   }
 
-  Future<S3ObjectInfo> _info(String path) async =>
-      await client.headObject(key(path)) ?? (throw _notFound(path));
+  Future<S3ObjectInfo> _info(String path) async {
+    if (_isRoot(path)) {
+      throw _notFound(path);
+    }
+    return await client.headObject(_objectKey(path)) ?? (throw _notFound(path));
+  }
 
   @override
   Future<int> size(String path) async => (await _info(path)).size;
@@ -315,7 +362,7 @@ final class S3Disk implements Disk {
 
   @override
   String url(String path) {
-    final objectKey = key(path);
+    final objectKey = _objectKey(path);
     final base = baseUrl;
     if (base == null) {
       return client.uri(objectKey).toString();
@@ -338,7 +385,7 @@ final class S3Disk implements Disk {
   }) => client.signer
       .presign(
         method: 'GET',
-        uri: client.uri(key(path), {
+        uri: client.uri(_objectKey(path), {
           'response-content-type': ?responseContentType,
           'response-content-disposition': ?responseContentDisposition,
         }),
@@ -363,7 +410,7 @@ final class S3Disk implements Disk {
     };
     final url = client.signer.presign(
       method: 'PUT',
-      uri: client.uri(key(path)),
+      uri: client.uri(_objectKey(path)),
       now: Clock.now(),
       expires: expiration.difference(Clock.now()),
       headers: headers,
@@ -396,7 +443,7 @@ final class S3Disk implements Disk {
       now: Clock.now(),
       expires: expiration.difference(Clock.now()),
       fields: {
-        'key': key(path),
+        'key': _objectKey(path),
         'Content-Type': ?contentType,
         if (visibility == 'public') 'acl': 'public-read',
       },

@@ -494,6 +494,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `$this->when($cond, $value) / whenLoaded('posts')` | `when(cond, value) / whenLoaded('posts')` |  |
 | `public function with($request)` | `Map<String, Object?> withMeta(Request? request)` | `with` is a reserved word in Dart. |
 | `Storage::disk('public')->put($path, $contents)` | `await Storage.disk('public').put(path, contents)` |  |
+| `Storage::copy($from, $to) / Storage::move($from, $to)` | `await Storage.disk().copy(from, to) / move(from, to)` | Onto the same normalised path, both do nothing once the file is found (Flysystem 3.36: ResolveIdenticalPathConflict::TRY, and its local adapter skips an identical copy), on every disk. A path naming the disk root (an empty one, '.', 'dir/..') is no file: exists is false, reads are not found, writes and URLs throw StorageException. |
 | `Storage::url($path)` | `Storage.url(path)` |  |
 | `Storage read-through driver` | `ReadThroughDisk(primary: a, fallback: b)` |  |
 | `Cache::touch($key, $ttl)` | `Cache.touch(key, ttl)` |  |
