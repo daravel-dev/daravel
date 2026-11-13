@@ -1026,9 +1026,11 @@ final class QueueManager {
   /// A job whose payload cannot be read stays in `failed_jobs` and is
   /// reported as skipped (Laravel pushes such a payload as `null`); the
   /// others are still retried. Each call holds the lock `queue:retry-all`
-  /// in [signalStore] (shared by the processes): a second call while it
-  /// runs, from another request or `dartisan`, throws
-  /// [RetryAllRunningException] instead of pushing the same jobs twice.
+  /// in [signalStore]: a second call while it runs, from another request or
+  /// `dartisan`, throws [RetryAllRunningException] instead of pushing the
+  /// same jobs twice. The lock reaches as far as that store: every process
+  /// for the `file`, `database` or `redis` store, only its own process or
+  /// isolate for a `process` or `isolate` one.
   Future<RetryAllResult> retryAllFailed({
     String? queue,
     int? limit,
