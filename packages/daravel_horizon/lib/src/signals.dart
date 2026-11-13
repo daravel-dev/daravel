@@ -110,24 +110,48 @@ abstract final class HorizonSignals {
   }
 
   /// The last state of Horizon [name]; its `state` is `inactive` when the
-  /// master has not written for three intervals (it is gone), or when it
-  /// never ran.
+  /// master has not written for three intervals (it is gone), when it
+  /// never ran, or when what the store holds cannot be read as a state
+  /// (another writer, a corrupted value): the commands reading it then
+  /// report Horizon inactive instead of failing.
   static Future<Map<String, Object?>> status(
     CacheRepository? store,
     String name,
   ) async {
     final raw = await store?.store.get(statusKey(name));
-    final state = raw is String
-        ? jsonDecode(raw) as Map<String, Object?>
-        : <String, Object?>{
-            'state': 'inactive',
-            'supervisors': <String, Object?>{},
-          };
+    final state =
+        _readable(raw) ??
+        <String, Object?>{
+          'state': 'inactive',
+          'supervisors': <String, Object?>{},
+        };
     final at = (state['at'] as num?)?.toInt() ?? 0;
     final age = DateTime.now().millisecondsSinceEpoch - at;
     if (age > statusEvery.inMilliseconds * 3) {
       state['state'] = 'inactive';
     }
     return state;
+  }
+
+  /// [raw] as a state of the shape [publishStatus] writes (the fields the
+  /// commands read, of their types), or null.
+  static Map<String, Object?>? _readable(Object? raw) {
+    if (raw is! String) {
+      return null;
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, Object?> ||
+        decoded['at'] is! num? ||
+        decoded['state'] is! String? ||
+        decoded['supervisors'] is! Map<String, Object?>? ||
+        decoded['timedOut'] is! List<Object?>?) {
+      return null;
+    }
+    return decoded;
   }
 }

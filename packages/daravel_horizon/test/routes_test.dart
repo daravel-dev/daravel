@@ -124,6 +124,21 @@ void main() {
     expect((await client.get('/horizon/api/jobs/none')).status, 404);
   });
 
+  test('a negative starting_at lists from the start', () async {
+    // The process store skipped a negative count (a RangeError, 500); the
+    // database store's query already treats it as 0.
+    await boot();
+    await record('c1', 'completed');
+    await record('c2', 'completed');
+    for (final at in ['-10', '-1', '0', 'x']) {
+      final response = await client.get(
+        '/horizon/api/jobs/completed?starting_at=$at',
+      );
+      expect(response.status, 200, reason: at);
+      expect(response.jsonMap['jobs'], hasLength(2), reason: at);
+    }
+  });
+
   test('monitoring: add a tag, list its jobs, remove it', () async {
     await boot();
     expect(
