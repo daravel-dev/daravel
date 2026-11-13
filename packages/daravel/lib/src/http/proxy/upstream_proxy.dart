@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../foundation/url_redaction.dart';
 import '../headers.dart';
 import '../http_exceptions.dart';
 import '../request.dart';
@@ -67,7 +68,7 @@ final class UpstreamProxy {
              ..maxConnectionsPerHost = maxConnectionsPerHost) {
     if (!upstream.hasScheme || upstream.host.isEmpty) {
       throw ArgumentError.value(
-        '$upstream',
+        redactUrlPassword('$upstream'),
         'upstream',
         'needs http(s)://host',
       );

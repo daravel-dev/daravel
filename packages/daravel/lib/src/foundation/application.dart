@@ -88,6 +88,7 @@ import 'env.dart';
 import 'ids.dart';
 import 'exceptions.dart';
 import 'service_provider.dart';
+import 'url_redaction.dart';
 
 part 'cache_jwt_denylist.dart';
 part 'cache_rate_limit_store.dart';
@@ -850,8 +851,17 @@ final class Application {
           'withUpstream() needs a URL: pass one or set UPSTREAM_URL.',
         );
       }
+      final Uri upstreamUri;
+      try {
+        upstreamUri = Uri.parse(url);
+      } on FormatException {
+        // Uri.parse's message quotes the URL, credentials included.
+        throw ConfigException(
+          'Malformed upstream URL: "${redactUrlPassword(url)}".',
+        );
+      }
       final proxy = UpstreamProxy(
-        Uri.parse(url),
+        upstreamUri,
         preserveHost: upstream.preserveHost,
         stripResponseHeaders: upstream.stripResponseHeaders,
         timeout: upstream.timeout,
