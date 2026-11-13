@@ -269,9 +269,10 @@ const Map<String, (int, String)> _knownLongLived = {
   'foundation/application.dart': (1, 'coordinator.listen() at boot'),
   'foundation/embedded_workers.dart': (4, 'embedded workers, at boot'),
   'http/buffered_web_socket.dart': (
-    2,
-    'per WebSocket connection: the application\'s listen, or the server\'s '
-        'read for a handler that returned without listening',
+    3,
+    'per WebSocket connection: the application\'s listen, the server\'s '
+        'read for a handler that returned without listening, or an empty '
+        'stream for a listen after that read ended',
   ),
   'http/websocket_guard.dart': (
     3,

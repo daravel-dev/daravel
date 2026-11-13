@@ -22,9 +22,16 @@ void main() {
   /// What a handler that listens late received.
   final lateReceived = <Object?>[];
 
+  /// What happened to a late listen: its `onDone` calls, and whether
+  /// `listen` threw.
+  var lateDone = 0;
+  var lateThrew = false;
+
   setUp(() async {
     held.clear();
     lateReceived.clear();
+    lateDone = 0;
+    lateThrew = false;
     app = Application.configure(basePath: Directory.systemTemp.path)
         .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
         .withLogLevel(LogLevel.critical)
@@ -70,8 +77,19 @@ void main() {
               // Returns, then listens once its setup is done.
               socket.add('hi');
               final after = int.parse(request.uri.queryParameters['ms']!);
+              final guarded = request.uri.queryParameters['try'] == '1';
               Timer(Duration(milliseconds: after), () {
-                socket.listen(lateReceived.add);
+                void listen() =>
+                    socket.listen(lateReceived.add, onDone: () => lateDone++);
+                if (!guarded) {
+                  listen();
+                  return;
+                }
+                try {
+                  listen();
+                } on Object {
+                  lateThrew = true;
+                }
               });
             }, compress: false),
         )
@@ -262,5 +280,31 @@ void main() {
       final ms = await expectSessionEnded(within: const Duration(seconds: 2));
       expect(ms, lessThan(1000));
     });
+  });
+
+  group('the client closes before a late listen (6 s after the handler '
+      'returned)', () {
+    for (final closeAt in const [1000, 5300]) {
+      for (final guarded in const [false, true]) {
+        test('closed at $closeAt ms, listen ${guarded ? 'inside' : 'without'} '
+            'try: it does not throw, its onDone runs once, no data', () async {
+          final client = await RawWsClient.connect(
+            engine.port!,
+            '/late?ms=6000${guarded ? '&try=1' : ''}',
+          );
+          await client.next(); // hi
+          await Future<void>.delayed(Duration(milliseconds: closeAt));
+          await client.close();
+          // Past the listen at 6 s.
+          await Future<void>.delayed(
+            Duration(milliseconds: 6000 - closeAt + 500),
+          );
+          expect(lateThrew, isFalse);
+          expect(lateDone, 1);
+          expect(lateReceived, isEmpty);
+          await expectSessionEnded(within: const Duration(seconds: 2));
+        });
+      }
+    }
   });
 }
