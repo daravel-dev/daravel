@@ -451,6 +451,7 @@ sections:
       - { php: "$this->when($cond, $value) / whenLoaded('posts')", dart: "when(cond, value) / whenLoaded('posts')", symbol: JsonResource.whenLoaded }
       - { php: "public function with($request)", dart: "Map<String, Object?> withMeta(Request? request)", symbol: JsonResource.withMeta, note: "`with` is a reserved word in Dart." }
       - { php: "Storage::disk('public')->put($path, $contents)", dart: "await Storage.disk('public').put(path, contents)", symbol: Storage.disk }
+      - { php: "Storage::copy($from, $to) / Storage::move($from, $to)", dart: "await Storage.disk().copy(from, to) / move(from, to)", symbol: normalizeFilePath, note: "Onto the same normalised path, both do nothing once the file is found (Flysystem 3.36: ResolveIdenticalPathConflict::TRY, and its local adapter skips an identical copy), on every disk. A path naming the disk root (an empty one, '.', 'dir/..') is no file: exists is false, reads are not found, writes and URLs throw StorageException." }
       - { php: "Storage::url($path)", dart: "Storage.url(path)", symbol: Storage.url }
       - { php: "Storage read-through driver", dart: "ReadThroughDisk(primary: a, fallback: b)", symbol: ReadThroughDisk }
       - { php: "Cache::touch($key, $ttl)", dart: "Cache.touch(key, ttl)", symbol: Cache.touch }
