@@ -108,7 +108,7 @@ if tonumber(ARGV[4]) > tonumber(ARGV[3]) then
   redis.call('ZADD', KEYS[2], ARGV[4], ARGV[1])
 else
   if ARGV[5] == 'stream' then
-    redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+    redis.call('HSET', KEYS[4], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
   else
     redis.call('RPUSH', KEYS[1], ARGV[1])
   end
@@ -174,7 +174,10 @@ redis.pcall('XGROUP', 'CREATE', KEYS[1], ARGV[4], '0', 'MKSTREAM')
 local due = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[1], 'LIMIT', 0, 100)
 for _, id in ipairs(due) do
   redis.call('ZREM', KEYS[2], id)
-  redis.call('XADD', KEYS[1], '*', 'id', id)
+  local added = redis.call('XADD', KEYS[1], '*', 'id', id)
+  if redis.call('EXISTS', ARGV[3] .. id) == 1 then
+    redis.call('HSET', ARGV[3] .. id, 'entry', added)
+  end
 end
 for _ = 1, 100 do
   local entry
@@ -285,7 +288,7 @@ if tonumber(ARGV[2]) > tonumber(ARGV[3]) then
   redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
 else
   if ARGV[4] == 'stream' then
-    redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+    redis.call('HSET', KEYS[5], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
   else
     redis.call('RPUSH', KEYS[1], ARGV[1])
   end
@@ -388,20 +391,30 @@ return redis.call('ZADD', KEYS[3], 'XX', 'CH', ARGV[1], ARGV[2])''');
   }
 
   /// Deletes a job, only for the worker that still holds it (its
-  /// `attempts`, ARGV 2), in one step: the reservation (or stream entry)
-  /// and the hash. 0 when another worker holds it now.
+  /// `attempts`, ARGV 2), in one step: wherever its id is, and the hash.
+  /// 0 when another worker holds it now.
+  ///
+  /// A reserved job (the common case) leaves the reserved set (list) or its
+  /// stream entry; a job that waits (one `daravel_horizon` quarantines
+  /// after a reclaim) leaves the delayed set, or the list (`LREM`, a scan of
+  /// the list, only for such a job), or its stream entry (`XDEL`, read or
+  /// not: every `XADD` records the entry in the hash). Before, a waiting
+  /// job's id stayed in the list or stream, counted by `size` until a pop
+  /// skipped it.
   static final RedisScript _delete = RedisScript('''
 if redis.call('HGET', KEYS[2], 'attempts') ~= ARGV[2] then
   return 0
 end
-if ARGV[3] == 'stream' then
-  local entry = redis.call('HGET', KEYS[2], 'entry')
-  if entry then
-    redis.call('XACK', KEYS[1], ARGV[4], entry)
-    redis.call('XDEL', KEYS[1], entry)
+if redis.call('ZREM', KEYS[4], ARGV[1]) == 0 then
+  if ARGV[3] == 'stream' then
+    local entry = redis.call('HGET', KEYS[2], 'entry')
+    if entry then
+      redis.call('XACK', KEYS[1], ARGV[4], entry)
+      redis.call('XDEL', KEYS[1], entry)
+    end
+  elseif redis.call('ZREM', KEYS[3], ARGV[1]) == 0 then
+    redis.call('LREM', KEYS[1], 1, ARGV[1])
   end
-else
-  redis.call('ZREM', KEYS[3], ARGV[1])
 end
 redis.call('DEL', KEYS[2])
 return 1''');
@@ -417,7 +430,12 @@ return 1''');
   Future<bool> _remove(String queue, String id, int attempts) async =>
       await client.eval(
         _delete,
-        keys: [_list(queue), '${_jobPrefix(queue)}$id', _reserved(queue)],
+        keys: [
+          _list(queue),
+          '${_jobPrefix(queue)}$id',
+          _reserved(queue),
+          _delayed(queue),
+        ],
         args: [id, '$attempts', engine.name, _group],
       ) ==
       1;
@@ -647,7 +665,7 @@ if ARGV[2] == 'stream' then
   redis.call('XACK', KEYS[1], ARGV[3], entry)
   redis.call('XDEL', KEYS[1], entry)
   redis.call('HDEL', KEYS[4], 'entry')
-  redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+  redis.call('HSET', KEYS[4], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
 else
   if redis.call('ZREM', KEYS[2], ARGV[1]) == 0 then
     return 0
