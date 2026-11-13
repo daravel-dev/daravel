@@ -34,6 +34,7 @@ import '../events/events.dart';
 import '../http/client.dart';
 import '../http/exception_handler.dart';
 import '../http/headers.dart';
+import '../http/middleware/body_limits.dart';
 import '../http/proxy/shadow_parity.dart';
 import '../http/proxy/upstream_proxy.dart';
 import '../http/middleware/maintenance_mode.dart';
@@ -832,6 +833,8 @@ final class Application {
       logger: logger,
       multipartLimits: MultipartLimits.fromEnv(env),
       jsonMaxDepth: Request.jsonMaxDepthFromEnv(env),
+      jsonBodyLimit: BodyLimits.jsonFromEnv(env),
+      formBodyLimit: BodyLimits.formFromEnv(env),
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;
