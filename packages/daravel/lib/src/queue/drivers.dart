@@ -479,6 +479,22 @@ abstract interface class ReclaimableQueueDriver implements QueueDriver {
   Future<bool> reclaim(String queue, Object jobId);
 }
 
+/// A queue that knows which reservation of a job is current: `attempts`
+/// grows with every reservation, so a worker that ran past `retry_after`
+/// (and lost its job to another worker) can tell. The worker asks before
+/// it records the job as failed, so a job another worker still runs is
+/// never recorded, hooked (`failed()`) or announced (`JobFailed`) by the
+/// worker that lost it.
+abstract interface class OwnershipQueueDriver implements QueueDriver {
+  /// Whether [job] is still the current reservation (no other worker
+  /// reserved it since).
+  Future<bool> owns(QueuedJob job);
+
+  /// [QueueDriver.delete], answering whether it removed the job: false when
+  /// another worker reserved it since (and nothing was removed).
+  Future<bool> deleteOwned(QueuedJob job);
+}
+
 /// Clamps a page request to sane values.
 (int, int) _page(int limit, int offset) =>
     (limit < 0 ? 0 : limit, offset < 0 ? 0 : offset);
@@ -713,7 +729,8 @@ final class DatabaseQueue
         WakeableQueueDriver,
         ExtendingQueueDriver,
         BrowsableQueueDriver,
-        ReclaimableQueueDriver {
+        ReclaimableQueueDriver,
+        OwnershipQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
   /// database queue.
   DatabaseQueue(
@@ -787,6 +804,9 @@ final class DatabaseQueue
 
   /// `attempts` is a `TINYINT UNSIGNED` in Laravel's `jobs` table (MySQL
   /// refuses 256); a row that reached it is failed, not reserved again.
+  /// There `attempts` no longer grows, so it no longer tells two
+  /// reservations of that row apart as the ownership token; the row is
+  /// failed on its next reservation anyway.
   static const int _maxAttempts = 255;
 
   /// Whether [raw] was pushed by Laravel rather than Daravel.
@@ -1231,11 +1251,24 @@ final class DatabaseQueue
   /// otherwise it does nothing and warns once. Stricter than Laravel, whose
   /// `deleteReserved` checks only that the row exists.
   @override
-  Future<void> delete(QueuedJob job) => _whileReserved(() async {
-    if (await _unchanged(job).delete() == 0) {
+  Future<void> delete(QueuedJob job) async {
+    await deleteOwned(job);
+  }
+
+  @override
+  Future<bool> deleteOwned(QueuedJob job) async {
+    var removed = false;
+    await _whileReserved(() async {
+      removed = await _unchanged(job).delete() > 0;
+    });
+    if (!removed) {
       _notOwner(job, 'delete');
     }
-  });
+    return removed;
+  }
+
+  @override
+  Future<bool> owns(QueuedJob job) => _unchanged(job).exists();
 
   /// Runs [body] (the delete or release of a job this worker ran) again
   /// after a transient error (a deadlock, SQLite busy or locked), for at

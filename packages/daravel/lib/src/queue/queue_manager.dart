@@ -833,6 +833,11 @@ final class JobProcessor {
     JobPayload payload,
   ) async {
     await driver.delete(queued);
+    await _releaseUnique(payload);
+  }
+
+  /// Releases the unique-job lock(s) of [payload].
+  Future<void> _releaseUnique(JobPayload payload) async {
     final unique = payload.uniqueKey;
     if (unique != null) {
       // Both formats, whichever release dispatched it (ADR-041).
@@ -853,13 +858,19 @@ final class JobProcessor {
   /// and a removal that fails after the record is logged (the job may run
   /// again). Stricter than Laravel, whose `Job::fail` deletes first and
   /// records from the `JobFailed` event.
-  Future<Object?> _recordThenFinish(
+  ///
+  /// Null, with nothing recorded, when the driver says another worker
+  /// reserved the job since ([OwnershipQueueDriver]): this worker ran past
+  /// `retry_after` and the job runs elsewhere, so it is not failed here.
+  /// In the transaction the removal decides (and the record is rolled
+  /// back); otherwise the driver is asked before the record.
+  Future<({Object id})?> _recordThenFinish(
     QueueDriver driver,
     QueuedJob queued,
     Object error,
     StackTrace stackTrace,
   ) async {
-    Future<Object?> record() => failedJobs.log(
+    Future<Object> record() => failedJobs.log(
       connection: driver.name,
       queue: queued.queue,
       payload: queued.raw,
@@ -870,11 +881,27 @@ final class JobProcessor {
         failed is DatabaseFailedJobProvider &&
         identical(driver.db, failed.db) &&
         driver.connection == failed.connection) {
-      return driver.db.transaction(() async {
-        final id = await record();
-        await _finish(driver, queued, queued.payload);
-        return id;
-      }, connection: driver.connection);
+      try {
+        return await driver.db.transaction(() async {
+          final id = await record();
+          if (!await driver.deleteOwned(queued)) {
+            throw const _NotOwner();
+          }
+          await _releaseUnique(queued.payload);
+          return (id: id);
+        }, connection: driver.connection);
+      } on _NotOwner {
+        return null;
+      }
+    }
+    if (driver is OwnershipQueueDriver && !await driver.owns(queued)) {
+      logger?.warning(
+        'Job ${queued.id} on queue [${queued.queue}] ran past retry_after: '
+        'another worker took it, so it is not failed here. Raise '
+        'retry_after above the longest job.',
+        <String, Object?>{'job_id': queued.id},
+      );
+      return null;
     }
     final id = await record();
     try {
@@ -888,7 +915,7 @@ final class JobProcessor {
         context: <String, Object?>{'job_id': queued.id, 'queue': queued.queue},
       );
     }
-    return id;
+    return (id: id);
   }
 
   Future<void> _fail(
@@ -898,7 +925,11 @@ final class JobProcessor {
     StackTrace stackTrace, {
     required Job? job,
   }) async {
-    final failedId = await _recordThenFinish(driver, queued, error, stackTrace);
+    final recorded = await _recordThenFinish(driver, queued, error, stackTrace);
+    if (recorded == null) {
+      return; // Another worker runs it: no record, no hook, no event.
+    }
+    final failedId = recorded.id;
     logger?.error(
       'Job ${queued.payload.displayName} failed',
       error: error,
@@ -2131,4 +2162,10 @@ final class _DispatchLocks {
       );
     }
   }
+}
+
+/// Thrown inside the failed-job transaction to roll the record back when
+/// the job turned out to be another worker's.
+final class _NotOwner implements Exception {
+  const _NotOwner();
 }

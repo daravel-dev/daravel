@@ -35,6 +35,12 @@ final class Fails extends Job {
 
   @override
   Future<void> handle(JobContext context) async => throw StateError('boom');
+
+  /// How many times a `failed()` hook ran.
+  static int hooks = 0;
+
+  @override
+  Future<void> failed(Object error, StackTrace stackTrace) async => hooks++;
 }
 
 /// A Daravel job whose `data` holds a string `command`, as Laravel's
@@ -378,6 +384,41 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
       );
       expect(await rows(), 1, reason: 'not lost');
     });
+
+    for (final sameConnection in [true, false]) {
+      test(
+        'a worker that lost its job to another does not fail it: no '
+        'record, no hook, the job stays the other worker\'s '
+        '(${sameConnection ? 'one transaction' : 'another provider'})',
+        () async {
+          Fails.hooks = 0;
+          final q = queue();
+          final FailedJobProvider failed = sameConnection
+              ? DatabaseFailedJobProvider(db, table: failedTable)
+              : MemoryFailedJobProvider();
+          await q.push(JobPayload.forJob(const Fails()), queue: 'default');
+          final a = (await q.pop('default'))!;
+          now = now.add(const Duration(seconds: 11));
+          final b = (await q.pop('default'))!;
+          expect(b.attempts, 2);
+
+          await processor(failed).process(q, a);
+          expect((await failed.all()).length, 0, reason: 'A records nothing');
+          expect(Fails.hooks, 0, reason: "A's failed() does not run");
+          expect(await rows(), 1);
+          expect(
+            (await db.table(table).first())!['attempts'],
+            2,
+            reason: "still B's reservation",
+          );
+
+          await processor(failed).process(q, b);
+          expect((await failed.all()).length, 1, reason: 'B fails it, once');
+          expect(Fails.hooks, 1);
+          expect(await rows(), 0);
+        },
+      );
+    }
   });
 
   group('attempts at 255', () {
