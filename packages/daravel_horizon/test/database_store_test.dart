@@ -198,5 +198,161 @@ void main() {
       expect(await store.prune(), 6);
       expect(await rows(), 2, reason: 'new, and the failed one kept');
     });
+
+    /// An application on a fresh set of tables, closed after the test.
+    Future<Application> fresh() async {
+      final app = Application.configure(basePath: Directory.systemTemp.path)
+          .withEnv({'APP_ENV': 'testing', ...env()})
+          .withLogLevel(LogLevel.critical)
+          .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+          .create();
+      await app.boot();
+      addTearDown(() async {
+        await app.run(
+          () async => const CreateHorizonTables().down(await Schema.builder()),
+        );
+        await app.shutdown();
+      });
+      await app.run(() async {
+        final schema = await Schema.builder();
+        await const CreateHorizonTables().down(schema);
+        await const CreateHorizonTables().up(schema);
+      });
+      return app;
+    }
+
+    double dropped(Application app) => app.container
+        .make<AppMetrics>()
+        .registry
+        .counter('horizon_store_dropped_total', '')
+        .value({'store': 'database', 'reason': 'error'});
+
+    test('$name: a name, queue, tag or uuid longer than its column is cut '
+        'to fit, and its batch is written', () async {
+      final app = await fresh();
+      final store = DatabaseHorizonStore(
+        app.container.make<DatabaseManager>(),
+        flushEvery: const Duration(hours: 1),
+        appMetrics: app.container.make<AppMetrics>(),
+      );
+      final long = 'n' * 300;
+      final tag = 'tag:${'t' * 300}';
+      final uuid = 'u' * 300;
+      await store.monitor(tag);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < 4; i++) {
+        await store.record(
+          RecordedJob(
+            uuid: 'ok$i',
+            name: 'SendInvoice',
+            queue: 'default',
+            status: 'completed',
+            at: now,
+          ),
+        );
+      }
+      await store.record(
+        RecordedJob(
+          uuid: uuid,
+          name: long,
+          queue: long,
+          status: 'completed',
+          at: now,
+          tags: [tag],
+        ),
+      );
+      await store.flush();
+      expect(dropped(app), 0);
+      expect(await app.run(() => DB.table('horizon_jobs').count()), 5);
+      final row = (await app.run(
+        () => DB.table('horizon_jobs').where('uuid', 'like', 'uuu%').first(),
+      ))!;
+      for (final column in ['uuid', 'name', 'queue']) {
+        final value = row[column]! as String;
+        expect(value.runes.length, DatabaseHorizonStore.columnWidth);
+        expect(value, endsWith('…'), reason: column);
+      }
+      // The record keeps the whole values; lookups by them still work.
+      final found = (await store.job(uuid))!;
+      expect(found.name, long);
+      expect(found.queue, long);
+      expect((await store.tagged(tag)).single.uuid, uuid);
+      expect(await store.monitored(), [
+        {'tag': DatabaseHorizonStore.fit(tag), 'count': 1},
+      ]);
+      expect((await store.rates(long))['per_second'], 1 / 60);
+      await store.unmonitor(tag);
+      expect(await store.monitored(), isEmpty);
+      // A cut keeps whole characters (code points), not half of a pair.
+      final emoji = '😀' * 300;
+      expect(DatabaseHorizonStore.fit(emoji).runes.length, 255);
+      expect(DatabaseHorizonStore.fit(emoji), startsWith('😀' * 254));
+    });
+
+    test('$name: a record the database refuses costs only itself; three in '
+        'a row and the rest of the batch is dropped', () async {
+      final app = await fresh();
+      final store = DatabaseHorizonStore(
+        app.container.make<DatabaseManager>(),
+        flushEvery: const Duration(hours: 1),
+        appMetrics: app.container.make<AppMetrics>(),
+      );
+      // `status` is varchar(16). A longer one updating a job's row is
+      // refused by PostgreSQL and by MySQL in strict mode (MySQL's INSERT
+      // IGNORE only truncates a new row, with a warning); SQLite keeps it.
+      final refuses = !name.contains('SQLite');
+      final now = DateTime.now().millisecondsSinceEpoch;
+      var at = now;
+      RecordedJob job(String uuid, String status) => RecordedJob(
+        uuid: uuid,
+        name: 'SendInvoice',
+        queue: 'default',
+        status: status,
+        at: at,
+      );
+      final bad = 'x' * 40;
+      // Every job is there first, so each record below updates its row.
+      for (final uuid in 'abcdefghij'.split('')) {
+        await store.record(job(uuid, 'reserved'));
+      }
+      await store.flush();
+      at++;
+      for (final (uuid, status) in [
+        ('a', 'completed'),
+        ('b', bad),
+        ('c', 'completed'),
+        ('d', 'completed'),
+      ]) {
+        await store.record(job(uuid, status));
+      }
+      await store.flush();
+      expect(
+        await app.run(
+          () => DB.table('horizon_jobs').where('status', 'completed').count(),
+        ),
+        3,
+      );
+      expect(dropped(app), refuses ? 1 : 0);
+      for (final (uuid, status) in [
+        ('e', 'completed'),
+        ('f', bad),
+        ('g', bad),
+        ('h', bad),
+        ('i', 'completed'),
+        ('j', 'completed'),
+      ]) {
+        await store.record(job(uuid, status));
+      }
+      await store.flush();
+      // e written; f, g, h refused in a row: the store is taken as failing
+      // and i, j are dropped with them.
+      expect(
+        await app.run(
+          () => DB.table('horizon_jobs').where('status', 'completed').count(),
+        ),
+        refuses ? 4 : 6,
+      );
+      expect(dropped(app), refuses ? 1 + 5 : 0);
+    });
   }
 }
