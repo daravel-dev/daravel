@@ -1182,9 +1182,12 @@ final class Application {
             server.connect(socket, request, request.param<String>('key')),
         // As Reverb: no permessage-deflate, so no zlib state per connection.
         compress: false,
-        // Pusher messages are small; a frame past the limit fails the
-        // connection before it is buffered, not after.
-        maxPayloadBytes: maxMessageSize + 1024,
+        // As Reverb (Ratchet's MessageBuffer, maxMessagePayloadSize): a
+        // message above the largest application's max_message_size, all
+        // its fragments together, closes the connection with 1009 before
+        // it is buffered. An application with a smaller limit still answers
+        // pusher:error 4200 between its limit and this one.
+        maxPayloadBytes: maxMessageSize,
         // A client too slow to read what it is sent is closed with 4100
         // ("over capacity"): Pusher clients reconnect after a backoff.
         maxBufferedBytes: broadcasting.maxBufferedBytes,

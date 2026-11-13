@@ -108,7 +108,10 @@ final class Router {
   /// a client with more than [maxBufferedBytes] waiting to be sent is
   /// closed with [slowClientCode] (see [Response.webSocket]). With
   /// [drainSpread] a shutting-down server closes these sockets at random
-  /// moments within it instead of all at once.
+  /// moments within it instead of all at once. [maxPayloadBytes] limits a
+  /// whole message (all its fragments), [assembleTimeout] how long one may
+  /// take to arrive, [controlFrameBurst] and [controlFramesPerSecond] the
+  /// PING/PONG frames a client may send.
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
@@ -117,6 +120,10 @@ final class Router {
     int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
     Duration? drainSpread,
+    Duration assembleTimeout = Response.defaultWebSocketAssembleTimeout,
+    int controlFrameBurst = Response.defaultWebSocketControlFrameBurst,
+    int controlFramesPerSecond =
+        Response.defaultWebSocketControlFramesPerSecond,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -132,6 +139,9 @@ final class Router {
       maxBufferedBytes: maxBufferedBytes,
       slowClientCode: slowClientCode,
       drainSpread: drainSpread,
+      assembleTimeout: assembleTimeout,
+      controlFrameBurst: controlFrameBurst,
+      controlFramesPerSecond: controlFramesPerSecond,
     );
   })..markWebSocket();
 
