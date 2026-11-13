@@ -3,6 +3,8 @@ import 'package:path/path.dart' as p;
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
 import '../foundation/env.dart';
+import '../foundation/exceptions.dart';
+import 'postgres_driver.dart';
 
 /// A single named connection (`config/database.php` parity).
 final class ConnectionConfig {
@@ -131,6 +133,12 @@ final class ConnectionConfig {
       options: <String, Object?>{
         'pool': int.tryParse(query['pool'] ?? '') ?? 10,
         'sslmode': query['sslmode'] ?? 'disable',
+        // The CA, and a client certificate with its key (PEM paths).
+        'sslrootcert': ?query['sslrootcert'],
+        if (driver == 'pgsql') ...{
+          'sslcert': ?query['sslcert'],
+          'sslkey': ?query['sslkey'],
+        },
         if (driver != 'pgsql') ...{
           'charset': query['charset'] ?? 'utf8mb4',
           'collation': query['collation'] ?? 'utf8mb4_unicode_ci',
@@ -176,13 +184,15 @@ final class ConnectionConfig {
 
 /// Database configuration section.
 final class DatabaseConfig implements ConfigSection {
-  /// Boot check: `DB_CONNECTION` must name a configured connection.
+  /// Boot check: `DB_CONNECTION` must name a configured connection, and a
+  /// PostgreSQL default connection a known `DB_SSLMODE`.
   static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
     if (!config.hasSection<DatabaseConfig>()) {
       return const [];
     }
     final db = config.section<DatabaseConfig>();
-    if (!db.connections.containsKey(db.defaultConnection)) {
+    final connection = db.connections[db.defaultConnection];
+    if (connection == null) {
       return [
         ConfigIssue(
           ConfigIssueLevel.error,
@@ -190,6 +200,16 @@ final class DatabaseConfig implements ConfigSection {
           'connection (available: ${db.connections.keys.join(', ')}).',
         ),
       ];
+    }
+    // Only the default connection: DB_SSLMODE also feeds the built-in
+    // `pgsql` entry of an application on MySQL, whose names (`REQUIRED`)
+    // PostgreSQL does not know. Other connections fail when opened.
+    if (connection.driver == 'pgsql') {
+      try {
+        PostgresDriver.sslModeOf(connection.options['sslmode']);
+      } on ConfigException catch (error) {
+        return [ConfigIssue(ConfigIssueLevel.error, error.message)];
+      }
     }
     return const [];
   }
@@ -226,6 +246,12 @@ final class DatabaseConfig implements ConfigSection {
         options: <String, Object?>{
           'pool': env.integer('DB_POOL_SIZE', 10),
           'sslmode': env.string('DB_SSLMODE', 'disable'),
+          // As Laravel's PostgresConnector passes them to libpq: the CA
+          // that signed the server's certificate, and a client certificate
+          // with its key (PEM paths).
+          'sslrootcert': env.maybeString('DB_SSLROOTCERT'),
+          'sslcert': env.maybeString('DB_SSLCERT'),
+          'sslkey': env.maybeString('DB_SSLKEY'),
           // Seconds; 0 for none. The drivers' defaults apply when unset.
           'connect_timeout': env.maybeString('DB_CONNECT_TIMEOUT'),
           'query_timeout': env.maybeString('DB_QUERY_TIMEOUT'),

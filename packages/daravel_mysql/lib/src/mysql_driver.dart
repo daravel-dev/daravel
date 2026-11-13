@@ -293,6 +293,18 @@ final class MySqlDriver
     return 'SET SESSION max_execution_time = ${timeout.inMilliseconds}';
   }
 
+  /// The statement bounding a row-lock wait by [timeout], in whole seconds
+  /// (at least 1, the variable's minimum). `max_execution_time` bounds only
+  /// `SELECT`, and the client backstop is off inside a transaction, so
+  /// without it an `UPDATE` waiting for a row lock there waited for the
+  /// server's `innodb_lock_wait_timeout` (50 s by default) whatever
+  /// `DB_QUERY_TIMEOUT` said. The wait ends with error 1205, which
+  /// `transaction(attempts:)` retries ([isRetryableError]).
+  static String lockWaitStatement(Duration timeout) {
+    final seconds = (timeout.inMilliseconds / 1000).ceil();
+    return 'SET SESSION innodb_lock_wait_timeout = ${seconds < 1 ? 1 : seconds}';
+  }
+
   /// `ER_QUERY_TIMEOUT` of MySQL (3024) and `ER_STATEMENT_TIMEOUT` of
   /// MariaDB (1969): the server stopped a statement past its time.
   static bool isTimeoutCode(int code) => code == 3024 || code == 1969;
@@ -405,6 +417,18 @@ final class MySqlDriver
                 dialect != SqlDialect.mariadb))) {
       final result = await connection.execute('SELECT VERSION() AS v');
       _version = result.rows.first.colByName('v') as String?;
+    }
+    if (timeout != null && timeout > Duration.zero) {
+      // Before sessionStatements, so an initCommand of the application
+      // that sets its own lock wait wins.
+      try {
+        await connection.execute(lockWaitStatement(timeout));
+      } on MySQLServerException catch (error) {
+        // 1227: no privilege; 1193: unknown variable (no InnoDB).
+        if (error.errorCode != 1227 && error.errorCode != 1193) {
+          rethrow;
+        }
+      }
     }
     for (final statement in sessionStatements(_version)) {
       await connection.execute(statement);

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:postgres/postgres.dart' as pg;
 
 import '../foundation/clock.dart';
+import '../foundation/exceptions.dart';
 import 'database_config.dart';
 import 'query_executor.dart';
 
@@ -57,6 +58,7 @@ final class PostgresDriver
     this.applicationName = 'daravel',
     this.searchPath = const <String>[],
     this.idleTransactionTimeout,
+    this.securityContext,
   });
 
   /// The driver for a configured connection (`DB_HOST`, `DB_PORT`,
@@ -65,18 +67,36 @@ final class PostgresDriver
   ///
   /// `DB_SSLMODE` is read by [sslModeOf]; a value it does not know exactly
   /// is reported once, at boot, through [onWarning] (standard error by
-  /// default).
+  /// default). `DB_SSLROOTCERT`, `DB_SSLCERT` and `DB_SSLKEY` (or
+  /// `?sslrootcert=`, `?sslcert=`, `?sslkey=` in `DB_URL`) are read by
+  /// [securityContextOf], as Laravel's `PostgresConnector` passes them to
+  /// libpq.
   factory PostgresDriver.fromConfig(
     String name,
     ConnectionConfig connection, {
     void Function(String message)? onWarning,
   }) {
     final ssl = sslModeOf(connection.options['sslmode']);
+    final void Function(String) warn = onWarning ?? stderr.writeln;
     if (ssl.warning case final warning?) {
-      final void Function(String) warn = onWarning ?? stderr.writeln;
       warn('[$name] $warning');
     }
+    final rootCert = _path(connection.options['sslrootcert']);
+    if (rootCert != null && ssl.mode == PostgresSslMode.require) {
+      warn(
+        '[$name] DB_SSLROOTCERT is set but DB_SSLMODE=require does not check '
+        'the server certificate (libpq would check the chain, as '
+        'verify-ca); use verify-full to check it.',
+      );
+    }
     return PostgresDriver(
+      securityContext: ssl.mode == PostgresSslMode.disable
+          ? null
+          : securityContextOf(
+              rootCert: rootCert,
+              cert: _path(connection.options['sslcert']),
+              key: _path(connection.options['sslkey']),
+            ),
       name: name,
       host: connection.host ?? '127.0.0.1',
       port: connection.port ?? 5432,
@@ -104,26 +124,83 @@ final class PostgresDriver
     );
   }
 
+  static String? _path(Object? value) {
+    final path = value?.toString().trim();
+    return path == null || path.isEmpty ? null : path;
+  }
+
+  /// The TLS context for [rootCert] (the CA that signed the server's
+  /// certificate, in place of the system's), and [cert] with [key] (a
+  /// client certificate), all PEM file paths; `null` when none is given,
+  /// so the system's CAs apply. A file that cannot be read, or a [cert]
+  /// without its [key], throws a [ConfigException] naming the setting.
+  static SecurityContext? securityContextOf({
+    String? rootCert,
+    String? cert,
+    String? key,
+  }) {
+    if (rootCert == null && cert == null && key == null) {
+      return null;
+    }
+    if ((cert == null) != (key == null)) {
+      throw const ConfigException(
+        'DB_SSLCERT and DB_SSLKEY go together: a client certificate needs '
+        'its private key.',
+      );
+    }
+    final context = SecurityContext(withTrustedRoots: rootCert == null);
+    void load(String setting, String path, void Function(String) use) {
+      try {
+        use(path);
+      } on Object catch (error) {
+        throw ConfigException('$setting "$path" cannot be read: $error');
+      }
+    }
+
+    if (rootCert != null) {
+      load('DB_SSLROOTCERT', rootCert, context.setTrustedCertificates);
+    }
+    if (cert != null && key != null) {
+      load('DB_SSLCERT', cert, context.useCertificateChain);
+      load('DB_SSLKEY', key, context.usePrivateKey);
+    }
+    return context;
+  }
+
+  /// The TLS context of every connection: the CA of `DB_SSLROOTCERT` and
+  /// the client certificate of `DB_SSLCERT`/`DB_SSLKEY`; `null` for the
+  /// system's CAs and no client certificate.
+  final SecurityContext? securityContext;
+
+  pg.SslMode get _pgSslMode => switch (sslMode) {
+    .disable => pg.SslMode.disable,
+    .require => pg.SslMode.require,
+    .verifyFull => pg.SslMode.verifyFull,
+  };
+
   /// How `DB_SSLMODE` (any case, `-` or `_`) maps to a [PostgresSslMode],
   /// with libpq's names:
   ///
   /// - unset, `disable`: no TLS.
   /// - `require`: TLS without checking the certificate.
-  /// - `verify-full`, and `verify-ca` and any other value starting with
-  ///   `verify`: TLS with the certificate and host name checked. The
-  ///   `postgres` package has no chain-only check, so `verify-ca` is as
-  ///   strict as `verify-full`; a misspelt verify mode must not weaken the
-  ///   check it asked for. Only `verify-full` itself has no [warning].
-  /// - `prefer`, `allow` and anything else: no TLS, as before, with a
-  ///   [warning] that names the value and the modes that encrypt. libpq
-  ///   tries TLS first for `prefer`; this driver cannot fall back, so
-  ///   turning TLS on would cut off servers without it.
+  /// - `verify-full` and `verify-ca`: TLS with the certificate and host
+  ///   name checked. The `postgres` package has no chain-only check, so
+  ///   `verify-ca` is as strict as `verify-full`, with a [warning].
+  /// - `prefer`, `allow`: no TLS, as before, with a [warning] that names
+  ///   the value and the modes that encrypt. libpq tries TLS first for
+  ///   `prefer`; this driver cannot fall back, so turning TLS on would cut
+  ///   off servers without it.
+  ///
+  /// Any other value throws a [ConfigException] naming the six modes: a
+  /// typo such as `required` used to mean no TLS with only a warning, and
+  /// a misspelt `verify-…` a guess.
   static ({PostgresSslMode mode, String? warning}) sslModeOf(Object? sslmode) {
     final raw = '${sslmode ?? ''}'.trim();
     final mode = raw.toLowerCase().replaceAll('_', '-');
     return switch (mode) {
       '' || 'disable' => (mode: PostgresSslMode.disable, warning: null),
       'require' => (mode: PostgresSslMode.require, warning: null),
+      // `verifyFull`, the enum's own name, read in any case.
       'verify-full' ||
       'verifyfull' => (mode: PostgresSslMode.verifyFull, warning: null),
       'verify-ca' => (
@@ -132,18 +209,16 @@ final class PostgresDriver
             'DB_SSLMODE "verify-ca" checks the host name too, as '
             'verify-full (the PostgreSQL client has no chain-only check).',
       ),
-      _ when mode.startsWith('verify') => (
-        mode: PostgresSslMode.verifyFull,
-        warning:
-            'DB_SSLMODE "$raw" is not a known mode; using "verify-full" '
-            '(TLS with the certificate and host name checked).',
-      ),
-      _ => (
+      'prefer' || 'allow' => (
         mode: PostgresSslMode.disable,
         warning:
             'DB_SSLMODE "$raw" does not encrypt the connection to PostgreSQL '
             '(no TLS). Use require (encrypted) or verify-full (encrypted and '
             'checked); disable to silence this warning.',
+      ),
+      _ => throw ConfigException(
+        'DB_SSLMODE "$raw" is not a PostgreSQL SSL mode: use disable, allow, '
+        'prefer, require, verify-ca or verify-full.',
       ),
     };
   }
@@ -313,11 +388,8 @@ final class PostgresDriver
       [_endpoint],
       settings: pg.PoolSettings(
         maxConnectionCount: maxConnections,
-        sslMode: switch (sslMode) {
-          .disable => pg.SslMode.disable,
-          .require => pg.SslMode.require,
-          .verifyFull => pg.SslMode.verifyFull,
-        },
+        sslMode: _pgSslMode,
+        securityContext: securityContext,
         connectTimeout: connectTimeout,
         queryTimeout: queryTimeout,
         applicationName: applicationName,
@@ -378,11 +450,8 @@ final class PostgresDriver
           final opened = connection = await pg.Connection.open(
             _endpoint,
             settings: pg.ConnectionSettings(
-              sslMode: switch (sslMode) {
-                .disable => pg.SslMode.disable,
-                .require => pg.SslMode.require,
-                .verifyFull => pg.SslMode.verifyFull,
-              },
+              sslMode: _pgSslMode,
+              securityContext: securityContext,
               connectTimeout: connectTimeout,
               applicationName: applicationName,
             ),

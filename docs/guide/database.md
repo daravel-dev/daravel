@@ -31,6 +31,15 @@ shares the database. `DB_ISOLATION_LEVEL` sets the transaction isolation
 level, and `MySqlDriver(initCommands: [...], onConnectionOpen: ...)` runs
 anything else on each new connection.
 
+The settings Daravel puts on a connection (`sql_mode`, isolation level,
+statement and lock timeouts, `search_path`) are set once when the pool
+opens it, the same for every request that borrows it. A `SET` an
+application runs itself stays on that pooled connection, and the pool does
+not reset a connection when it comes back: the next request that borrows
+it gets the value. Scope it to a transaction instead (`SET LOCAL` on
+PostgreSQL inside `DB.transaction`), or, on MySQL, set it on every
+connection with `initCommands` or `onConnectionOpen`.
+
 ## Drivers and connections
 
 Each database client is a package. MySQL and MariaDB already work this way.
@@ -124,13 +133,21 @@ MySQL/MariaDB, with libpq's names:
 | `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, certificate not checked | TLS, certificate not checked, unless a CA is given |
 | `verify-full`, `verify-ca` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`) | TLS, certificate and host name checked (`verify-ca` too, with a warning at boot) | TLS, certificate and host name checked |
 | unset | no TLS | no TLS; with a CA, as `verify-full` |
-| another value | starting with `verify`: as `verify-full`; otherwise no TLS (`prefer` and `allow` too); both with a warning at boot | starting with `verify`: as `verify-full`; otherwise as `require`; both with a warning at boot |
+| `prefer`, `allow` | no TLS, with a warning at boot | as `require` |
+| another value | refused, naming the six modes (`required` used to mean no TLS): at boot for the default connection, at first use for another | starting with `verify`: as `verify-full`; otherwise as `require`; both with a warning at boot |
 
 The mode is read in any case, with `-` or `_` (`REQUIRE`, `verify_full`).
 
 `require` encrypts the traffic but does not stop an active attacker: anyone
 between the application and the server can present a certificate of their
 own and read the password and the data. Use `verify-full` in production.
+
+PostgreSQL takes the CA that signed the server certificate from
+`DB_SSLROOTCERT` (`?sslrootcert=` in `DB_URL`), and a client certificate
+from `DB_SSLCERT` with its key in `DB_SSLKEY`, the names Laravel's
+`PostgresConnector` passes to libpq; a file that cannot be read fails the
+connection with an error that names the setting. With `require`, libpq checks the chain when a CA is given (as
+`verify-ca`); this driver does not, and says so at boot: use `verify-full`.
 
 MySQL and MariaDB take the CA that signed the server certificate from
 `DB_SSLROOTCERT`, or from `MYSQL_ATTR_SSL_CA`, the name of Laravel's
@@ -245,11 +262,14 @@ past it fails with `StatementTimeoutException` (as the `previous` of the
 | `client` | `KILL QUERY` through a second connection, as before | For a database user that may not `SET SESSION` these variables; the driver also falls back to it, with one warning, when the server refuses |
 
 Inside a transaction only the server bounds a statement: a client timeout
-would leave the `ROLLBACK` queued behind it. So on MySQL (not MariaDB) a
-write inside a transaction is bounded by nothing in `server` mode: the
-server stops only `SELECT`, and there is no client backstop in a
-transaction, where the old `client` mode stopped it with `KILL QUERY`.
-Rely on `innodb_lock_wait_timeout` there, or use `client`. Set the mode in the
+would leave the `ROLLBACK` queued behind it. MySQL stops only `SELECT`, so
+each connection also sets `innodb_lock_wait_timeout` to `DB_QUERY_TIMEOUT`
+(whole seconds, at least 1; the server's default is 50 s): a write waiting
+for a row lock ends with error 1205, which `transaction(attempts:)`
+retries after rolling the whole attempt back. A write that runs long
+without waiting for a lock is still bounded by nothing in `server` mode;
+use `client` for that. An `initCommands` entry that sets its own
+`innodb_lock_wait_timeout` wins. Set the mode in the
 connection options (`statement_timeout_mode`) or with
 `MySqlDriver(statementTimeoutMode:)`.
 

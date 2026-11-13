@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -27,31 +29,133 @@ void main() {
       }
     });
 
-    test('verify-ca and misspelt verify modes verify, with a warning', () {
-      for (final value in ['verify-ca', 'VERIFY_CA', 'verify-fulll']) {
+    test('verify-ca verifies, with a warning', () {
+      for (final value in ['verify-ca', 'VERIFY_CA']) {
         expect(of(value).mode, PostgresSslMode.verifyFull, reason: value);
         expect(of(value).warning, isNotNull, reason: value);
       }
-      expect(of('verify-fulll').warning, contains('"verify-fulll"'));
     });
 
-    test(
-      'prefer, allow and unknown values stay without TLS, with a warning',
-      () {
-        for (final value in ['prefer', 'allow', 'requird']) {
-          expect(of(value).mode, PostgresSslMode.disable, reason: value);
-          expect(
-            of(value).warning,
-            allOf(
-              contains('"$value"'),
-              contains('require'),
-              contains('verify-full'),
+    test('prefer and allow stay without TLS, with a warning', () {
+      for (final value in ['prefer', 'allow', 'PREFER']) {
+        expect(of(value).mode, PostgresSslMode.disable, reason: value);
+        expect(
+          of(value).warning,
+          allOf(
+            contains('"$value"'),
+            contains('require'),
+            contains('verify-full'),
+          ),
+          reason: value,
+        );
+      }
+    });
+
+    // DB-1 (Reviewer RSEQ 49 #4a): `required` meant no TLS with a warning.
+    test('any other value is a ConfigException naming the six modes', () {
+      for (final value in ['required', 'requird', 'verify-fulll', 'tls', '1']) {
+        expect(
+          () => of(value),
+          throwsA(
+            isA<ConfigException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('"$value"'),
+                contains(
+                  'disable, allow, prefer, require, verify-ca or '
+                  'verify-full',
+                ),
+              ),
             ),
-            reason: value,
+          ),
+          reason: value,
+        );
+      }
+    });
+
+    test('the boot check refuses an unknown mode on a PostgreSQL default '
+        'connection only', () {
+      Iterable<ConfigIssue> check(Map<String, String> env) {
+        final config = ConfigRepository()
+          ..register<DatabaseConfig>(
+            DatabaseConfig.fromEnv(Env.fromMap(env), basePath: '/srv'),
           );
-        }
-      },
-    );
+        return DatabaseConfig.check(Env.fromMap(env), config);
+      }
+
+      expect(
+        check({'DB_CONNECTION': 'pgsql', 'DB_SSLMODE': 'required'}).single,
+        isA<ConfigIssue>()
+            .having((i) => i.level, 'level', ConfigIssueLevel.error)
+            .having((i) => i.message, 'message', contains('"required"')),
+      );
+      expect(
+        check({'DB_CONNECTION': 'pgsql', 'DB_SSLMODE': 'verify-full'}),
+        isEmpty,
+      );
+      expect(
+        check({'DB_CONNECTION': 'mysql', 'DB_SSLMODE': 'REQUIRED'}),
+        isEmpty,
+        reason: 'a MySQL mode name feeds the unused pgsql entry too',
+      );
+    });
+
+    test('DB_SSLROOTCERT, DB_SSLCERT and DB_SSLKEY reach the options, from '
+        'env and DB_URL', () {
+      final env = DatabaseConfig.fromEnv(
+        Env.fromMap({
+          'DB_SSLROOTCERT': '/ca.pem',
+          'DB_SSLCERT': '/c.pem',
+          'DB_SSLKEY': '/k.pem',
+        }),
+        basePath: '/srv',
+      ).connections['pgsql']!.options;
+      expect(
+        [env['sslrootcert'], env['sslcert'], env['sslkey']],
+        ['/ca.pem', '/c.pem', '/k.pem'],
+      );
+      final url = ConnectionConfig.fromUrl(
+        'pgsql://u:p@h/db?sslmode=verify-full&sslrootcert=/ca.pem'
+        '&sslcert=/c.pem&sslkey=/k.pem',
+      ).options;
+      expect(
+        [url['sslrootcert'], url['sslcert'], url['sslkey']],
+        ['/ca.pem', '/c.pem', '/k.pem'],
+      );
+    });
+
+    test('securityContextOf: none, a missing file, a certificate without '
+        'its key', () {
+      expect(PostgresDriver.securityContextOf(), isNull);
+      final missing = '${Directory.systemTemp.path}/no-such-ca-db1.pem';
+      expect(
+        () => PostgresDriver.securityContextOf(rootCert: missing),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('DB_SSLROOTCERT'), contains(missing)),
+          ),
+        ),
+      );
+      expect(
+        () => PostgresDriver.securityContextOf(cert: '/c.pem'),
+        throwsA(isA<ConfigException>()),
+      );
+      expect(
+        () => PostgresDriver.fromConfig(
+          'pgsql',
+          ConnectionConfig(
+            driver: 'pgsql',
+            database: 'd',
+            options: {'sslmode': 'verify-full', 'sslrootcert': missing},
+          ),
+        ),
+        throwsA(isA<ConfigException>()),
+        reason: 'read when the driver is made, not at the first query',
+      );
+    });
 
     test('fromConfig warns once, naming the connection', () {
       final warnings = <String>[];
