@@ -421,7 +421,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Auth::id() / check() / guest()` | `await Auth.id() / check() / guest()` | **async** |
 | `Auth::guard('api')` | `Auth.guard('api')` |  |
 | `$request->getRealMethod()` | `request.originalMethod` |  |
-| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` |  |
+| `<input name="_method"> / X-HTTP-Method-Override` | `on by default; middleware.methodOverride = false` | The header first, then a form body, then the query, as Symfony. A form body is read for it only where the path has a PUT, PATCH or DELETE route, under the loosest limit and timeout of the routes it may reach; elsewhere it stays unread, so a _method in the body of a path with only POST stays POST (Laravel: 405), while one in the query still gives 405. JSON bodies are not read for it (Laravel does). X-HTTP-Method-Override GET, HEAD, CONNECT, TRACE or anything but PUT, PATCH and DELETE is ignored (Symfony 7.4: honoured but deprecated, 400 for a value that is not letters). |
 | `back()` | `Response.back(request)` |  |
 | `session()->get('errors') / old('name')` | `session.errors / session.old('name')` |  |
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
