@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../../logging/logger.dart';
+import '../../routing/radix_tree.dart';
 import '../request.dart';
 import '../response.dart';
 import 'upstream_proxy.dart';
@@ -273,8 +274,30 @@ final class ShadowParityRunner {
   /// Compares the bodies.
   final JsonStructuralDiffer differ;
 
-  /// Path prefixes that are never replayed.
+  /// Path prefixes that are never replayed, whole segments: `/secret` is
+  /// `/secret` and what is under it (`/secret/x`), not `/secret_public`.
+  /// Paths are compared as the router matches them, without empty segments
+  /// (`//secret` is `/secret`).
   final List<String> except;
+
+  late final List<String> _exceptCanonical = [
+    for (final prefix in except) _canonical(prefix),
+  ];
+
+  static String _canonical(String path) =>
+      '/${RadixTree.splitPath(path).join('/')}';
+
+  bool _excepted(String path) {
+    final canonical = _canonical(path);
+    for (final prefix in _exceptCanonical) {
+      if (prefix == '/' ||
+          canonical == prefix ||
+          canonical.startsWith('$prefix/')) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// Logs drifts as warnings, when given.
   final Logger? logger;
@@ -298,7 +321,7 @@ final class ShadowParityRunner {
         (request.method != 'GET' && request.method != 'HEAD') ||
         request.headers.first(header) != null ||
         response.headers.first('content-encoding') != null ||
-        except.any(request.path.startsWith) ||
+        _excepted(request.path) ||
         _random.nextDouble() >= sampleRate) {
       return;
     }
