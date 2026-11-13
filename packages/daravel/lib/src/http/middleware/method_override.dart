@@ -25,6 +25,12 @@ import '../response.dart';
 /// route and those candidates), so no request a route accepts is refused
 /// before it is known which; the kernel checks the matched route's own
 /// limit against what was read once it is routed.
+///
+/// That timeout covers reading the body only: the handler's own timeout
+/// starts again after routing, so one request can take up to twice it. A
+/// catch-all `PUT`, `PATCH` or `DELETE` route (`any('/{path}')`) gives
+/// every path a candidate, so form bodies are then read everywhere, under
+/// that route's limit.
 final class MethodOverrideMiddleware implements Middleware {
   /// Reads `_method` from a `POST` form, as Laravel does for HTML forms.
   ///

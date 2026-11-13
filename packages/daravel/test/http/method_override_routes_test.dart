@@ -81,6 +81,11 @@ void main() {
               };
               r.post('/header', arrived);
               r.put('/header', arrived);
+              // BodyLimitsMiddleware on a group: after routing.
+              r.group(
+                (g) => g.put('/grouped', read),
+                middleware: const [BodyLimitsMiddleware(form: 256 * kib)],
+              );
             },
           )
           .create();
@@ -278,6 +283,40 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
     }
+
+    test('BodyLimitsMiddleware on a route group checks what was read '
+        'before routing: a chunked form, which declares no length', () async {
+      await start();
+      final body = utf8.encode(form(300 * kib, method: 'PUT'));
+      final socket = await Socket.connect('127.0.0.1', engine.port!);
+      final reply = BytesBuilder();
+      final done = Completer<void>();
+      socket.listen(
+        reply.add,
+        onDone: () => done.isCompleted ? null : done.complete(),
+        onError: (Object _) => done.isCompleted ? null : done.complete(),
+        cancelOnError: true,
+      );
+      socket.write(
+        'POST /grouped HTTP/1.1\r\nHost: localhost\r\n'
+        'Accept: application/json\r\nConnection: close\r\n'
+        'Content-Type: application/x-www-form-urlencoded\r\n'
+        'Transfer-Encoding: chunked\r\n\r\n',
+      );
+      for (var at = 0; at < body.length; at += 16 * kib) {
+        final end = at + 16 * kib < body.length ? at + 16 * kib : body.length;
+        socket
+          ..write('${(end - at).toRadixString(16)}\r\n')
+          ..add(body.sublist(at, end))
+          ..write('\r\n');
+      }
+      socket.write('0\r\n\r\n');
+      await socket.flush();
+      await done.future.timeout(const Duration(seconds: 15));
+      socket.destroy();
+      final status = utf8.decode(reply.takeBytes()).split('\r\n').first;
+      expect(status, startsWith('HTTP/1.1 413'));
+    });
 
     test(
       'a 2 MiB multipart POST where no route takes it: 404, nothing '
