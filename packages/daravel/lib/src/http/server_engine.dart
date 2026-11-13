@@ -866,8 +866,12 @@ final class ServerEngine {
           }
         }
       });
-      await socket.done;
-      takeOver.cancel();
+      try {
+        await socket.done;
+      } finally {
+        // Also when `done` fails: the timer is not left behind.
+        takeOver.cancel();
+      }
     } catch (error, stackTrace) {
       logger.error(
         'WebSocket handler failed for request $id',
