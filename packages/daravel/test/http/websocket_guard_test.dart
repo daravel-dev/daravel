@@ -41,6 +41,8 @@ void main() {
           web: (router) {
             router
               ..ws('/echo', echo, compress: false, maxPayloadBytes: 65536)
+              // The default limit (1 MiB).
+              ..ws('/default', echo, compress: false)
               ..ws('/deflate', echo, maxPayloadBytes: 65536)
               // Many pings between fragments (the differential test).
               ..ws(
@@ -504,5 +506,148 @@ void main() {
       contains('permessage-deflate'),
     );
     expect(viaGuard['sec-websocket-accept'], viaPlain['sec-websocket-accept']);
+  });
+
+  group('frame lengths that do not fit', () {
+    const huge = [0x7FFFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFF5];
+
+    /// Whether the server answered with [code] within a second, holding
+    /// nothing for the handler.
+    Future<void> expectClosed(RawWsClient client, int code) async {
+      final watch = Stopwatch()..start();
+      expect(await client.closeFrame(), code);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(received, isEmpty);
+      expect(
+        log.records.where((r) => r.level.index >= LogLevel.error.index),
+        isEmpty,
+        reason: 'nothing failed inside the server',
+      );
+    }
+
+    for (final path in ['/echo', '/default']) {
+      for (final length in huge) {
+        test('a continuation frame of length 0x${length.toRadixString(16)} '
+            'after 100 bytes is closed with 1009 at once ($path)', () async {
+          final client = await connect(path);
+          client
+            ..send(0x1, Uint8List(100), fin: false)
+            ..socket.add(RawWsClient.header(0x0, length, fin: false))
+            ..socket.add(Uint8List(4096));
+          await expectClosed(client, 1009);
+        });
+      }
+    }
+
+    test('a 64-bit length with the top bit set is closed with 1002: on a '
+        'continuation frame and on a first frame', () async {
+      final topBit = [0xFF, 0, 0, 0, 0, 0, 0, 0];
+      final continuation = await connect('/echo');
+      continuation
+        ..send(0x1, Uint8List(100), fin: false)
+        ..socket.add([0x00, 0x80 | 127, ...topBit, 0, 0, 0, 0]);
+      await expectClosed(continuation, 1002);
+      final first = await connect('/echo');
+      first.socket.add([0x81, 0x80 | 127, ...topBit, 0, 0, 0, 0]);
+      await expectClosed(first, 1002);
+    });
+
+    test(
+      'a PING with an RSV bit set is closed with 1002, not answered',
+      () async {
+        for (final rsv in [0x40, 0x20, 0x10]) {
+          final client = await connect('/echo');
+          client.socket.add(
+            RawWsClient.frame(0x9, utf8.encode('p'))..[0] |= rsv,
+          );
+          final first = await client.next();
+          expect(first.opcode, 0x8, reason: 'no PONG first');
+          expect(first.closeCode, 1002);
+        }
+      },
+    );
+
+    test('random frame lengths, near 2^63 - 1 and near the limit: the '
+        'server holds no more than the limit and closes as a model of the '
+        'limit says', () async {
+      const limit = 65536;
+      final random = Random(20261113);
+      int pick() => switch (random.nextInt(6)) {
+        0 => 0x7FFFFFFFFFFFFFFF - random.nextInt(64),
+        1 => limit - random.nextInt(64),
+        2 => limit + random.nextInt(64),
+        3 => random.nextInt(limit ~/ 4),
+        4 => (limit ~/ 2) + random.nextInt(64),
+        _ => random.nextInt(200),
+      };
+      for (var round = 0; round < 40; round++) {
+        received.clear();
+        final lengths = [
+          for (var i = 0; i < 2 + random.nextInt(4); i++) pick(),
+        ];
+        // The model: the first frame whose running total passes the limit
+        // closes the connection with 1009; if none does, the message
+        // arrives whole.
+        var total = 0;
+        int? closesAt;
+        for (var i = 0; i < lengths.length; i++) {
+          if (lengths[i] > limit - total) {
+            closesAt = i;
+            break;
+          }
+          total += lengths[i];
+        }
+        final client = await connect('/echo');
+        for (var i = 0; i < lengths.length; i++) {
+          final last = i == lengths.length - 1;
+          final opcode = i == 0 ? 0x2 : 0x0;
+          if (closesAt != null && i == closesAt) {
+            // Its header and a little of its payload: the server must
+            // close on the header alone.
+            client
+              ..socket.add(RawWsClient.header(opcode, lengths[i], fin: last))
+              ..socket.add(Uint8List(1024));
+            break;
+          }
+          client
+            ..socket.add(RawWsClient.header(opcode, lengths[i], fin: last))
+            ..socket.add(Uint8List(lengths[i]));
+        }
+        printOnFailure('round $round: lengths $lengths, closes at $closesAt');
+        if (closesAt != null) {
+          expect(await client.closeFrame(), 1009);
+          expect(received, isEmpty);
+        } else {
+          final message = await client.nextMessage();
+          expect(message.payload.length, total);
+          await client.close();
+        }
+      }
+      expect(
+        log.records.where((r) => r.level.index >= LogLevel.error.index),
+        isEmpty,
+        reason: 'no assertion or error inside the server',
+      );
+    });
+  });
+
+  test("a session closed for a violation ends with the guard's grace, also "
+      'when the client neither answers the close nor goes away', () async {
+    final client = await connect('/echo');
+    client
+      ..send(0x1, Uint8List(40000), fin: false)
+      ..send(0x0, Uint8List(40000));
+    expect(await client.closeFrame(), 1009);
+    // The client stays connected and silent.
+    final watch = Stopwatch()..start();
+    while (engine.openWebSockets > 0 &&
+        watch.elapsed < const Duration(seconds: 10)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    printOnFailure('ended after ${watch.elapsedMilliseconds} ms');
+    expect(engine.openWebSockets, 0);
+    // The guard's grace is 1 s; the session ends with it.
+    expect(watch.elapsed, lessThan(const Duration(milliseconds: 2500)));
   });
 }

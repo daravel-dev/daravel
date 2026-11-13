@@ -146,7 +146,13 @@ final class WebSocketGuard {
 
   void _dispose() {
     _inbound.dispose();
-    _grace?.cancel();
+    // After a violation the grace stays: the WebSocket's `done` reports its
+    // side closed, and a client that neither answers nor goes away would
+    // keep the session until the WebSocket's own close timeout; the grace
+    // destroys the socket, which ends the session.
+    if (!_violated) {
+      _grace?.cancel();
+    }
   }
 }
 
@@ -242,6 +248,10 @@ final class _Inbound {
         }
         _maskOffset += count;
         (_ping ?? _message)!.add(plain);
+        assert(
+          _ping != null || _message!.length <= _messageBytes,
+          'what is assembled stays within the lengths admitted',
+        );
       }
       _remaining -= count;
       at += count;
@@ -265,8 +275,8 @@ final class _Inbound {
       length = _header[2] << 8 | _header[3];
       offset = 4;
     } else if (length7 == 127) {
-      // A length with the top bit set is no length (RFC 6455 §5.2): passed
-      // on as it is, for the WebSocket to refuse.
+      // A length with the top bit set is no length (RFC 6455 §5.2): -1,
+      // refused below.
       length = (_header[2] & 0x80) != 0 ? -1 : 0;
       if (length == 0) {
         for (var i = 2; i < 10; i++) {
@@ -289,8 +299,16 @@ final class _Inbound {
       Uint8List.sublistView(_header, 0, _headerNeeded),
     );
 
+    if (length < 0) {
+      // A 64-bit length with the top bit set (RFC 6455 §5.2).
+      return _stop(1002, 'Protocol error');
+    }
     if (_opcode >= 0x8) {
       // Control frames: CLOSE, PING, PONG (the WebSocket refuses others).
+      if (rsv != 0) {
+        // No extension defines RSV bits on control frames (RFC 6455 §5.2).
+        return _stop(1002, 'Protocol error');
+      }
       if ((_opcode == 0x9 || _opcode == 0xA) && !_takeToken()) {
         return _stop(1008, 'Too many control frames');
       }
@@ -299,7 +317,7 @@ final class _Inbound {
         _message = null;
         _deadline?.cancel();
       }
-      if (_opcode == 0x9 && _fin && masked && length >= 0 && length <= 125) {
+      if (_opcode == 0x9 && _fin && masked && length <= 125) {
         // A valid PING: answered here, its PONG in the guard's counted
         // queue between frames, so it counts toward maxBufferedBytes.
         _ping = BytesBuilder(copy: false);
@@ -313,7 +331,7 @@ final class _Inbound {
       if (_message != null) {
         return _stop(1002, 'A new message before the last one ended');
       }
-      if (length < 0 || length > _limits.maxMessageBytes) {
+      if (length > _limits.maxMessageBytes) {
         return _stop(1009, 'Message too big');
       }
       _startDeadline();
@@ -328,6 +346,10 @@ final class _Inbound {
       _messageOpcode = _opcode;
       _messageRsv1 = (rsv & 0x40) != 0;
       _messageBytes = length;
+      assert(
+        _messageBytes >= 0 && _messageBytes <= _limits.maxMessageBytes,
+        'the message stays within its limit',
+      );
       _pass = false;
       _inPayload = _remaining > 0;
       return;
@@ -336,10 +358,16 @@ final class _Inbound {
       if (!masked || rsv != 0) {
         return _stop(1002, 'Protocol error');
       }
-      if (length < 0 || _messageBytes + length > _limits.maxMessageBytes) {
+      // What is left of the limit, so no sum of lengths can overflow:
+      // 0 <= _messageBytes <= maxMessageBytes holds here.
+      if (length > _limits.maxMessageBytes - _messageBytes) {
         return _stop(1009, 'Message too big');
       }
       _messageBytes += length;
+      assert(
+        _messageBytes >= 0 && _messageBytes <= _limits.maxMessageBytes,
+        'the message stays within its limit',
+      );
       _pass = false;
       _inPayload = _remaining > 0;
       return;

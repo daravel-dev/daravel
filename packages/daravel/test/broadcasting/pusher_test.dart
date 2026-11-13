@@ -6,6 +6,8 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel/src/broadcasting/secretbox.dart';
 import 'package:test/test.dart';
 
+import '../http/support/raw_ws_client.dart';
+
 final class Member implements Authenticatable {
   const Member(this.id, this.name);
   final int id;
@@ -872,6 +874,23 @@ void main() {
     await client.socket.done.timeout(const Duration(seconds: 5));
     expect(client.socket.closeCode, 1009);
   }, tags: 'security');
+
+  for (final length in const [0x7FFFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFF5]) {
+    test('a continuation frame of length 0x${length.toRadixString(16)} after '
+        '100 bytes is closed with 1009 at once', () async {
+      final client = await RawWsClient.connect(
+        engine.port!,
+        '/app/$appKey?protocol=7',
+      );
+      client
+        ..send(0x1, List<int>.filled(100, 0x20), fin: false)
+        ..socket.add(RawWsClient.header(0x0, length, fin: false))
+        ..socket.add(List<int>.filled(4096, 0x20));
+      final watch = Stopwatch()..start();
+      expect(await client.closeFrame(), 1009);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+    }, tags: 'security');
+  }
 }
 
 /// A Pusher client speaking protocol 7, as pusher-js does.
