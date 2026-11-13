@@ -849,6 +849,12 @@ final class ServerEngine {
         );
       }
       await handled;
+      if (!socket.isListened) {
+        // The handler returned without listening: what the client sends is
+        // read here and dropped, so its close or its going away ends the
+        // session, as for a handler that listens.
+        socket.listen((_) {});
+      }
       await socket.done;
     } catch (error, stackTrace) {
       logger.error(

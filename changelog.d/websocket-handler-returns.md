@@ -1,0 +1,3 @@
+### Fixed
+
+- A `router.ws` handler that returned without listening to its socket (one that writes a greeting and leaves the rest to `Broadcast.publish`, say) kept its session until the server stopped, even after the client closed or dropped the connection. The server now listens itself once such a handler returns and drops what the client sends, so the client's close or its going away ends the session. A handler that waits on `socket.done` without listening still never learns that the client left; the guide says to listen. Since 1.6.0.

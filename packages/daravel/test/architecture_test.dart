@@ -288,8 +288,9 @@ const Map<String, (int, String)> _knownLongLived = {
         'server, which answers and closes the connection',
   ),
   'http/server_engine.dart': (
-    6,
-    'the engine at start (lag sampler, sockets), and per connection',
+    7,
+    'the engine at start (lag sampler, sockets), and per connection (a '
+        'WebSocket whose handler returned without listening included)',
   ),
   'mail/smtp.dart': (1, 'per SMTP connection, closed after the send'),
   'observability/metrics.dart': (1, 'the metrics publisher, at boot'),

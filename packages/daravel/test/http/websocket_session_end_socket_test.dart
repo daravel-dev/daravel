@@ -7,8 +7,9 @@ import 'package:test/test.dart';
 import 'support/raw_ws_client.dart';
 
 /// A WebSocket session ends when its client closes or goes away, also when
-/// its handler never wrote nor closed: before, such a session kept its
-/// scope and its place in the server's list until the server stopped.
+/// its handler never wrote nor closed, and when its handler returned
+/// without listening: before, such a session kept its scope and its place
+/// in the server's list until the server stopped.
 void main() {
   late Application app;
   late ServerEngine engine;
@@ -18,12 +19,17 @@ void main() {
         .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
         .withLogLevel(LogLevel.critical)
         .withRouting(
-          web: (router) => router.ws('/listen', (socket, _) {
-            // Reads, never writes nor closes.
-            final done = Completer<void>();
-            socket.listen((_) {}, onDone: done.complete);
-            return done.future;
-          }, compress: false),
+          web: (router) => router
+            ..ws('/listen', (socket, _) {
+              // Reads, never writes nor closes.
+              final done = Completer<void>();
+              socket.listen((_) {}, onDone: done.complete);
+              return done.future;
+            }, compress: false)
+            ..ws('/greet', (socket, _) {
+              // Writes once and returns, never listening.
+              socket.add('hello');
+            }, compress: false),
         )
         .create();
     await app.boot();
@@ -41,8 +47,11 @@ void main() {
     await app.shutdown();
   });
 
-  Future<int> openAfter(Future<void> Function(RawWsClient client) end) async {
-    final client = await RawWsClient.connect(engine.port!, '/listen');
+  Future<int> openAfter(
+    String path,
+    Future<void> Function(RawWsClient client) end,
+  ) async {
+    final client = await RawWsClient.connect(engine.port!, path);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(engine.openWebSockets, 1);
     await end(client);
@@ -53,11 +62,21 @@ void main() {
     return engine.openWebSockets;
   }
 
-  test('the client closes with a close frame: the session ends', () async {
-    expect(await openAfter((client) => client.close()), 0);
-  });
+  for (final (path, handler) in [
+    ('/listen', 'a handler that listens'),
+    ('/greet', 'a handler that returned without listening'),
+  ]) {
+    group(handler, () {
+      test('the client closes with a close frame: the session ends', () async {
+        expect(await openAfter(path, (client) => client.close()), 0);
+      });
 
-  test('the client drops the TCP connection: the session ends', () async {
-    expect(await openAfter((client) async => client.socket.destroy()), 0);
-  });
+      test('the client drops the TCP connection: the session ends', () async {
+        expect(
+          await openAfter(path, (client) async => client.socket.destroy()),
+          0,
+        );
+      });
+    });
+  }
 }

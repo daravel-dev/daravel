@@ -425,6 +425,13 @@ ask for permessage-deflate get it; `r.ws(path, handler, compress: false)`
 turns it off, which saves CPU and memory per connection when one message
 goes to many sockets.
 
+The server sees a client leave only while something listens to its
+socket. A handler that returns without listening is fine: the server then
+listens itself and drops what the client sends. A handler that waits on
+`socket.done` without listening never learns that the client left, and
+its session lasts until the server stops; listen instead, with
+`socket.listen((_) {})` when the messages do not matter.
+
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
 once more than `maxBufferedBytes` (4 MiB) wait, the queue is dropped and
