@@ -151,6 +151,10 @@ void main() {
       two = FileStore(cachePath(), isolateLocks: isolates);
     });
 
+    // Only Linux (POSIX) tells this apart: without the coordinator layer,
+    // two FileStores of one isolate both held the lock in 200 of 200 rounds
+    // there (fcntl locks are the process's), and in 0 of 200 on Windows,
+    // where LockFileEx already excludes another handle of the process.
     test('contenders of both stores: exactly one holds it', () async {
       final taken = await Future.wait([
         for (var i = 0; i < 40; i++)
