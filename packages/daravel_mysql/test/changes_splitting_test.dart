@@ -16,6 +16,8 @@ void main() {
       '#why\ncall p()',
       '/*!40101 SET NAMES utf8mb4 */',
       '/*!SET sql_mode = "" */',
+      '/*M!100616 SET NAMES utf8mb4 */',
+      '/*M! SET sql_mode = "" */',
       'EXECUTE stmt',
       "execute immediate 'SET sql_mode = \"\"'",
       'BEGIN NOT ATOMIC SET sql_mode = ""; END',
@@ -36,6 +38,8 @@ void main() {
       'settings',
       '--set x', // not a comment without a blank after the dashes
       '/* unterminated SET',
+      '/*M SET x = 1 */', // not executable without the !
+      'BEGIN /* c */ NOT ATOMIC SELECT 1; END', // a known limit
       '-- only a comment',
       '',
     ]) {

@@ -126,6 +126,28 @@ void main() {
     ], reason: 'the table is still there');
   });
 
+  test(
+    'MariaDB: a mode changed inside a /*M! executable comment is noticed',
+    () async {
+      if ((Platform.environment['DARAVEL_TEST_MARIADB'] ?? '').isEmpty) {
+        markTestSkipped('MariaDB only (DARAVEL_TEST_MARIADB)');
+        return;
+      }
+      await db.execute('DROP TABLE IF EXISTS db1_victim');
+      await db.execute('CREATE TABLE db1_victim (n INT)');
+      addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
+      const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
+      await db.select(text);
+      await db.execute(
+        "/*M!100100 SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES' */",
+      );
+      await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
+      expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
+        {'c': 0},
+      ]);
+    },
+  );
+
   test('a mode changed through PREPARE ... FROM and EXECUTE is noticed too', () async {
     await db.execute('DROP TABLE IF EXISTS db1_victim');
     await db.execute('CREATE TABLE db1_victim (n INT)');

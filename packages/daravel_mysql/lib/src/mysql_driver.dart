@@ -769,8 +769,9 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// keyword after blanks and comments:
   ///
   /// - `SET` (`sql_mode`, `NAMES`, `character_set_client`; MariaDB's
-  ///   `SET STATEMENT … FOR` too), also inside a leading versioned comment
-  ///   (`/*!40101 SET NAMES utf8mb4 */`, as dumps write it);
+  ///   `SET STATEMENT … FOR` too), also inside a leading executable comment
+  ///   (`/*!40101 SET NAMES utf8mb4 */` as mysqldump writes it, MariaDB's
+  ///   `/*M!100616 SET … */` as mariadb-dump writes it);
   /// - `CALL`: MySQL's manual says a routine runs with the `sql_mode` it was
   ///   created with, but not that the caller's mode is restored when it
   ///   returns;
@@ -781,7 +782,8 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// A known limit: a trigger or stored function that sets `sql_mode`,
   /// fired by an ordinary statement, is not noticed. The manual says they
   /// run with the mode they were created with, not whether the caller's
-  /// is restored.
+  /// is restored. Neither is a comment between the words of `BEGIN NOT
+  /// ATOMIC` (`BEGIN /* c */ NOT ATOMIC`).
   ///
   /// One pass over the text, without a regular expression: a pattern
   /// skipping repeated comments backtracked exponentially (26 empty
@@ -794,9 +796,17 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
       if (c == 0x20 || (c >= 0x09 && c <= 0x0d)) {
         i++;
       } else if (c == 0x2f && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2a) {
-        if (i + 2 < n && sql.codeUnitAt(i + 2) == 0x21) {
-          // `/*!` and its version: its content runs, so read on inside.
-          i += 3;
+        // `/*!` (MySQL and MariaDB) or `/*M!` (MariaDB only), each with an
+        // optional version: the content runs, so read on inside.
+        final executable = i + 2 < n && sql.codeUnitAt(i + 2) == 0x21
+            ? 3
+            : i + 3 < n &&
+                  sql.codeUnitAt(i + 2) == 0x4d &&
+                  sql.codeUnitAt(i + 3) == 0x21
+            ? 4
+            : 0;
+        if (executable > 0) {
+          i += executable;
           while (i < n && _isDigit(sql.codeUnitAt(i))) {
             i++;
           }
