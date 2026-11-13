@@ -62,21 +62,80 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// Whether this connection was closed for reading too slowly.
   bool get isSlowClient => _overflowed;
 
+  /// Whether the application listened to what the client sends (the
+  /// handler, `Broadcast.pipe`); not the server's own [drainUnlistened].
+  bool get isListened => _listened;
+  bool _listened = false;
+
+  /// The server's subscription of [drainUnlistened], which a later [listen]
+  /// takes over.
+  StreamSubscription<dynamic>? _drain;
+
+  /// [drainUnlistened] read the client's stream to its end.
+  bool _drained = false;
+
+  /// Reads what the client sends and drops it, for a handler that returned
+  /// and has not listened: the client's close or its going away then ends
+  /// the session. Whatever had arrived and was not read is dropped too. A
+  /// [listen] after it takes this subscription over and gets what arrives
+  /// from then on (its `cancelOnError` does not apply then); one after the
+  /// stream ended gets just its end.
+  void drainUnlistened() {
+    if (_listened || _drain != null || _drained) {
+      return;
+    }
+    _drain = _inner.listen(
+      (_) {},
+      // A stream error ends the session too, and `done` reports it.
+      onError: (Object _) {},
+      onDone: () {
+        unawaited(_drain?.cancel());
+        _drain = null;
+        _drained = true;
+        _peerClosed();
+      },
+    );
+  }
+
   @override
   StreamSubscription<dynamic> listen(
     void Function(dynamic event)? onData, {
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => _inner.listen(
-    onData,
-    onError: onError,
-    onDone: () {
+  }) {
+    _listened = true;
+    void done() {
       _peerClosed();
       onDone?.call();
-    },
-    cancelOnError: cancelOnError,
-  );
+    }
+
+    if (_drained) {
+      // The server read the stream to its end already: this listener gets
+      // the end, nothing else.
+      return const Stream<dynamic>.empty().listen(
+        null,
+        onError: onError,
+        onDone: done,
+      );
+    }
+    final drain = _drain;
+    if (drain != null) {
+      // The server read for a handler that had not listened yet: this
+      // listener takes its subscription over (a stream is listened once).
+      _drain = null;
+      return drain
+        ..onData(onData)
+        ..onError(onError ?? (Object _) {})
+        ..onDone(done);
+    }
+    return _inner.listen(
+      onData,
+      onError: onError,
+      onDone: done,
+      cancelOnError: cancelOnError,
+    );
+  }
 
   /// The peer closed or went away: what waits cannot reach it, and the
   /// socket is closed from this side too. Before, a handler that never

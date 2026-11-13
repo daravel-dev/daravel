@@ -61,30 +61,28 @@ void main() {
   /// That the server's memory does not grow with what an [attack] sends:
   /// a first round warms the server up (its resident memory grows with
   /// the code and heap the first rounds bring, more on some systems than
-  /// on others), then the attack runs at [scale] 1 and at 4, and what the
-  /// second adds over the first stays small. A server that kept what the
-  /// attack sends would grow about three times as much again.
+  /// on others), then the attack runs at [scale] 1 and at 4. The resident
+  /// memory after the 4x round stays within a little of the highest level
+  /// seen after the warm-up and the 1x round; a server that kept what the
+  /// attack sends would be about three times the 1x attack above it.
+  /// Levels, not differences per round: a system may give memory back to
+  /// the OS between rounds (hundreds of MiB on macOS), which makes a
+  /// round's own growth look negative and the next one's look large.
   Future<void> expectBounded(
     String name,
     Future<void> Function(int scale) attack,
   ) async {
     final start = await rss();
-    var peak = start;
     await attack(1);
-    Future<int> grows(int scale) async {
-      final before = await rss();
-      await attack(scale);
-      final after = await rss();
-      peak = max(peak, max(before, after));
-      return after - before;
-    }
-
-    final once = await grows(1);
-    final four = await grows(4);
+    final warm = await rss();
+    await attack(1);
+    final once = await rss();
+    await attack(4);
+    final four = await rss();
     // Printed always, for the numbers on every system CI runs.
     print(
-      '$name: warm, then grew ${once >> 20} MiB at 1x and ${four >> 20} MiB '
-      'at 4x (from ${start >> 20} MiB, peak ${peak >> 20} MiB)',
+      '$name: from ${start >> 20} MiB: warm ${warm >> 20}, after 1x '
+      '${once >> 20}, after 4x ${four >> 20} MiB',
     );
     if (Platform.isMacOS) {
       // The resident memory of a macOS runner is no measure here: within
@@ -92,17 +90,18 @@ void main() {
       // then 866 -> 406 MiB at once, where Windows and Linux stay within
       // 0-6 MiB (and the code before the bound grows 42-51 MiB). On macOS
       // only a coarse fence holds; the functional checks run everywhere.
-      expect(peak - start, lessThan(512 << 20));
+      expect(max(max(warm, once), four) - start, lessThan(512 << 20));
       return;
     }
-    // Memory given back after the warm-up round shows as negative growth.
+    // The highest level before the 4x round, not the level just before it:
+    // memory given back to the OS after a round lowers that one, and the
+    // next round taking some of it again is not growth.
     expect(
-      four - max(once, 0),
+      four - max(warm, once),
       lessThan(8 << 20),
       reason: 'grows with the attack',
     );
-    expect(once, lessThan(96 << 20));
-    expect(four, lessThan(96 << 20));
+    expect(max(once, four) - start, lessThan(96 << 20));
   }
 
   test('fragments without end: closed at the limit, the server does not grow '
