@@ -7,6 +7,8 @@
 - `daravel_horizon` and `daravel_redis` Horizon stores: an error in `monitor`, `unmonitor`, `snapshot` or `horizon:prune` (a missing table, an unreachable Redis) is raised in the caller's zone. It used to escape into the root zone, where the work runs outside the caller's transaction, which ended the process and left the request waiting. The dashboard answers a store that cannot monitor or unmonitor a tag with a 500, logged, instead of a 204.
 - `daravel_horizon`: with `HORIZON_PATH=/` the dashboard's links and API calls started with `//`, which a browser reads as another host; they are now `/failed`, `/api/stats` and so on.
 
+- `daravel_horizon` dashboard: `/api/workload` counts the workers of each queue from the master's status (it read a list where the master writes the comma-separated queues of each worker, so `processes` was 0 and `wait` null), and `/api/jobs/pending` pages with `starting_at` and `limit` over the jobs of all the plan queues together (`starting_at` was ignored and `limit` applied to each queue).
+
 ### Upgrade notes
 
 - `daravel_horizon`: the dashboard is closed outside `APP_ENV=local` until the `viewHorizon` gate or `HorizonDashboard.auth` allows a request; middleware such as `['auth']` alone no longer opens it, and tests that relied on `APP_ENV=testing` need `HorizonDashboard.auth((request) => true)` (reset with `HorizonDashboard.auth(null)`) or the gate. New public name `HorizonDashboard.auth`.

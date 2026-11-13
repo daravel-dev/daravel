@@ -315,10 +315,9 @@ abstract final class HorizonDashboard {
         }
         final rates = await _call('rates', (s) => s.rates(queue.value));
         final avg = (rates?['avg_ms'] as num?)?.toDouble();
-        final processes = workers.where((w) {
-          final queues = (w as Map?)?['queues'];
-          return queues is List && queues.contains(queue.value);
-        }).length;
+        final processes = workers
+            .where((w) => _queuesOf(w).contains(queue.value))
+            .length;
         loads.add({
           'name': queue.value,
           'connection': connection,
@@ -335,6 +334,15 @@ abstract final class HorizonDashboard {
     }
     return loads;
   }
+
+  /// The queues of a worker in a master's status: the comma-separated
+  /// list it was assigned ([HorizonMaster.status]), or a list.
+  static Iterable<String> _queuesOf(Object? worker) =>
+      switch ((worker as Map?)?['queues']) {
+        final String queues => queues.split(',').map((q) => q.trim()),
+        final List<Object?> queues => queues.whereType<String>(),
+        _ => const <String>[],
+      };
 
   static Future<Object?> _stats(Request request) async =>
       (await _snapshot()).stats;
@@ -468,8 +476,12 @@ abstract final class HorizonDashboard {
     return offset < 0 ? 0 : offset;
   }
 
+  /// The pending jobs of every plan queue, one list in plan and queue
+  /// order, paged by `limit` and `starting_at` over the whole list.
   static Future<Object?> _pending(Request request) async {
     final jobs = <Object?>[];
+    var skip = _offset(request);
+    var need = _limit(request);
     for (final plan in _config.plans) {
       final connection = plan.connection ?? _queues.config.defaultConnection;
       final driver = _queues.connection(connection);
@@ -477,15 +489,52 @@ abstract final class HorizonDashboard {
         continue;
       }
       for (final queue in plan.queues) {
-        for (final job in await driver.pending(
+        if (need == 0) {
+          return {'jobs': jobs};
+        }
+        final page = await driver.pending(
           queue.value,
-          limit: _limit(request),
-        )) {
+          limit: need,
+          offset: skip,
+        );
+        if (page.isEmpty) {
+          // The whole queue lies before starting_at: skip past it.
+          if (skip > 0) {
+            skip -= await _pendingCount(driver, queue.value, skip);
+          }
+          continue;
+        }
+        skip = 0;
+        need -= page.length;
+        for (final job in page) {
           jobs.add({...job.toJson(), 'connection': connection});
         }
       }
     }
     return {'jobs': jobs};
+  }
+
+  /// How many jobs [queue] has pending, knowing it has at most [atMost]:
+  /// by bisection on one-job pages, so a large `starting_at` never reads
+  /// more than one job a query.
+  static Future<int> _pendingCount(
+    BrowsableQueueDriver driver,
+    String queue,
+    int atMost,
+  ) async {
+    // Invariant: index lo - 1 holds a job (or lo is 0); index hi holds
+    // none.
+    var lo = 0;
+    var hi = atMost;
+    while (lo < hi) {
+      final mid = (lo + hi) ~/ 2;
+      if ((await driver.pending(queue, limit: 1, offset: mid)).isEmpty) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
   }
 
   static Future<Object?> _recent(Request request, String status) async => {

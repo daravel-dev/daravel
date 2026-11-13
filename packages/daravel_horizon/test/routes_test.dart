@@ -19,6 +19,7 @@ final class Mail extends Job {
 /// [env] `BASE_PATH` is the test's own directory: the default signal
 /// store is a file cache under it, which test files running in parallel
 /// would otherwise share (a status written by one seen by another).
+/// `TEST_QUEUES` lists the supervisor's queues (`a` by default).
 Application dashboardApp([Map<String, String> env = const {}]) =>
     Application.configure(
           basePath: env['BASE_PATH'] ?? Directory.systemTemp.path,
@@ -35,10 +36,13 @@ Application dashboardApp([Map<String, String> env = const {}]) =>
         .withJobs([JobDefinition('mail', (_) => const Mail())])
         .withHorizon(
           createApp: dashboardApp,
-          plans: const [
+          plans: [
             SupervisorPlan(
-              name: SupervisorName('s'),
-              queues: [QueueName('a')],
+              name: const SupervisorName('s'),
+              queues: [
+                for (final queue in (env['TEST_QUEUES'] ?? 'a').split(','))
+                  QueueName(queue),
+              ],
               maxProcesses: 1,
             ),
           ],
@@ -192,6 +196,65 @@ void main() {
     final job = jobs.single! as Map;
     expect(job['queue'], 'a');
     expect(job['connection'], 'database');
+  });
+
+  test('pending jobs page with starting_at across the queues', () async {
+    await boot({'TEST_QUEUES': 'a,b'});
+    await app.run(() async {
+      for (final queue in ['a', 'a', 'a', 'b', 'b']) {
+        await Queue.push(const Mail(), queue: queue);
+      }
+    });
+    Future<List<String>> page(String query) async => [
+      for (final job
+          in (await client.get('/horizon/api/jobs/pending?$query'))
+                  .jsonMap['jobs']!
+              as List<Object?>)
+        '${(job! as Map)['queue']}${(job as Map)['id']}',
+    ];
+    expect(await page(''), ['a1', 'a2', 'a3', 'b4', 'b5']);
+    expect(await page('starting_at=1&limit=2'), ['a2', 'a3']);
+    expect(await page('starting_at=2&limit=2'), ['a3', 'b4']);
+    expect(await page('starting_at=3'), ['b4', 'b5']);
+    expect(await page('starting_at=4'), ['b5']);
+    expect(await page('starting_at=5'), isEmpty);
+    expect(await page('starting_at=1000000000'), isEmpty);
+  });
+
+  test('workload: the processes on each queue and its wait, from the '
+      "master's status", () async {
+    await boot();
+    await app.run(() async {
+      await Queue.push(const Mail(), queue: 'a');
+      await Queue.push(const Mail(), queue: 'a');
+    });
+    for (var i = 0; i < 4; i++) {
+      await record('c$i', 'completed');
+    }
+    // The shape HorizonMaster.status() publishes: a worker's queues are
+    // the comma-separated list it was assigned.
+    final signals = app.container.make<QueueManager>().signalStore!;
+    await app.run(
+      () => signals.store.forever(
+        HorizonSignals.statusKey('horizon'),
+        jsonEncode({
+          'state': 'running',
+          'at': DateTime.now().millisecondsSinceEpoch,
+          'supervisors': {
+            's': [
+              {'name': 'w1', 'queues': 'a', 'processed': 4, 'busy': false},
+            ],
+          },
+        }),
+      ),
+    );
+    final workload =
+        (await client.get('/horizon/api/workload')).json! as List<Object?>;
+    final a = workload.single! as Map;
+    expect(a['name'], 'a');
+    expect(a['length'], 2);
+    expect(a['processes'], 1);
+    expect(a['wait'], isNotNull, reason: 'two jobs of 12 ms on one worker');
   });
 
   test('a failed job: detail from failed_jobs, retry and retry-all', () async {
