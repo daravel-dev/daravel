@@ -71,13 +71,15 @@ driver on one machine): the `array` driver is one isolate's memory.
 `CreateSessionsTable` creates Laravel's table and does nothing when it exists
 already.
 
-As in Laravel, 2 requests in 100 sweep expired sessions, but they do not
-wait for it: the sweep runs in the background, one at a time per isolate,
-and the shutdown waits for the one in progress. The `file` driver sweeps in
-rounds of at most 2,000 files or 250 ms, each resuming where the last one
-stopped, so a directory of many sessions never holds the requests of the
-isolate. Expiry compares a file's modification time with `Clock.now()`, so
-`travel()` in tests ages the files.
+As in Laravel, 2 requests in 100 sweep expired sessions. The `database`
+driver's sweep is one `DELETE` in that request, inside its transaction (so
+`refreshDatabase` rolls it back with the test). The `file` driver's sweep
+runs in the background instead, one at a time per isolate, in rounds of at
+most 2,000 files or 250 ms, each resuming where the last one stopped, so a
+directory of many sessions never holds the requests of the isolate; the
+shutdown waits for the round in progress. Expiry compares a file's
+modification time with `Clock.now()`, so `travel()` in tests ages the
+files.
 
 ### Redis and cache drivers
 

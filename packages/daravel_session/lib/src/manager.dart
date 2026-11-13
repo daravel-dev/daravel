@@ -83,10 +83,11 @@ final class SessionManager {
   );
 }
 
-/// Runs [SessionHandler.gc] for the requests that win the session lottery,
-/// without making them wait: Laravel's `StartSession` sweeps before the
-/// request, which holds one PHP worker, while here it would hold every
-/// request of the isolate.
+/// Runs [SessionHandler.gc] of a handler that [SweepsInRounds] (the `file`
+/// driver) for the requests that win the session lottery, without making
+/// them wait: Laravel's `StartSession` sweeps before the request, which
+/// holds one PHP worker, while here a long sweep would hold every request
+/// of the isolate. Other handlers are swept in the request.
 ///
 /// One sweep at a time per application: a lottery won while one runs is
 /// ignored. The sweeps run detached (`runDetached`), with the

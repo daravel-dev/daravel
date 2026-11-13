@@ -18,11 +18,23 @@ abstract interface class SessionHandler {
   Future<void> destroy(String id);
 
   /// Deletes sessions idle for longer than [lifetime]. The session
-  /// middleware calls it outside the request (see
-  /// [SessionGarbageCollector]); a handler with much to sweep may do part
-  /// of it per call, as [FileSessionHandler] does.
+  /// middleware awaits it in the request that wins the lottery, inside that
+  /// request's zone and transaction, as Laravel's `StartSession` does; a
+  /// handler that is also [SweepsInRounds] is swept outside the request
+  /// instead ([SessionGarbageCollector]).
   Future<void> gc(Duration lifetime);
 }
+
+/// A [SessionHandler] whose [SessionHandler.gc] does a bounded part of the
+/// sweep per call and holds no database connection, so the session
+/// middleware runs it detached from the request ([SessionGarbageCollector])
+/// instead of making the request wait.
+///
+/// A handler whose sweep is one query (the `database`, `cache` and `redis`
+/// drivers) is not one: run detached, its `DELETE` would leave the request's
+/// transaction, which under `refreshDatabase` deletes rows committed
+/// outside the test and, on MySQL, waits for the test's row locks.
+abstract interface class SweepsInRounds implements SessionHandler {}
 
 /// One file per session under `storage/framework/sessions`, named by the
 /// id and holding the `serialize()` payload: Laravel's `file` driver, so
@@ -32,7 +44,7 @@ abstract interface class SessionHandler {
 /// stamps with the wall clock, with `Clock.now()`, as Laravel compares it
 /// with `Carbon::now()`: in tests `travel()` forward ages the files without
 /// waiting, and a clock moved back makes them younger, never expired.
-final class FileSessionHandler implements SessionHandler {
+final class FileSessionHandler implements SweepsInRounds {
   /// Sessions as files in [directory]. Each [gc] call examines at most
   /// [gcBatch] files or runs for at most [gcBudget], then stops; the next
   /// call resumes where it stopped.

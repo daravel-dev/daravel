@@ -22,11 +22,14 @@ final class _AlwaysWin implements Random {
   double nextDouble() => 0;
 }
 
-/// A handler whose sweeps wait for [release] and are counted.
-final class _SlowHandler implements SessionHandler {
+/// A one-query handler whose sweeps wait for [release] and are counted.
+base class _SlowHandler implements SessionHandler {
   int sweeps = 0;
   Completer<void> release = Completer<void>();
   Object? error;
+
+  /// Whether the last sweep ran in a request's scope.
+  bool? inRequest;
 
   @override
   Future<String?> read(String id) async => null;
@@ -40,12 +43,17 @@ final class _SlowHandler implements SessionHandler {
   @override
   Future<void> gc(Duration lifetime) async {
     sweeps++;
+    inRequest = Container.currentOrNull?.currentScope != null;
     await release.future;
     if (error case final error?) {
       throw error;
     }
   }
 }
+
+/// A handler that sweeps in rounds (as the `file` driver), slow as
+/// [_SlowHandler].
+final class _SlowRounds extends _SlowHandler implements SweepsInRounds {}
 
 void main() {
   late Directory base;
@@ -207,7 +215,7 @@ void main() {
           )
           .create();
       await app.boot();
-      handler = _SlowHandler();
+      handler = _SlowRounds();
       logs = await app.run(() async {
         App.make<SessionManager>().extend('array', (_) => handler);
         return Log.spy();
@@ -227,16 +235,38 @@ void main() {
     SessionGarbageCollector collector() =>
         app.container.make<SessionManager>().garbageCollector;
 
-    test('the winning request does not wait for the sweep', () async {
+    test('the winning request does not wait for a sweep in rounds, which '
+        'runs outside it', () async {
       final response = await client
           .get('/')
           .timeout(const Duration(seconds: 5));
       response.assertOk();
       expect(handler.sweeps, 1);
+      expect(handler.inRequest, isFalse);
       expect(collector().running, isNotNull, reason: 'still sweeping');
       handler.release.complete();
       await collector().running;
       expect(collector().running, isNull);
+    });
+
+    test('a one-query sweep (database, cache, redis) runs in the winning '
+        'request, which waits for it', () async {
+      final oneQuery = _SlowHandler();
+      await app.run(
+        () async => App.make<SessionManager>().extend('array', (_) => oneQuery),
+      );
+      var answered = false;
+      final response = client.get('/').then((r) {
+        answered = true;
+        return r;
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(answered, isFalse, reason: 'waits for the sweep');
+      expect(oneQuery.inRequest, isTrue, reason: "in the request's scope");
+      expect(collector().running, isNull, reason: 'not detached');
+      oneQuery.release.complete();
+      (await response).assertOk();
+      expect(oneQuery.sweeps, 1);
     });
 
     test('one sweep at a time', () async {
