@@ -38,7 +38,9 @@ The auto-scaler is a pure function: per queue it wants
 and run time T, W the queue's target wait), clamps the sum to the plan's
 bounds, moves at most `balanceMaxShift` per evaluation, and scales down only
 after two evaluations in a row in which every queue waited under half its
-target.
+target. On the database queue, a job the master takes back from a crashed
+worker becomes available again at that moment, so its wait counts from the
+take-back, not from when it was first pushed.
 
 ## Dashboard API
 

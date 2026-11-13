@@ -565,15 +565,58 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
       },
     );
 
-    test('a record refused for its uuid on another connection: not this '
-        "worker's, no throw, no hook, the row stays", () async {
+    test(
+      'a record refused for its uuid on another connection after another '
+      "worker removed the job: not this worker's, no throw, no hook",
+      () async {
+        Fails.hooks = 0;
+        final q = queue();
+        await q.push(JobPayload.forJob(const Fails()), queue: 'default');
+        final job = (await q.pop('default'))!;
+        // Another worker recorded and removed it meanwhile.
+        await db.table(table).delete();
+        await processor(_RecordedElsewhere()).process(q, job);
+        expect(Fails.hooks, 0);
+      },
+    );
+
+    test('a record refused for its uuid while the job is still this '
+        "worker's: the error is thrown (another provider)", () async {
       Fails.hooks = 0;
       final q = queue();
       await q.push(JobPayload.forJob(const Fails()), queue: 'default');
       final job = (await q.pop('default'))!;
-      await processor(_RecordedElsewhere()).process(q, job);
+      await expectLater(
+        processor(_RecordedElsewhere()).process(q, job),
+        throwsA(isA<UniqueConstraintViolationException>()),
+      );
       expect(Fails.hooks, 0);
-      expect(await rows(), 1, reason: 'left to whoever recorded it');
+      expect(await rows(), 1, reason: 'left for the next try');
+    });
+
+    test('failed_jobs holds the uuid of the job this worker runs: the error '
+        "is thrown, not read as another worker's (one transaction)", () async {
+      Fails.hooks = 0;
+      final q = queue();
+      final failed = DatabaseFailedJobProvider(db, table: failedTable);
+      final payload = JobPayload.forJob(const Fails());
+      await q.push(payload, queue: 'default');
+      // A row restored from a backup, or a retry whose forget failed.
+      await failed.log(
+        connection: 'database',
+        queue: 'default',
+        payload: payload.encode(),
+        exception: 'earlier',
+      );
+      final job = (await q.pop('default'))!;
+      await expectLater(
+        processor(failed).process(q, job),
+        throwsA(isA<UniqueConstraintViolationException>()),
+      );
+      expect(await rows(), 1, reason: 'rolled back: the job stays');
+      expect(await db.table(failedTable).count(), 1);
+      expect(Fails.hooks, 0);
+      expect(warnings(), 0, reason: 'not "ran past retry_after"');
     });
   });
 
@@ -638,4 +681,53 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
 
 void main() {
   forEachDatabase(databaseQueueRq2Tests);
+
+  test('sync connection and database failed_jobs: retrying a job that '
+      'fails again keeps a failed_jobs row, and the error shows', () async {
+    final dir = Directory.systemTemp.createTempSync('rq2_sync_retry_');
+    final app = Application.configure(basePath: dir.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_CONNECTION': 'sqlite',
+          'DB_DATABASE': '${dir.path}${Platform.pathSeparator}db.sqlite',
+          // failed_jobs in the database; the job runs on the sync connection.
+          'QUEUE_CONNECTION': 'database',
+        })
+        .withLogLevel(LogLevel.critical)
+        .withMigrations(const [CreateJobsTable()])
+        .withJobs([JobDefinition('fails', (_) => const Fails())])
+        .create();
+    await app.boot();
+    addTearDown(() async {
+      await app.shutdown();
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // Windows may still hold the file.
+      }
+    });
+    await app.run(() async {
+      await App.make<Migrator>().run();
+      final manager = App.make<QueueManager>();
+      expect(manager.processor.failedJobs, isA<DatabaseFailedJobProvider>());
+      try {
+        await manager
+            .connection('sync')
+            .push(JobPayload.forJob(const Fails()), queue: 'default');
+      } on Object {
+        // The sync queue may rethrow the job's error.
+      }
+      final first = await manager.processor.failedJobs.all();
+      expect(first, hasLength(1));
+      Object? thrown;
+      try {
+        await manager.retryFailed(first.single.id);
+      } on Object catch (error) {
+        thrown = error;
+      }
+      final after = await manager.processor.failedJobs.all();
+      expect(after, isNotEmpty, reason: 'never 0 rows: the job is not lost');
+      expect(thrown, isNotNull, reason: 'the error shows');
+    });
+  });
 }

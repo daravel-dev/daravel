@@ -864,10 +864,15 @@ final class JobProcessor {
   /// reserved the job since ([OwnershipQueueDriver]): this worker ran past
   /// `retry_after` and the job runs elsewhere, so it is not failed here.
   /// In the transaction the removal decides (and the record is rolled
-  /// back); otherwise the driver is asked before the record. A record
-  /// refused because `failed_jobs` holds the job's uuid already means
-  /// another worker failed it (two reservations at 255 attempts, or a
-  /// failure between asking and recording): not this worker's either.
+  /// back); otherwise the driver is asked before the record.
+  ///
+  /// A record refused because `failed_jobs` holds the job's uuid already
+  /// does not decide by itself (a retry whose old row is still there, a row
+  /// restored from a backup, another app sharing the table): ownership
+  /// does. When the job is no longer this worker's (another worker failed
+  /// it: two reservations at 255 attempts, or a failure between asking and
+  /// recording), it is not failed here; when it still is, or the driver
+  /// cannot tell (`sync`, `memory`), the error is thrown, as before.
   ///
   /// In the transaction, a deadlock on the removal is not retried by the
   /// driver (PostgreSQL refuses every statement of a failed transaction):
@@ -898,21 +903,32 @@ final class JobProcessor {
         driver.connection == failed.connection) {
       try {
         return await driver.db.transaction(() async {
-          final Object id;
+          Object? id;
+          UniqueConstraintViolationException? recorded;
+          StackTrace? recordedTrace;
           try {
-            id = await record();
-          } on UniqueConstraintViolationException {
-            notOwner();
-            throw const _NotOwner();
+            // A savepoint: a unique violation must not abort the
+            // transaction (PostgreSQL) before the removal decides.
+            id = await driver.db.transaction(
+              record,
+              connection: driver.connection,
+            );
+          } on UniqueConstraintViolationException catch (error, trace) {
+            recorded = error;
+            recordedTrace = trace;
           }
           if (!await driver.deleteOwned(queued)) {
-            throw const _NotOwner();
+            throw const _NotOwner(); // The driver warned.
+          }
+          if (recorded != null) {
+            // Still this worker's job: the uuid was there before. Rolled
+            // back, and thrown as it was before.
+            Error.throwWithStackTrace(recorded, recordedTrace!);
           }
           await _releaseUnique(queued.payload);
-          return (id: id);
+          return (id: id!);
         }, connection: driver.connection);
       } on _NotOwner {
-        // Warned: by the driver (deleteOwned) or above (the uuid).
         return null;
       }
     }
@@ -924,8 +940,11 @@ final class JobProcessor {
     try {
       id = await record();
     } on UniqueConstraintViolationException {
-      notOwner();
-      return null;
+      if (driver is OwnershipQueueDriver && !await driver.owns(queued)) {
+        notOwner();
+        return null;
+      }
+      rethrow;
     }
     try {
       await _finish(driver, queued, queued.payload);
