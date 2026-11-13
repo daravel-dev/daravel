@@ -86,14 +86,25 @@ final class ReverbRestartWatcher {
   Future<({Object? value})?>? _atStart;
   bool _reading = false;
 
+  /// [stop] was called: a check under way does nothing more after its next
+  /// `await` (no restart, no poll armed again).
+  bool _stopped = false;
+
   /// Whether it watches.
   bool get watching => _timer != null;
 
   /// Starts watching; the restart requested before (the key's value now)
   /// is ignored.
   void start() {
+    _stopped = false;
     _atStart ??= _read();
-    _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+    _arm();
+  }
+
+  void _arm() {
+    if (!_stopped) {
+      _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+    }
   }
 
   /// The key's value (null when never set), or null when it cannot be
@@ -107,8 +118,13 @@ final class ReverbRestartWatcher {
     }
   }
 
-  /// Stops watching (shutdown).
+  /// Stops watching (shutdown), also a restart waiting out its spread.
   void stop() {
+    _stopped = true;
+    _pause();
+  }
+
+  void _pause() {
     _timer?.cancel();
     _timer = null;
   }
@@ -120,6 +136,9 @@ final class ReverbRestartWatcher {
     _reading = true;
     try {
       final start = await _atStart;
+      if (_stopped) {
+        return;
+      }
       if (start == null) {
         // The value at the start is still unknown: read it again now, and
         // take nothing as a request until it is known.
@@ -135,10 +154,12 @@ final class ReverbRestartWatcher {
         app.logger.debug('reverb:restart signal not readable: $error');
         return;
       }
-      if (requested == null || requested == before || !watching) {
+      if (_stopped || requested == null || requested == before || !watching) {
         return;
       }
-      stop();
+      // No polls while this request is handled; [stop] in the meantime
+      // ends it (it used to restart anyway and arm the poll again).
+      _pause();
       final wait = spread.inMilliseconds <= 0
           ? Duration.zero
           : Duration(milliseconds: _random.nextInt(spread.inMilliseconds));
@@ -146,6 +167,9 @@ final class ReverbRestartWatcher {
         'reverb:restart requested; restarting in ${wait.inMilliseconds} ms.',
       );
       await Future<void>.delayed(wait);
+      if (_stopped) {
+        return;
+      }
       final instead = onRestart;
       if (instead != null) {
         try {
@@ -155,7 +179,7 @@ final class ReverbRestartWatcher {
         }
         // Handled (or logged): this value is no request any more.
         _atStart = Future.value((value: requested));
-        _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+        _arm();
         return;
       }
       try {
@@ -164,7 +188,7 @@ final class ReverbRestartWatcher {
         // Not restarted: keep watching, and try again at the next poll
         // (the value still differs from the one at the start).
         app.logger.error('reverb:restart failed: $error');
-        _timer ??= Timer.periodic(poll, (_) => unawaited(_check()));
+        _arm();
       }
     } finally {
       _reading = false;

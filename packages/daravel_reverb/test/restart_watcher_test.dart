@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel_reverb/daravel_reverb.dart';
@@ -99,6 +100,58 @@ void main() {
     await polls();
     expect(app.restartRequested, isTrue);
   });
+
+  group('stop() during the spread wait', () {
+    for (final withCallback in [false, true]) {
+      test(
+        withCallback
+            ? 'with onRestart: not called, and the poll does not come back'
+            : 'no restart, and the poll does not come back',
+        () async {
+          await request(1);
+          final app = await booted();
+          var called = 0;
+          final watcher = ReverbRestartWatcher(
+            app,
+            signals,
+            poll: const Duration(milliseconds: 2),
+            spread: const Duration(milliseconds: 300),
+            // Always 250 ms of the 300.
+            random: _Fixed(250),
+            onRestart: withCallback ? () async => called++ : null,
+          )..start();
+          addTearDown(watcher.stop);
+          await polls();
+          await request(2);
+          // The request is seen and the wait (250 ms) begins.
+          await polls();
+          watcher.stop();
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          expect(app.restartRequested, isFalse);
+          expect(called, 0);
+          expect(watcher.watching, isFalse);
+          await polls();
+          expect(watcher.watching, isFalse);
+        },
+      );
+    }
+  });
+}
+
+/// A [Random] whose [nextInt] is always [value] (below the bound).
+final class _Fixed implements Random {
+  _Fixed(this.value);
+
+  final int value;
+
+  @override
+  int nextInt(int max) => value < max ? value : max - 1;
+
+  @override
+  double nextDouble() => 0;
+
+  @override
+  bool nextBool() => false;
 }
 
 /// [inner], whose first [failures] reads throw (a store down for a moment).

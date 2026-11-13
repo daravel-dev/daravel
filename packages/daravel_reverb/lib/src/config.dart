@@ -120,14 +120,23 @@ final class ReverbConfig implements ConfigSection {
       final int n => '$n',
       _ => throw ConfigException('$where needs "$name".'),
     };
-    int number(String name, int fallback) => switch (entry[name]) {
-      null => fallback,
-      final int n => n,
-      final String s when int.tryParse(s) != null => int.parse(s),
-      final other => throw ConfigException(
-        '$where: "$name" is a number, not $other.',
-      ),
-    };
+    // [least]: a size or a timeout of 0 or less would refuse every message
+    // or ping without a pause, a negative count would mean nothing.
+    int number(String name, int fallback, {required int least}) {
+      final value = switch (entry[name]) {
+        null => fallback,
+        final int n => n,
+        final String s when int.tryParse(s) != null => int.parse(s),
+        final other => throw ConfigException(
+          '$where: "$name" is a number, not $other.',
+        ),
+      };
+      if (value < least) {
+        throw ConfigException('$where: "$name" must be at least $least.');
+      }
+      return value;
+    }
+
     final origins = switch (entry['allowed_origins']) {
       null => const ['*'],
       final List<Object?> list => [for (final o in list) '$o'],
@@ -139,8 +148,16 @@ final class ReverbConfig implements ConfigSection {
     final limit = entry['rate_limiting'];
     final BroadcastRateLimit? rateLimiting;
     if (limit is Map<String, Object?> && limit['enabled'] == true) {
-      int attempt(String name, int fallback) =>
-          limit[name] is int ? limit[name]! as int : fallback;
+      // A whole number of at least 1, or absent: `decay_seconds: 0` made
+      // the limit never apply, and a string was quietly the default.
+      int attempt(String name, int fallback) => switch (limit[name]) {
+        null => fallback,
+        final int n when n >= 1 => n,
+        final other => throw ConfigException(
+          '$where: "rate_limiting.$name" must be a whole number of at '
+          'least 1, not $other.',
+        ),
+      };
       rateLimiting = BroadcastRateLimit(
         maxAttempts: attempt('max_attempts', 60),
         decay: Duration(seconds: attempt('decay_seconds', 60)),
@@ -158,15 +175,22 @@ final class ReverbConfig implements ConfigSection {
       } on FormatException {
         throw ConfigException('$where: "encryption_master_key" is not base64.');
       }
+      // As BroadcastConfig's REVERB_ENCRYPTION_MASTER_KEY_BASE64.
+      if (masterKey.length != 32) {
+        throw ConfigException(
+          '$where: "encryption_master_key" must be 32 bytes '
+          '(openssl rand -base64 32), not ${masterKey.length}.',
+        );
+      }
     }
     return BroadcastApp(
       id: text('app_id'),
       key: text('key'),
       secret: text('secret'),
       allowedOrigins: origins,
-      maxConnections: number('max_connections', 0),
-      maxMessageSize: number('max_message_size', 10000),
-      activityTimeout: number('activity_timeout', 30),
+      maxConnections: number('max_connections', 0, least: 0),
+      maxMessageSize: number('max_message_size', 10000, least: 1),
+      activityTimeout: number('activity_timeout', 30, least: 1),
       encryptionMasterKey: masterKey,
       rateLimiting: rateLimiting,
     );

@@ -157,25 +157,55 @@ final class PusherFrameLog extends PusherObserver {
     return jsonEncode(_walk(decoded));
   }
 
-  static Object? _walk(Object? value) {
+  /// How deep [mask] looks; what is deeper is shown as [_tooDeep], never
+  /// as it is (it could hold a secret). Pusher frames are a few levels
+  /// deep. Recursing without a bound overflowed the stack on 4 500 nested
+  /// arrays, under 10 KB.
+  static const int _maxDepth = 32;
+  static const String _tooDeep = '[deeper than 32 levels]';
+
+  static Object? _walk(Object? value, [int depth = 0]) {
+    if (depth >= _maxDepth) {
+      return value is num || value is bool || value == null ? value : _tooDeep;
+    }
     switch (value) {
       case final Map<String, Object?> map:
         return {
           for (final MapEntry(:key, :value) in map.entries)
-            key: _masked.contains(key) && value != null ? '***' : _walk(value),
+            key: _masked.contains(key) && value != null
+                ? '***'
+                : _walk(value, depth + 1),
         };
       case final List<Object?> list:
-        return [for (final v in list) _walk(v)];
-      // Pusher sends `data` as JSON text inside the frame.
-      case final String text when text.startsWith('{'):
+        return [for (final v in list) _walk(v, depth + 1)];
+      // Pusher sends `data` as JSON text inside the frame: an object, or an
+      // array, after any white space JSON allows (a secret inside must not
+      // show because the text began with a space or a `[`).
+      case final String text when _isJsonContainer(text):
         try {
-          return jsonEncode(_walk(jsonDecode(text)));
+          return jsonEncode(_walk(jsonDecode(text), depth + 1));
         } on FormatException {
           return text;
         }
       default:
         return value;
     }
+  }
+
+  /// Whether [text]'s first character that is not JSON white space opens
+  /// an object or an array.
+  static bool _isJsonContainer(String text) {
+    for (var i = 0; i < text.length; i++) {
+      switch (text.codeUnitAt(i)) {
+        case 0x20 || 0x09 || 0x0A || 0x0D:
+          continue;
+        case 0x7B || 0x5B:
+          return true;
+        default:
+          return false;
+      }
+    }
+    return false;
   }
 
   @override

@@ -863,6 +863,47 @@ void main() {
     await a.close();
     await b.close();
   });
+
+  test('a subscribe whose auth or channel_data is not a string: refused '
+      'with pusher:error 4200, and the connection stays', () async {
+    final client = await connect();
+    for (final data in <Map<String, Object?>>[
+      {'channel': 'private-orders.7', 'auth': 123},
+      {'channel': 'presence-chat.1', 'auth': 'k:s', 'channel_data': {}},
+    ]) {
+      client.send({'event': 'pusher:subscribe', 'data': data});
+      final error = await client.next();
+      expect(error['event'], 'pusher:error', reason: '$data');
+      expect(
+        jsonDecode(error['data']! as String),
+        containsPair('code', 4200),
+        reason: '$data',
+      );
+    }
+    client.send({'event': 'pusher:ping', 'data': <String, Object?>{}});
+    expect((await client.next())['event'], 'pusher:pong');
+    await client.close();
+  }, tags: 'security');
+
+  test(
+    'the HTTP API: a socket_id that is not a string is a 422, not a 500',
+    () async {
+      final (single, _) = await api('POST', '/apps/$appId/events', {
+        'name': 'e',
+        'channel': 'news',
+        'data': '{}',
+        'socket_id': 5,
+      });
+      expect(single, 422);
+      final (batch, _) = await api('POST', '/apps/$appId/batch_events', {
+        'batch': [
+          {'name': 'e', 'channel': 'news', 'data': '{}', 'socket_id': 5},
+        ],
+      });
+      expect(batch, 422);
+    },
+    tags: 'security',
+  );
 }
 
 /// A Pusher client speaking protocol 7, as pusher-js does.

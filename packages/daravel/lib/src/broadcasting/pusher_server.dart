@@ -441,11 +441,16 @@ final class PusherServer {
     if (channels.any(_scopedName)) {
       return _invalid('Channel names cannot contain ":".');
     }
+    // A number here was a TypeError, answered 500.
+    final socketId = body?['socket_id'];
+    if (socketId != null && socketId is! String) {
+      return _invalid('socket_id must be a string.');
+    }
     await publish(
       name,
       channels,
       data,
-      exceptSocket: body?['socket_id'] as String?,
+      exceptSocket: socketId as String?,
       app: app,
     );
     return Response.json(<String, Object?>{});
@@ -466,10 +471,12 @@ final class PusherServer {
               item['name'] is! String ||
               item['data'] is! String ||
               item['channel'] is! String ||
-              _scopedName(item['channel']! as String),
+              _scopedName(item['channel']! as String) ||
+              (item['socket_id'] != null && item['socket_id'] is! String),
         )) {
       return _invalid(
-        'Each batch item needs name, data and a channel without ":".',
+        'Each batch item needs name, data and a channel without ":" '
+        '(and socket_id, when given, a string).',
       );
     }
     for (final item in batch.cast<Map<String, Object?>>()) {
@@ -645,9 +652,9 @@ final class _Connection {
       send(PusherServer._error(code, message));
 
   Future<void> receive(Object? message) async {
-    _server.observer
-      ..received(_app.id)
-      ..frame(_app.id, id, 'in', message);
+    // Counted as it arrives; shown to observers (the `--debug` log decodes
+    // it) only once it is within the rate limit and the size limit.
+    _server.observer.received(_app.id);
     if (!_withinRateLimit()) {
       _server._rejected('rate_limit', _app);
       _error(4301, 'Rate limit exceeded');
@@ -662,6 +669,7 @@ final class _Connection {
         (message.length * 3 > max && utf8.encode(message).length > max)) {
       return _error(4200, 'Invalid message format');
     }
+    _server.observer.frame(_app.id, id, 'in', message);
     final Map<String, Object?> payload;
     try {
       final decoded = jsonDecode(message);
@@ -705,11 +713,15 @@ final class _Connection {
             'Too many channels on this connection (at most $most)',
           );
         }
-        await _subscribe(
-          channel,
-          data['auth'] as String?,
-          data['channel_data'] as String?,
-        );
+        // Strings or nothing: a number here was a TypeError that closed
+        // the connection (4200, reconnect) instead of refusing the frame.
+        final auth = data['auth'];
+        final channelData = data['channel_data'];
+        if ((auth != null && auth is! String) ||
+            (channelData != null && channelData is! String)) {
+          return _error(4200, 'Invalid message format');
+        }
+        await _subscribe(channel, auth as String?, channelData as String?);
       case 'pusher:unsubscribe':
         final channel = data['channel'];
         if (channel is String) {

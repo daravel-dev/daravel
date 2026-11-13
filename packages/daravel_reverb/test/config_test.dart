@@ -107,6 +107,61 @@ void main() {
     }
   });
 
+  test('settings that cannot work are a ConfigException naming them', () {
+    Map<String, Object?> app(Map<String, Object?> extra) => {
+      'app_id': 'a',
+      'key': 'k',
+      'secret': 's',
+      ...extra,
+    };
+    for (final (entry, named) in <(Map<String, Object?>, String)>[
+      (app({'max_message_size': 0}), 'max_message_size'),
+      (app({'max_message_size': '-1'}), 'max_message_size'),
+      (app({'activity_timeout': 0}), 'activity_timeout'),
+      (app({'max_connections': -1}), 'max_connections'),
+      (
+        app({
+          'rate_limiting': {'enabled': true, 'decay_seconds': 0},
+        }),
+        'decay_seconds',
+      ),
+      (
+        app({
+          'rate_limiting': {'enabled': true, 'max_attempts': '60'},
+        }),
+        'max_attempts',
+      ),
+      (
+        app({'encryption_master_key': base64.encode(List.filled(16, 1))}),
+        'encryption_master_key',
+      ),
+    ]) {
+      expect(
+        () => ReverbConfig.appFromMap(entry, 'REVERB_APPS[0]'),
+        throwsA(
+          isA<ConfigException>().having(
+            (e) => e.message,
+            'message',
+            contains(named),
+          ),
+        ),
+        reason: '$entry',
+      );
+    }
+    // What stays accepted: numbers as strings at the top level (env JSON),
+    // a 32-byte key, rate limiting with its defaults.
+    final ok = ReverbConfig.appFromMap(
+      app({
+        'max_message_size': '20000',
+        'encryption_master_key': base64.encode(List.filled(32, 1)),
+        'rate_limiting': {'enabled': true},
+      }),
+      'REVERB_APPS[0]',
+    );
+    expect(ok.maxMessageSize, 20000);
+    expect(ok.rateLimiting?.maxAttempts, 60);
+  });
+
   test('check: unique ids and keys, origins, short secrets', () {
     final issues = check({
       'REVERB_APPS': jsonEncode([
