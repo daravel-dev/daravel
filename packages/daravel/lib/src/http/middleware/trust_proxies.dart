@@ -150,6 +150,7 @@ final class TrustProxiesMiddleware implements Middleware {
       }
     }
     String? host;
+    int? port;
     if (headers.contains(ForwardedHeader.forwardedHost)) {
       final value = request.headers
           .first('x-forwarded-host')
@@ -158,10 +159,29 @@ final class TrustProxiesMiddleware implements Middleware {
           .trim();
       // Even from a trusted proxy, only `uri-host [":" port]`: a value that
       // could change the path or host the application sees is ignored.
-      if (value != null &&
-          value.isNotEmpty &&
-          parseHostAuthority(value) != null) {
-        host = value;
+      final authority = value == null || value.isEmpty
+          ? null
+          : parseHostAuthority(value);
+      if (authority != null && authority.host.isNotEmpty) {
+        host = authority.host;
+        port = authority.port;
+      }
+    }
+    // As Symfony's getPort(): X-Forwarded-Port first, then the port of
+    // X-Forwarded-Host. Only digits up to 65535; anything else is ignored.
+    // Port 0 is no port there (`'0'` is falsy in PHP): the scheme's default
+    // is taken, not the port of a host.
+    if (headers.contains(ForwardedHeader.forwardedPort)) {
+      final value = request.headers
+          .first('x-forwarded-port')
+          ?.split(',')
+          .first
+          .trim();
+      final forwarded = value == null ? null : _port(value);
+      if (forwarded == 0) {
+        port = (scheme ?? request.scheme) == 'https' ? 443 : 80;
+      } else if (forwarded != null) {
+        port = forwarded;
       }
     }
     request.applyForwarded(
@@ -169,6 +189,23 @@ final class TrustProxiesMiddleware implements Middleware {
       ips: chain,
       scheme: scheme,
       host: host,
+      port: port,
     );
   }
+}
+
+/// [value] as a port: one to five digits, at most 65535; null otherwise.
+int? _port(String value) {
+  if (value.isEmpty || value.length > 5) {
+    return null;
+  }
+  var port = 0;
+  for (var i = 0; i < value.length; i++) {
+    final c = value.codeUnitAt(i);
+    if (c < 0x30 || c > 0x39) {
+      return null;
+    }
+    port = port * 10 + (c - 0x30);
+  }
+  return port > 65535 ? null : port;
 }
