@@ -166,10 +166,33 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   String? get protocol => _inner.protocol;
 
   @override
-  int? get closeCode => _inner.closeCode;
+  int? get closeCode => _inner.closeCode ?? _peerCloseCode;
 
   @override
-  String? get closeReason => _inner.closeReason;
+  String? get closeReason => _inner.closeReason ?? _peerCloseReason;
+
+  int? _peerCloseCode;
+  String? _peerCloseReason;
+
+  /// The client closed with [code] and [reason] while nothing read this
+  /// socket (the server read its close frame on the socket's behalf):
+  /// [closeCode] and [closeReason] report them.
+  void peerClosed(int code, String? reason) {
+    _peerCloseCode = code;
+    _peerCloseReason = reason;
+  }
+
+  /// The connection under this socket is gone (the server destroyed it):
+  /// nothing queued can be sent, and [done] completes now instead of after
+  /// a close grace.
+  void abandon() {
+    _closing = true;
+    _queue.clear();
+    _bufferedBytes = 0;
+    if (!_gaveUp.isCompleted) {
+      _gaveUp.complete();
+    }
+  }
 
   /// Completes when the socket is closed, or [closeGrace] after this side
   /// closed it when the peer never answers (it stopped reading, so the
@@ -240,10 +263,26 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     }
     _overflowed = true;
     onSlowClient?.call();
-    _closed ??= _close(slowClientCode, slowClientReason, drop: true);
+    // A client that does not read will not read the close either: it gets
+    // [slowClientGrace], not [closeGrace].
+    _closed ??= _close(
+      slowClientCode,
+      slowClientReason,
+      drop: true,
+      grace: slowClientGrace,
+    );
   }
 
-  Future<void> _close(int? code, String? reason, {required bool drop}) async {
+  /// How long a slow client's close waits before the connection is given
+  /// up.
+  static const Duration slowClientGrace = Duration(seconds: 1);
+
+  Future<void> _close(
+    int? code,
+    String? reason, {
+    required bool drop,
+    Duration grace = closeGrace,
+  }) async {
     _closing = true;
     await _unbind(drop: drop);
     final closing = _inner
@@ -254,13 +293,13 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
             // The socket is gone already; closing it again changes nothing.
           },
         );
-    final grace = Timer(closeGrace, () {
+    final giveUp = Timer(grace, () {
       if (!_gaveUp.isCompleted) {
         _gaveUp.complete();
       }
     });
     await Future.any<void>([closing, _gaveUp.future]);
-    grace.cancel();
+    giveUp.cancel();
   }
 
   _Feed _bind() {

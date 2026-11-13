@@ -26,6 +26,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'buffered_web_socket.dart';
+
 /// The limits of a [WebSocketGuard].
 final class WebSocketGuardLimits {
   /// Limits of one connection.
@@ -144,13 +146,53 @@ final class WebSocketGuard {
     _socket?.destroy();
   }
 
+  /// The client closed (with [code] and [reason]) or went away
+  /// ([clientGone]) while the WebSocket did not read, and nothing read it
+  /// within [_GuardedSocket.unreadWait]: the session ends with the
+  /// client's code. A close is answered with that code, the socket
+  /// destroyed after the grace; a client that went away is not waited for.
+  void _closedUnread(int? code, String? reason, {required bool clientGone}) {
+    final attached = _attached;
+    if (attached is BufferedWebSocket) {
+      // No close read: 1006 (gone) or 1005 (no code), as RFC 6455 §7.1.5.
+      attached.peerClosed(code ?? (clientGone ? 1006 : 1005), reason);
+    }
+    final socket = _socket;
+    if (clientGone || attached == null) {
+      socket?.destroy();
+      return;
+    }
+    _keepGrace = true;
+    try {
+      unawaited(
+        attached.close(code, reason).then<void>((_) {}, onError: (Object _) {}),
+      );
+    } on Object {
+      // Closing already: the grace below ends it.
+    }
+    _grace = Timer(limits.closeGrace, () => socket?.destroy());
+  }
+
+  /// The socket was destroyed: the session ends now, not when the
+  /// BufferedWebSocket's own close gives up waiting for a client that
+  /// will not answer.
+  void _gone() {
+    final attached = _attached;
+    if (attached is BufferedWebSocket) {
+      attached.abandon();
+    }
+  }
+
+  /// The grace stays once a close of the guard's own is under way.
+  bool _keepGrace = false;
+
   void _dispose() {
     _inbound.dispose();
     // After a violation the grace stays: the WebSocket's `done` reports its
     // side closed, and a client that neither answers nor goes away would
     // keep the session until the WebSocket's own close timeout; the grace
     // destroys the socket, which ends the session.
-    if (!_violated) {
+    if (!_violated && !_keepGrace) {
       _grace?.cancel();
     }
   }
@@ -188,6 +230,11 @@ final class _Inbound {
   /// The payload of a PING being read: the guard answers it itself
   /// ([_GuardedSocket._pong]), in the counted queue.
   BytesBuilder? _ping;
+
+  /// The payload of the client's CLOSE being read: handed on as one frame
+  /// once whole, its code known to [_GuardedSocket] (a WebSocket that does
+  /// not read yet holds it, [_GuardedSocket._clientClose]).
+  BytesBuilder? _close;
 
   // The fragmented message being assembled.
   BytesBuilder? _message;
@@ -247,9 +294,9 @@ final class _Inbound {
           plain[i] = slice[i] ^ _mask[(_maskOffset + i) & 3];
         }
         _maskOffset += count;
-        (_ping ?? _message)!.add(plain);
+        (_ping ?? _close ?? _message)!.add(plain);
         assert(
-          _ping != null || _message!.length <= _messageBytes,
+          _ping != null || _close != null || _message!.length <= _messageBytes,
           'what is assembled stays within the lengths admitted',
         );
       }
@@ -321,6 +368,13 @@ final class _Inbound {
         // A valid PING: answered here, its PONG in the guard's counted
         // queue between frames, so it counts toward maxBufferedBytes.
         _ping = BytesBuilder(copy: false);
+        _pass = false;
+        _inPayload = _remaining > 0;
+        return;
+      }
+      if (_opcode == 0x8 && _fin && masked && length <= 125) {
+        // A valid CLOSE: read whole, then handed on as one frame.
+        _close = BytesBuilder(copy: false);
         _pass = false;
         _inPayload = _remaining > 0;
         return;
@@ -403,6 +457,21 @@ final class _Inbound {
       _guard._socket?._pong(ping.takeBytes());
       return;
     }
+    final close = _close;
+    if (close != null) {
+      _close = null;
+      _pass = true;
+      final payload = close.takeBytes();
+      emit(_frame(0x8, false, payload.length));
+      if (payload.isNotEmpty) {
+        emit(payload);
+      }
+      _guard._socket?._clientClose(
+        payload.length >= 2 ? payload[0] << 8 | payload[1] : null,
+        payload.length > 2 ? payload.sublist(2) : null,
+      );
+      return;
+    }
     if (!_fin) {
       return;
     }
@@ -469,6 +538,7 @@ final class _Inbound {
     _stopped = true;
     _message = null;
     _ping = null;
+    _close = null;
     _deadline?.cancel();
   }
 }
@@ -619,10 +689,20 @@ final class _GuardedResponse implements HttpResponse {
   void writeln([Object? object = '']) => _inner.writeln(object);
 }
 
+/// The end of the client's TCP stream, held in order behind its bytes.
+final class _TcpEnd {
+  _TcpEnd(this.error, this.stackTrace);
+
+  /// Null for a FIN; the socket's error for a reset.
+  final Object? error;
+  final StackTrace? stackTrace;
+}
+
 /// The TCP socket under the upgraded WebSocket.
 ///
-/// In: the client's bytes through [_Inbound]; the WebSocket pausing its
-/// reading pauses the TCP socket, so nothing new queues here. Out:
+/// In: the client's bytes through [_Inbound]; while the WebSocket pauses
+/// its reading they wait in [_held], up to a bound past which TCP holds
+/// the client back. Out:
 /// everything the WebSocket writes (frames, the close frame) and the
 /// guard's PONGs go through [addStream] in order, to the TCP socket only
 /// while the socket takes it (not paused); what waits is counted: above
@@ -635,11 +715,120 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
 
   StreamSubscription<Uint8List>? _reading;
 
+  /// What the client sent that waits for the WebSocket to read again: byte
+  /// slices in order, then perhaps the end of the TCP stream ([_TcpEnd]).
+  ///
+  /// The client is read on while the WebSocket does not read (a handler
+  /// that has not listened yet, or one that never does), so its close or
+  /// its going away is seen; TCP holds it back once more than
+  /// [_heldLimit] bytes wait. At most [_heldLimit] plus one assembled
+  /// message (up to `maxMessageBytes`) plus one TCP chunk wait here.
+  final Queue<Object> _held = Queue<Object>();
+  int _heldBytes = 0;
+
+  /// The WebSocket paused its reading.
+  bool _handOnPaused = false;
+
+  /// TCP is paused because [_held] is over [_heldLimit].
+  bool _tcpHeldBack = false;
+
+  /// How many bytes may wait in [_held] before TCP is held back.
+  static const int heldLimit = 64 << 10;
+  int get _heldLimit => min(heldLimit, _guard.limits.maxMessageBytes);
+
+  /// How long a close or the end of TCP that waits in [_held] waits for
+  /// the WebSocket to read it, before the session ends without it.
+  static const Duration unreadWait = Duration(seconds: 5);
+  Timer? _unreadWait;
+
   /// [bytes] to the WebSocket, handed on at a 16-byte offset in their
-  /// buffer (a slice that starts elsewhere is copied).
-  void _handOn(Uint8List bytes) => _in.add(
-    (bytes.offsetInBytes & 15) == 0 ? bytes : Uint8List.fromList(bytes),
-  );
+  /// buffer (a slice that starts elsewhere is copied); held while it does
+  /// not read.
+  void _handOn(Uint8List bytes) {
+    final aligned = (bytes.offsetInBytes & 15) == 0
+        ? bytes
+        : Uint8List.fromList(bytes);
+    if (_handOnPaused || _held.isNotEmpty) {
+      _held.add(aligned);
+      _heldBytes += aligned.length;
+      if (!_tcpHeldBack && _heldBytes > _heldLimit) {
+        _tcpHeldBack = true;
+        _reading?.pause();
+      }
+      return;
+    }
+    _in.add(aligned);
+  }
+
+  /// Hands on what [_held] holds, in order, while the WebSocket reads.
+  void _flushHeld() {
+    while (!_handOnPaused && _held.isNotEmpty && !_destroyed) {
+      final item = _held.removeFirst();
+      if (item is Uint8List) {
+        _heldBytes -= item.length;
+        _in.add(item);
+      } else if (item is _TcpEnd) {
+        _endIn(item);
+      }
+    }
+    assert(_heldBytes >= 0, 'what is held is counted once');
+    if (_held.isEmpty) {
+      _unreadWait?.cancel();
+      _unreadWait = null;
+    }
+    if (_tcpHeldBack && _heldBytes <= _heldLimit) {
+      _tcpHeldBack = false;
+      _reading?.resume();
+    }
+  }
+
+  void _endIn(_TcpEnd end) {
+    final error = end.error;
+    if (error != null) {
+      _in.addError(error, end.stackTrace);
+    } else {
+      unawaited(_in.close());
+    }
+  }
+
+  /// The client's TCP stream ended (FIN) or failed (RST).
+  void _tcpEnd([Object? error, StackTrace? stackTrace]) {
+    final end = _TcpEnd(error, stackTrace);
+    if (!_handOnPaused && _held.isEmpty) {
+      _endIn(end);
+    } else if (_held.isEmpty) {
+      // Nothing waits that a reader could still want: the session ends.
+      _guard._closedUnread(null, null, clientGone: true);
+    } else {
+      _held.add(end);
+      _startUnreadWait(null, null);
+    }
+  }
+
+  /// The client's CLOSE was handed on, with [code] and [reason]; if it
+  /// waits in [_held], the WebSocket has [unreadWait] to read it.
+  void _clientClose(int? code, Uint8List? reason) {
+    if (_held.isNotEmpty) {
+      _startUnreadWait(code, reason);
+    }
+  }
+
+  void _startUnreadWait(int? code, Uint8List? reason) {
+    _unreadWait ??= Timer(unreadWait, () {
+      _unreadWait = null;
+      if (_held.isEmpty || _destroyed) {
+        return; // read in time
+      }
+      // Nobody read: what waits is dropped, and the session ends.
+      final ended = _held.last is _TcpEnd;
+      _held.clear();
+      _heldBytes = 0;
+      final text = reason == null
+          ? null
+          : utf8.decode(reason, allowMalformed: true);
+      _guard._closedUnread(code, text, clientGone: ended);
+    });
+  }
 
   /// What the client may still send after a violation, read and dropped:
   /// enough for its close frame and what was in flight, so the connection
@@ -666,10 +855,14 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   late final StreamController<Uint8List> _in = StreamController<Uint8List>(
     sync: true,
     onListen: () {
-      _reading = _inner.listen(_read, onError: _in.addError, onDone: _in.close);
+      _reading = _inner.listen(_read, onError: _tcpEnd, onDone: _tcpEnd);
     },
-    onPause: () => _reading?.pause(),
-    onResume: () => _reading?.resume(),
+    // The client is read on while the WebSocket pauses ([_held]).
+    onPause: () => _handOnPaused = true,
+    onResume: () {
+      _handOnPaused = false;
+      _flushHeld();
+    },
     onCancel: () => _reading?.cancel(),
   );
 
@@ -907,9 +1100,14 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _waiting.clear();
     _waitingBytes = 0;
     _pongs.clear();
+    _held.clear();
+    _heldBytes = 0;
+    _unreadWait?.cancel();
+    _unreadWait = null;
     // The WebSocket still sees its stream end, so its close completes.
     _writing?.resume();
     _guard._dispose();
+    _guard._gone();
     unawaited(_reading?.cancel());
     _inner.destroy();
     unawaited(_out.close());

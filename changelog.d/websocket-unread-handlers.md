@@ -1,0 +1,4 @@
+### Fixed
+
+- A WebSocket whose handler waits on `socket.done` without listening, or writes in a loop while `socket.readyState` is open, now learns that its client closed or went away: while nothing listens, the server goes on reading the client and holds what it sends, in order, for a listener to come (up to 64 KiB, or the route's `maxPayloadBytes` if smaller, plus one message; then TCP holds the client back). When the client's close or its going away has waited 5 s unread, the session ends with the client's code (1006 when it left without a close). A client that first sends more than that bound and then leaves without a word is still not seen leaving.
+- A WebSocket closed as a slow client (its send buffer over `maxBufferedBytes`) ended its session up to 5 s after the connection was gone; now within 1 s.

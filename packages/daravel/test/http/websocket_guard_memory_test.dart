@@ -175,6 +175,44 @@ void main() {
     });
   });
 
+  test('a handler that does not read, sent messages of the full size in '
+      'fragments: what waits stays within the bound', () async {
+    // One message of exactly the route's limit (64 KiB) in four fragments:
+    // the server holds at most 64 KiB waiting, one assembled message and
+    // a TCP chunk before TCP holds the client back.
+    final piece = Uint8List(16 << 10);
+    final message = BytesBuilder()
+      ..add(RawWsClient.frame(0x2, piece, fin: false))
+      ..add(RawWsClient.frame(0x0, piece, fin: false))
+      ..add(RawWsClient.frame(0x0, piece, fin: false))
+      ..add(RawWsClient.frame(0x0, piece));
+    final once = message.takeBytes();
+    final burst = BytesBuilder();
+    for (var i = 0; i < 16; i++) {
+      burst.add(once);
+    }
+    final bytes = burst.takeBytes(); // 1 MiB
+    await expectBounded('full-size fragmented messages, not read', (
+      scale,
+    ) async {
+      final client = await connect('/silent');
+      var sent = 0;
+      for (var i = 0; i < 16 * scale; i++) {
+        client.socket.add(bytes);
+        try {
+          await client.socket.flush().timeout(
+            const Duration(milliseconds: 300),
+          );
+          sent++;
+        } on TimeoutException {
+          break;
+        }
+      }
+      expect(sent, lessThan(16 * scale), reason: 'TCP pushed back');
+      client.socket.destroy();
+    });
+  });
+
   test(
     'a client that resets the connection while the server sends: the '
     'session ends, the server does not keep what it goes on sending',
