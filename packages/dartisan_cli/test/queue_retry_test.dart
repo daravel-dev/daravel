@@ -97,6 +97,45 @@ void main() {
     );
     expect(await counts(), (0, 2));
   });
+
+  test('all goes past an unreadable payload, which stays: exit 1', () async {
+    final app = retryApp();
+    await app.boot();
+    await app.run(() async {
+      final failed = App.make<QueueManager>().processor.failedJobs;
+      await failed.log(
+        connection: 'database',
+        queue: 'mail',
+        payload: '{"job":"note","uuid":5}',
+        exception: 'StateError: boom',
+      );
+      await failed.log(
+        connection: 'database',
+        queue: 'mail',
+        payload: JobPayload.forJob(const Note(), uuid: 'uuid-c').encode(),
+        exception: 'StateError: boom',
+      );
+    });
+    await app.shutdown();
+    final (code, text) = await retry(['all']);
+    expect(code, 1, reason: 'one left behind');
+    expect(
+      text,
+      'The failed job [uuid-a] has been pushed back onto the queue.\n'
+      'The failed job [uuid-b] has been pushed back onto the queue.\n'
+      'The failed job [uuid-c] has been pushed back onto the queue.\n',
+    );
+    expect(await counts(), (1, 3), reason: 'the unreadable one stays');
+  });
+
+  test('--queue retries every failed job of that queue', () async {
+    final (code, text) = await retry(['--queue=other']);
+    expect(code, 0);
+    expect(text, 'No failed jobs matched.\n');
+    final (code2, _) = await retry(['--queue=mail']);
+    expect(code2, 0);
+    expect(await counts(), (0, 2));
+  });
 }
 
 /// Collects what a command prints.

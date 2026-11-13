@@ -940,7 +940,7 @@ final class Application {
     final cache = c.make<CacheManager>();
     // Failed jobs of the queues that outlive the process (database, or a
     // driver such as redis) go to `failed_jobs`, as in Laravel.
-    final failed =
+    final FailedJobProvider failed =
         const {'sync', 'memory'}.contains(queueConfig.defaultConnection)
         ? MemoryFailedJobProvider()
         : DatabaseFailedJobProvider(db, table: queueConfig.failedTable);

@@ -890,6 +890,54 @@ final class JobProcessor {
   static DateTime _utcNow() => Clock.now().toUtc();
 }
 
+/// Another retry of all failed jobs holds the lock
+/// ([QueueManager.retryAllFailed]): two at once would push the same jobs
+/// twice.
+final class RetryAllRunningException extends DaravelException {
+  /// Failed jobs are already being retried elsewhere.
+  const RetryAllRunningException()
+    : super('The failed jobs are already being retried; try again later.');
+}
+
+/// A failed job [QueueManager.retryAllFailed] left in `failed_jobs`, with
+/// why: its payload could not be read, so it cannot run again.
+typedef SkippedFailedJob = ({Object id, String uuid, String reason});
+
+/// What one call of [QueueManager.retryAllFailed] did.
+final class RetryAllResult {
+  /// The outcome of one call.
+  const RetryAllResult({
+    required this.retried,
+    required this.skipped,
+    required this.skippedCount,
+    required this.remaining,
+    required this.after,
+    required this.upTo,
+  });
+
+  /// The uuids of the jobs pushed back onto their queues.
+  final List<String> retried;
+
+  /// The first [QueueManager.maxSkippedReported] jobs left behind.
+  final List<SkippedFailedJob> skipped;
+
+  /// How many jobs were left behind.
+  final int skippedCount;
+
+  /// How many failed jobs up to [upTo] are still to retry: the call
+  /// stopped at its limit or budget. 0 when it is done.
+  final int remaining;
+
+  /// The id to continue from in the next call.
+  final int after;
+
+  /// The largest id this run retries (the last failed job when it began):
+  /// jobs failing again during it get later ids and are not retried in the
+  /// same run. Null when there was nothing to retry, or when the failed job
+  /// provider is not a [FailedJobPages].
+  final int? upTo;
+}
+
 /// Connections, dispatching, unique jobs and faking (Laravel `QueueManager`
 /// + `Bus::dispatch`).
 final class QueueManager {
@@ -960,25 +1008,166 @@ final class QueueManager {
     return failed;
   }
 
-  /// [retryFailed] for every failed job (`queue:retry all`); the jobs
-  /// pushed back.
-  Future<List<FailedJob>> retryAllFailed() async {
-    final all = await processor.failedJobs.all();
-    for (final failed in all) {
-      await _retry(failed);
+  /// The most skipped jobs a [RetryAllResult] lists ([RetryAllResult.
+  /// skippedCount] counts them all).
+  static const int maxSkippedReported = 100;
+
+  /// [retryFailed] for every failed job (of [queue] when given), oldest
+  /// first, a page of [pageSize] at a time (`queue:retry all`, Horizon's
+  /// retry-all).
+  ///
+  /// One call stops after [limit] jobs or once [budget] has passed, and
+  /// says how many are [RetryAllResult.remaining]; pass its
+  /// [RetryAllResult.after] and [RetryAllResult.upTo] to the next call to
+  /// go on. The run never goes past the last failed job there was when it
+  /// began ([upTo]), so a job that fails again at once is not retried
+  /// again by the same run.
+  ///
+  /// A job whose payload cannot be read stays in `failed_jobs` and is
+  /// reported as skipped (Laravel pushes such a payload as `null`); the
+  /// others are still retried. Each call holds the lock `queue:retry-all`
+  /// in [signalStore] (shared by the processes): a second call while it
+  /// runs, from another request or `dartisan`, throws
+  /// [RetryAllRunningException] instead of pushing the same jobs twice.
+  Future<RetryAllResult> retryAllFailed({
+    String? queue,
+    int? limit,
+    Duration? budget,
+    int after = 0,
+    int? upTo,
+    int pageSize = 500,
+    void Function(FailedJob failed)? onRetried,
+    void Function(FailedJob failed, Object error)? onSkipped,
+  }) async {
+    // Longer than a call is allowed to take, so it does not expire under
+    // it; a call without a budget (one that runs to the end) gets an hour.
+    final ttl = budget == null
+        ? const Duration(hours: 1)
+        : budget * 3 + const Duration(seconds: 30);
+    final lock = signalStore?.lock('queue:retry-all', ttl: ttl);
+    if (lock != null && !await lock.acquire()) {
+      throw const RetryAllRunningException();
     }
-    return all;
+    try {
+      return await _retryAll(
+        queue: queue,
+        limit: limit,
+        budget: budget,
+        after: after,
+        upTo: upTo,
+        pageSize: pageSize,
+        onRetried: onRetried,
+        onSkipped: onSkipped,
+      );
+    } finally {
+      await lock?.release();
+    }
   }
 
-  Future<void> _retry(FailedJob failed) async {
-    final payload = JobPayload.decode(failed.payload);
-    await connection(failed.connection).push(
-      JobPayload.fromJson(<String, Object?>{
-        ...payload.toJson(),
-        'uniqueKey': null,
-      }),
-      queue: failed.queue,
+  Future<RetryAllResult> _retryAll({
+    required String? queue,
+    required int? limit,
+    required Duration? budget,
+    required int after,
+    required int? upTo,
+    required int pageSize,
+    required void Function(FailedJob failed)? onRetried,
+    required void Function(FailedJob failed, Object error)? onSkipped,
+  }) async {
+    final watch = Stopwatch()..start();
+    final retried = <String>[];
+    final skipped = <SkippedFailedJob>[];
+    var skippedCount = 0;
+    var handled = 0;
+    bool stop() =>
+        (limit != null && handled >= limit) ||
+        (budget != null && watch.elapsed >= budget);
+    Future<void> handle(FailedJob failed) async {
+      handled++;
+      final JobPayload payload;
+      try {
+        payload = _retryPayload(failed);
+      } on Object catch (error) {
+        skippedCount++;
+        if (skipped.length < maxSkippedReported) {
+          skipped.add((id: failed.id, uuid: failed.uuid, reason: '$error'));
+        }
+        onSkipped?.call(failed, error);
+        return;
+      }
+      await _push(failed, payload);
+      retried.add(failed.uuid);
+      onRetried?.call(failed);
+    }
+
+    final failedJobs = processor.failedJobs;
+    if (failedJobs is! FailedJobPages) {
+      // No pages: all of them at once, as before.
+      final all = [
+        for (final failed in await failedJobs.all())
+          if (queue == null || failed.queue == queue) failed,
+      ];
+      var at = 0;
+      for (; at < all.length && !stop(); at++) {
+        await handle(all[at]);
+      }
+      return RetryAllResult(
+        retried: retried,
+        skipped: skipped,
+        skippedCount: skippedCount,
+        remaining: all.length - at,
+        after: 0,
+        upTo: null,
+      );
+    }
+    final pages = failedJobs as FailedJobPages;
+    final bound = upTo ?? await pages.lastId(queue: queue);
+    var cursor = after;
+    if (bound != null) {
+      pages:
+      while (!stop()) {
+        final page = await pages.page(
+          after: cursor,
+          upTo: bound,
+          limit: pageSize,
+          queue: queue,
+        );
+        if (page.isEmpty) {
+          break;
+        }
+        for (final failed in page) {
+          if (stop()) {
+            break pages;
+          }
+          cursor = failed.id as int;
+          await handle(failed);
+        }
+      }
+    }
+    return RetryAllResult(
+      retried: retried,
+      skipped: skipped,
+      skippedCount: skippedCount,
+      remaining: bound == null
+          ? 0
+          : await pages.countBetween(after: cursor, upTo: bound, queue: queue),
+      after: cursor,
+      upTo: bound,
     );
+  }
+
+  Future<void> _retry(FailedJob failed) => _push(failed, _retryPayload(failed));
+
+  /// The payload [failed] runs again with (its unique lock is not taken
+  /// again); throws when it cannot be read.
+  static JobPayload _retryPayload(FailedJob failed) =>
+      JobPayload.fromJson(<String, Object?>{
+        ...JobPayload.decode(failed.payload).toJson(),
+        'uniqueKey': null,
+      });
+
+  Future<void> _push(FailedJob failed, JobPayload payload) async {
+    await connection(failed.connection).push(payload, queue: failed.queue);
     await processor.failedJobs.forget(failed.id);
   }
 

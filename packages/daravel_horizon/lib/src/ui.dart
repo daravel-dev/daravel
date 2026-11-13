@@ -143,7 +143,7 @@ status('Updated '+new Date().toLocaleTimeString());}catch(e){status('Could not l
 for(const a of document.querySelectorAll('nav a'))a.addEventListener('click',e=>{e.preventDefault();history.pushState(null,'',a.href);show(a.dataset.tab);});
 window.addEventListener('popstate',()=>{const n=location.pathname.split('/').pop();show(n&&n!=='horizon'&&document.getElementById('tab-'+n)?n:'dashboard');});
 document.getElementById('monitor-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.target;try{await api('/monitoring',{method:'POST',body:JSON.stringify({tag:f.tag.value})});f.reset();show('monitoring');}catch(x){status(x.message);}});
-document.getElementById('retry-all').addEventListener('click',async()=>{try{await api('/jobs/retry-all',{method:'POST'});show('failed');}catch(x){status(x.message);}});
+document.getElementById('retry-all').addEventListener('click',async()=>{try{let q='',done=0,skipped=0;for(;;){const r=await api('/jobs/retry-all'+q,{method:'POST'});done+=r.retried;skipped+=r.skipped_count;status('Retried '+done+(skipped?', '+skipped+' unreadable left in failed_jobs':'')+(r.remaining?', '+r.remaining+' to go':''));if(!r.remaining||r.up_to===null)break;q='?after='+r.after+'&up_to='+r.up_to;}show('failed');}catch(x){status(x.message);}});
 show(tab);
 })();
 ''';

@@ -47,7 +47,12 @@ serves the dashboard's JSON API under `HORIZON_PATH` (`/horizon/api/...`)
 with Laravel Horizon's route names: stats, workload, masters, monitored tags,
 job and queue metrics, pending, completed, silenced and failed jobs, retry and
 retry-all, and `/horizon/api/stream` (server-sent stats and workload every
-second). Outside `APP_ENV=local` and `testing` it answers 403 until the
+second). Retry-all (a Daravel addition: Laravel Horizon retries one job at a
+time) pushes back at most 1 000 failed jobs or 10 seconds' worth per request
+and answers how many `remaining`; the dashboard calls again with the `after`
+and `up_to` it got until none are. A retry-all already running answers 409,
+and a job whose payload cannot be read stays in `failed_jobs`, listed under
+`skipped`. Outside `APP_ENV=local` and `testing` it answers 403 until the
 middleware protects it. Metric snapshots are taken by the running Horizon:
 `dartisan horizon:snapshot` only asks it to, so schedule it every five
 minutes.
