@@ -71,9 +71,23 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   }) => _inner.listen(
     onData,
     onError: onError,
-    onDone: onDone,
+    onDone: () {
+      _peerClosed();
+      onDone?.call();
+    },
     cancelOnError: cancelOnError,
   );
+
+  /// The peer closed or went away: what waits cannot reach it, and the
+  /// socket is closed from this side too. Before, a handler that never
+  /// wrote nor closed kept the connection's session (its scope, its slot
+  /// in the server's list) until the server stopped.
+  void _peerClosed() {
+    if (_closing) {
+      return;
+    }
+    _closed ??= _close(null, null, drop: true);
+  }
 
   @override
   Duration? get pingInterval => _inner.pingInterval;
