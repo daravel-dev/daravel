@@ -62,21 +62,29 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// Whether this connection was closed for reading too slowly.
   bool get isSlowClient => _overflowed;
 
+  /// Whether anything listened to what the client sends (the handler,
+  /// `Broadcast.pipe`).
+  bool get isListened => _listened;
+  bool _listened = false;
+
   @override
   StreamSubscription<dynamic> listen(
     void Function(dynamic event)? onData, {
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => _inner.listen(
-    onData,
-    onError: onError,
-    onDone: () {
-      _peerClosed();
-      onDone?.call();
-    },
-    cancelOnError: cancelOnError,
-  );
+  }) {
+    _listened = true;
+    return _inner.listen(
+      onData,
+      onError: onError,
+      onDone: () {
+        _peerClosed();
+        onDone?.call();
+      },
+      cancelOnError: cancelOnError,
+    );
+  }
 
   /// The peer closed or went away: what waits cannot reach it, and the
   /// socket is closed from this side too. Before, a handler that never

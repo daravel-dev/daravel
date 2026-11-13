@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:20ad021b724b -->
+<!-- source: responses.md sha256:41b1d0c80d24 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -435,6 +435,13 @@ WebSocket mentah; Laravel Echo terhubung melalui
 mendapatkannya; `r.ws(path, handler, compress: false)` mematikannya, yang
 menghemat CPU dan memori per koneksi saat satu pesan dikirim ke banyak
 socket.
+
+Server hanya tahu client pergi selama ada yang mendengarkan socket-nya.
+Handler yang kembali tanpa mendengarkan tidak masalah: server lalu
+mendengarkan sendiri dan membuang yang dikirim client. Handler yang
+menunggu `socket.done` tanpa mendengarkan tidak pernah tahu client sudah
+pergi, dan sesinya bertahan sampai server berhenti; dengarkan saja, dengan
+`socket.listen((_) {})` bila pesannya tidak penting.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame
