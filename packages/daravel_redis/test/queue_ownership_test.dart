@@ -19,6 +19,27 @@ final class _Job extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+final class _Fails extends Job {
+  const _Fails();
+
+  @override
+  String get jobName => 'fails';
+
+  @override
+  int get tries => 1;
+
+  @override
+  Map<String, Object?> toJson() => const {};
+
+  @override
+  Future<void> handle(JobContext ctx) async => throw StateError('boom');
+
+  static int hooks = 0;
+
+  @override
+  Future<void> failed(Object error, StackTrace stackTrace) async => hooks++;
+}
+
 /// A worker that ran past `retry_after` acts on a job another worker took
 /// since: its `delete` and `release` change nothing (the job's `attempts`,
 /// raised by every reservation, are no longer its own), and it is told
@@ -144,15 +165,51 @@ void main() {
         await Future<void>.delayed(
           retryAfter + const Duration(milliseconds: 150),
         );
-        await expectLater(
-          queue.pop('default'),
-          throwsA(isA<CorruptPayloadException>()),
-        );
+        CorruptPayloadException? corrupt;
+        try {
+          await queue.pop('default');
+        } on CorruptPayloadException catch (error) {
+          corrupt = error;
+        }
+        expect(corrupt, isNotNull);
+        // The worker records it in failed_jobs first, then removes it: until
+        // then it stays (a record that fails loses nothing).
+        expect(await hashExists(job), isTrue);
+        await corrupt!.remove!();
         expect(await hashExists(job), isFalse);
         await Future<void>.delayed(
           retryAfter + const Duration(milliseconds: 150),
         );
         expect(await queue.pop('default'), isNull, reason: 'gone for good');
+      });
+
+      test('(6) a worker that lost its job does not fail it: no record, no '
+          'hook; the other worker fails it once', () async {
+        _Fails.hooks = 0;
+        final failed = MemoryFailedJobProvider();
+        final processor = JobProcessor(
+          registry: JobRegistry([
+            JobDefinition('fails', (_) => const _Fails()),
+          ]),
+          events: EventDispatcher(),
+          failedJobs: failed,
+          container: Container(),
+        );
+        await queue.push(JobPayload.forJob(const _Fails()), queue: 'default');
+        final a = (await queue.pop('default'))!;
+        await Future<void>.delayed(
+          retryAfter + const Duration(milliseconds: 150),
+        );
+        final b = (await queue.pop('default'))!;
+        expect(b.attempts, a.attempts + 1);
+        await processor.process(queue, a);
+        expect(await failed.all(), isEmpty, reason: 'A records nothing');
+        expect(_Fails.hooks, 0);
+        expect(await hashExists(b), isTrue, reason: "still B's");
+        await processor.process(queue, b);
+        expect(await failed.all(), hasLength(1));
+        expect(_Fails.hooks, 1);
+        expect(await queue.size('default'), 0);
       });
     });
   }

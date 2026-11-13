@@ -314,10 +314,18 @@ void main() {
     await m.start();
     await until(() => timedOut().isNotEmpty, 'the kill past the timeout');
     expect(timedOut().single['fate'], 'will fail on next reservation');
-    // Attempt 2 is reserved and failed before it runs: the row goes, the
-    // failed_jobs insert throws, JobFailed never comes.
-    await until(() async => await jobRows() == 0, 'the row gone');
+    // Attempt 2 is reserved and failed before it runs: the failed_jobs
+    // insert throws before the row is removed, so the row stays (it is not
+    // lost) and JobFailed never comes.
+    await until(
+      () => app.run(() async {
+        final row = await DB.table('jobs').first();
+        return row != null && (row['attempts']! as num) >= 2;
+      }),
+      'attempt 2 reserved',
+    );
     await Future<void>.delayed(const Duration(seconds: 1));
+    expect(await jobRows(), 1, reason: 'not lost: failed_jobs was not written');
     final key = HorizonSignals.timedOutKey('${timedOut().single['job']}');
     expect(
       await app.run(() => Queue.manager.signalStore!.store.get(key)),

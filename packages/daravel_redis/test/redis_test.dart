@@ -401,10 +401,15 @@ void main() {
           'payload',
           '{"job":"ping"}',
         ]);
-        await expectLater(
-          queue.pop('default'),
-          throwsA(isA<CorruptPayloadException>()),
-        );
+        CorruptPayloadException? corrupt;
+        try {
+          await queue.pop('default');
+        } on CorruptPayloadException catch (error) {
+          corrupt = error;
+        }
+        expect(corrupt, isNotNull);
+        // Removed by the worker once it is in failed_jobs.
+        await corrupt!.remove!();
         expect(await queue.size('default'), 0);
         expect(await queue.pop('default'), isNull);
       });

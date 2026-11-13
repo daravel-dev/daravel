@@ -13,6 +13,8 @@ import 'package:test/test.dart';
 import '../../daravel/test/broadcasting/scaling_test.dart' show scalingTests;
 import '../../daravel/test/database/cache_counter_values_test.dart'
     show cacheCounterValueTests;
+import '../../daravel/test/database/cache_lock_insert_test.dart'
+    show cacheLockInsertTests;
 import '../../daravel/test/database/cache_store_concurrency_test.dart';
 import '../../daravel/test/database/date_queries_and_guards_test.dart';
 import '../../daravel/test/database/orm_polymorphic_test.dart';
@@ -20,6 +22,8 @@ import '../../daravel/test/database/orm_self_relations_and_aggregates_test.dart'
 import '../../daravel/test/database/transaction_concurrency_test.dart';
 import '../../daravel/test/database/transaction_timeout_test.dart'
     show transactionTimeoutTests;
+import '../../daravel/test/queue/database_queue_rq2_test.dart'
+    show databaseQueueRq2Tests;
 import '../../daravel/test/features/feature_test.dart'
     show featureDatabaseTests;
 
@@ -59,8 +63,10 @@ void main() {
   group('transaction timeout', () => transactionTimeoutTests(open));
   group('cache store concurrency', () => cacheStoreConcurrencyTests(open));
   group('cache counter values (LK-1)', () => cacheCounterValueTests(open));
+  group('cache lock insert (LK-1)', () => cacheLockInsertTests(open));
   group('date queries and guards', () => dateQueryAndGuardTests(open));
   group('feature flags (Pennant table)', () => featureDatabaseTests(open));
+  group('database queue (RQ-2)', () => databaseQueueRq2Tests(open));
   group(
     'broadcast scaling',
     () => scalingTests(

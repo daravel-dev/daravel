@@ -10,7 +10,9 @@ import '../database/database_manager.dart';
 import '../database/orm/casts.dart';
 import '../foundation/exceptions.dart';
 import '../logging/context.dart';
+import '../logging/logger.dart';
 import '../database/query/query_builder.dart';
+import '../database/query_executor.dart';
 import '../database/schema/migration.dart';
 import '../database/schema/schema_builder.dart';
 import '../server/coordinator.dart';
@@ -184,8 +186,10 @@ final class JobPayload {
 }
 
 /// A reserved job handed to the worker.
-/// A claimed row whose payload is Daravel-shaped but does not decode. The
-/// driver has removed the row; [raw] is what it held, for `failed_jobs`.
+/// A claimed row whose payload is Daravel-shaped but does not decode; [raw]
+/// is what it held, for `failed_jobs`. The worker records it there first and
+/// then calls [remove], so a record that fails leaves the row to be tried
+/// again after `retry_after` instead of losing it.
 final class CorruptPayloadException extends DaravelException {
   /// A job row whose payload cannot be read.
   CorruptPayloadException({
@@ -193,6 +197,7 @@ final class CorruptPayloadException extends DaravelException {
     required this.queue,
     required this.raw,
     required this.cause,
+    this.remove,
   }) : super(
          'Job $id on queue [$queue] has a payload that does not decode: $cause',
        );
@@ -208,6 +213,10 @@ final class CorruptPayloadException extends DaravelException {
 
   /// The parse error.
   final Object cause;
+
+  /// Removes the row (while it is still this reservation); null when the
+  /// driver removed it already.
+  final Future<Object?> Function()? remove;
 }
 
 /// A job reserved from a queue, being processed.
@@ -220,7 +229,14 @@ final class QueuedJob {
     required this.attempts,
     required this.raw,
     this.reservedUntil,
+    this.attemptsExhausted = false,
   });
+
+  /// Whether the driver cannot count another attempt: the database queue's
+  /// `attempts` column stops at 255 (Laravel's `TINYINT UNSIGNED`). The
+  /// worker fails such a job with [MaxAttemptsExceededException] without
+  /// running it, also when its `tries` is 0 (unlimited).
+  final bool attemptsExhausted;
 
   /// The job's id in its queue.
   final Object id;
@@ -470,6 +486,22 @@ abstract interface class ReclaimableQueueDriver implements QueueDriver {
   Future<bool> reclaim(String queue, Object jobId);
 }
 
+/// A queue that knows which reservation of a job is current: `attempts`
+/// grows with every reservation, so a worker that ran past `retry_after`
+/// (and lost its job to another worker) can tell. The worker asks before
+/// it records the job as failed, so a job another worker still runs is
+/// never recorded, hooked (`failed()`) or announced (`JobFailed`) by the
+/// worker that lost it.
+abstract interface class OwnershipQueueDriver implements QueueDriver {
+  /// Whether [job] is still the current reservation (no other worker
+  /// reserved it since).
+  Future<bool> owns(QueuedJob job);
+
+  /// [QueueDriver.delete], answering whether it removed the job: false when
+  /// another worker reserved it since (and nothing was removed).
+  Future<bool> deleteOwned(QueuedJob job);
+}
+
 /// Clamps a page request to sane values.
 (int, int) _page(int limit, int offset) =>
     (limit < 0 ? 0 : limit, offset < 0 ? 0 : offset);
@@ -704,7 +736,8 @@ final class DatabaseQueue
         WakeableQueueDriver,
         ExtendingQueueDriver,
         BrowsableQueueDriver,
-        ReclaimableQueueDriver {
+        ReclaimableQueueDriver,
+        OwnershipQueueDriver {
   /// A queue in the [table] (`jobs`) of [db], shared with Laravel's
   /// database queue.
   DatabaseQueue(
@@ -714,8 +747,20 @@ final class DatabaseQueue
     this.retryAfter = const Duration(seconds: 90),
     this.onForeignJob,
     this.listenRetry = const Duration(seconds: 30),
+    this.isKnownJob,
+    this.logger,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
+
+  /// Whether a job name is registered in this application (the job
+  /// registry's `has`): a registered name is always a Daravel job, whatever
+  /// its `data` holds ([isForeignPayload]).
+  final bool Function(String jobName)? isKnownJob;
+
+  /// Told once per job when a worker that ran past `retry_after` finds its
+  /// job taken by another worker ([delete], [release]), and of a row that
+  /// cannot be claimed ([pop]).
+  final Logger? logger;
 
   /// The database holding the jobs.
   final DatabaseManager db;
@@ -739,20 +784,52 @@ final class DatabaseQueue
   final void Function(String queue, Object id, String handler)? onForeignJob;
   final DateTime Function() _clock;
 
-  /// Foreign job ids seen per queue, excluded from later polls so they never
-  /// hide Daravel jobs queued behind them. Bounded; oldest ids drop first.
-  final Map<String, Set<Object>> _foreign = <String, Set<Object>>{};
-  static const int _maxForeignIds = 1000;
+  /// Per queue: every row this worker could take with an id up to the
+  /// cursor's was foreign when it last looked, so [pop] reads past them
+  /// without fetching them again ([_Cursor]).
+  final Map<String, _Cursor> _cursors = <String, _Cursor>{};
 
-  /// Rows read per poll while looking past foreign jobs.
+  /// Per queue, the highest foreign id reported through [onForeignJob]:
+  /// ids grow, so a row read again after a cursor reset is not reported
+  /// twice. Ids that are not integers are remembered in
+  /// [_reportedForeign] (bounded, oldest first).
+  final Map<String, int> _reportedThrough = <String, int>{};
+  final Set<Object> _reportedForeign = <Object>{};
+  static const int _maxReportedForeign = 1000;
+
+  /// Rows read by the first query of a poll; doubled (four times) after
+  /// each batch that held only foreign rows, up to [_maxPollBatch].
   static const int _pollBatch = 16;
+  static const int _maxPollBatch = 1000;
 
-  /// Whether [raw] was pushed by Laravel rather than Daravel. Laravel's
-  /// payloads are JSON too, but their `job` is a PHP handler such as
-  /// `Illuminate\Queue\CallQueuedHandler@call` and `data` holds a
-  /// PHP-serialized `command`; Daravel job names never contain `\` or `@`.
-  /// Anything that is not a JSON object is foreign as well.
-  static bool isForeignPayload(String raw) {
+  /// Selects per [pop] while looking past foreign rows.
+  static const int _maxPolls = 8;
+
+  /// Slack for clocks of other processes that write `available_at` and
+  /// `reserved_at` ([_Cursor.since]).
+  static const int _clockSlack = 5;
+
+  /// `attempts` is a `TINYINT UNSIGNED` in Laravel's `jobs` table (MySQL
+  /// refuses 256); a row that reached it is failed, not reserved again.
+  /// There `attempts` no longer grows, so it no longer tells two
+  /// reservations of that row apart as the ownership token; the row is
+  /// failed on its next reservation anyway.
+  static const int _maxAttempts = 255;
+
+  /// Whether [raw] was pushed by Laravel rather than Daravel.
+  ///
+  /// Not a JSON object, a `job` that is not a string, or one with a `\` or
+  /// `@` (a PHP handler such as `Illuminate\Queue\CallQueuedHandler@call`;
+  /// Daravel job names never hold either) is foreign. A `job` that
+  /// [isKnownJob] knows is Daravel's whatever its `data` holds. Otherwise a
+  /// `data` with `commandName`, or a string `command` (Laravel's
+  /// serialized command), is foreign: an unregistered Daravel job with a
+  /// string `command` field is therefore skipped as foreign, never popped;
+  /// register it to have it run. Any other row is Daravel's.
+  static bool isForeignPayload(
+    String raw, {
+    bool Function(String jobName)? isKnownJob,
+  }) {
     final Object? decoded;
     try {
       decoded = jsonDecode(raw);
@@ -766,10 +843,15 @@ final class DatabaseQueue
     if (job is! String || job.contains(r'\') || job.contains('@')) {
       return true;
     }
+    if (isKnownJob != null && isKnownJob(job)) {
+      return false;
+    }
     final data = decoded['data'];
     return data is Map<String, Object?> &&
         (data.containsKey('commandName') || data['command'] is String);
   }
+
+  bool _isForeign(String raw) => isForeignPayload(raw, isKnownJob: isKnownJob);
 
   @override
   String get name => 'database';
@@ -896,13 +978,88 @@ final class DatabaseQueue
   /// Jobs pushed by a Laravel app sharing the table are skipped without being
   /// touched (no `reserved_at`, no `attempts` change), so Laravel's workers
   /// still process them normally.
+  ///
+  /// Foreign rows are read past with a cursor per queue: every row this
+  /// worker could take up to the cursor was foreign when it looked. Rows
+  /// below it that become available later (a delayed job falling due, a
+  /// job released by any worker, a reservation that went stale) are found
+  /// by a second, narrow query ([_Cursor]), read page by page; the cursor
+  /// starts over every `retryAfter` as a safety net. A queue without
+  /// foreign rows never moves it.
+  ///
+  /// The narrow query trusts other processes' clocks to within
+  /// [_clockSlack] (5 s) of this one's: a job below the cursor whose
+  /// `available_at` a clock further behind wrote may wait for the safety
+  /// net, at most `retryAfter`. The cursor needs integer ids (`jobs.id` is
+  /// an auto-increment in Laravel's schema); with other ids every poll reads
+  /// from the start, as before, and foreign rows can hide Daravel jobs
+  /// behind them again.
   @override
   Future<QueuedJob?> pop(String queue) async {
-    for (var attempt = 0; attempt < 5; attempt++) {
-      final now = _now;
-      final stale = now - retryAfter.inSeconds;
-      final skip = _foreign[queue] ?? const <Object>{};
-      final query = _query().where('queue', queue).where((QueryBuilder q) {
+    final now = _now;
+    final stale = now - retryAfter.inSeconds;
+    var cursor = _cursors[queue];
+    if (cursor != null && now - cursor.since >= retryAfter.inSeconds) {
+      _cursors.remove(queue);
+      cursor = null;
+    }
+    if (cursor != null) {
+      // Below the cursor: only what became available since it was set,
+      // a page at a time, so foreign rows in that window hide nothing.
+      Object after = 0;
+      for (var page = 0; page < _maxPolls; page++) {
+        final rows = await _available(queue, now, stale)
+            .where('id', '>', after)
+            .where('id', '<=', cursor.through)
+            .where((QueryBuilder q) {
+              q
+                  .where('available_at', '>', cursor!.since - _clockSlack)
+                  .whereNull('reserved_at', not: true, boolean: 'OR');
+            })
+            .orderBy('id')
+            .limit(_maxPollBatch)
+            .get();
+        final (job, _) = await _claimFirst(queue, rows, now);
+        if (job != null) {
+          return job;
+        }
+        if (rows.length < _maxPollBatch) {
+          break;
+        }
+        after = rows.last['id']!;
+      }
+    }
+    var batch = _pollBatch;
+    for (var poll = 0; poll < _maxPolls; poll++) {
+      final after = _cursors[queue]?.through;
+      final query = _available(queue, now, stale);
+      if (after != null) {
+        query.where('id', '>', after);
+      }
+      final rows = await query.orderBy('id').limit(batch).get();
+      final (job, foreignThrough) = await _claimFirst(queue, rows, now);
+      if (foreignThrough is int) {
+        // Every row read up to it was foreign: the next poll starts past
+        // it. Integer ids only (see above).
+        (_cursors[queue] ??= _Cursor(now)).through = foreignThrough;
+      }
+      if (job != null) {
+        return job;
+      }
+      if (rows.length < batch) {
+        return null;
+      }
+      if (foreignThrough == rows.last['id']) {
+        batch = math.min(batch * 4, _maxPollBatch);
+      }
+    }
+    return null;
+  }
+
+  /// The rows of [queue] a worker may take at [now]: waiting and due, or
+  /// reserved before [stale].
+  QueryBuilder _available(String queue, int now, int stale) =>
+      _query().where('queue', queue).where((QueryBuilder q) {
         q
             .where((QueryBuilder available) {
               available
@@ -911,70 +1068,100 @@ final class DatabaseQueue
             })
             .orWhere('reserved_at', '<=', stale);
       });
-      if (skip.isNotEmpty) {
-        query.whereNotIn('id', skip.toList());
-      }
-      final rows = await query.orderBy('id').limit(_pollBatch).get();
-      Map<String, Object?>? row;
-      for (final candidate in rows) {
-        if (isForeignPayload(candidate['payload']! as String)) {
-          _rememberForeign(queue, candidate);
-          continue;
-        }
-        row = candidate;
-        break;
-      }
-      if (row == null) {
-        if (rows.length == _pollBatch) {
-          continue; // A full batch of foreign jobs: look further.
-        }
-        return null;
-      }
+
+  /// Claims the first Daravel row of [rows] (in id order); returns it, and
+  /// the id through which every row read was foreign (null when the first
+  /// row was not).
+  ///
+  /// A row whose claim fails with an error is passed over (logged once), so
+  /// one bad row does not hold the queue; a second failure in a row is not
+  /// the row's and is thrown.
+  Future<(QueuedJob?, Object?)> _claimFirst(
+    String queue,
+    List<Map<String, Object?>> rows,
+    int now,
+  ) async {
+    Object? foreignThrough;
+    var prefix = true;
+    Object? failedBefore;
+    for (final row in rows) {
       final id = row['id']!;
-      final previousReserved = row['reserved_at'];
-      final claimed = await _query()
-          .where('id', id)
-          .where((QueryBuilder q) {
-            if (previousReserved == null) {
-              q.whereNull('reserved_at');
-            } else {
-              q.where('reserved_at', previousReserved);
-            }
-          })
-          .update(<String, Object?>{
-            'reserved_at': now,
-            'attempts': (row['attempts'] as num).toInt() + 1,
-          });
-      if (claimed == 1) {
-        final raw = row['payload'] as String;
-        final JobPayload payload;
-        try {
-          payload = JobPayload.decode(raw);
-        } on Object catch (error) {
-          // A Daravel-shaped row that does not decode (a field of the wrong
-          // type, a payload written by another release): the row is claimed
-          // and would otherwise be re-reserved after retry_after and crash
-          // the next worker too, for ever. It is removed here; the worker
-          // records it in failed_jobs from the exception.
-          await _query().where('id', id).delete();
-          throw CorruptPayloadException(
-            id: id,
-            queue: queue,
-            raw: raw,
-            cause: error,
-          );
+      final raw = row['payload']! as String;
+      if (_isForeign(raw)) {
+        _reportForeign(queue, id, raw);
+        if (prefix) {
+          foreignThrough = id;
         }
-        return QueuedJob(
+        continue;
+      }
+      prefix = false;
+      final attempts = (row['attempts'] as num).toInt();
+      final exhausted = attempts >= _maxAttempts;
+      final previousReserved = row['reserved_at'];
+      final int claimed;
+      try {
+        claimed = await _query()
+            .where('id', id)
+            .where((QueryBuilder q) {
+              if (previousReserved == null) {
+                q.whereNull('reserved_at');
+              } else {
+                q.where('reserved_at', previousReserved);
+              }
+            })
+            .update(<String, Object?>{
+              'reserved_at': now,
+              if (!exhausted) 'attempts': attempts + 1,
+            });
+      } on QueryException catch (error) {
+        if (failedBefore != null) {
+          rethrow;
+        }
+        failedBefore = error;
+        _warnOnce(
+          id,
+          'Job $id on queue [$queue] cannot be reserved and was passed '
+          'over: $error',
+        );
+        continue;
+      }
+      if (claimed != 1) {
+        continue; // Another worker took it first.
+      }
+      final current = exhausted ? attempts : attempts + 1;
+      final JobPayload payload;
+      try {
+        payload = JobPayload.decode(raw);
+      } on Object catch (error) {
+        // A Daravel-shaped row that does not decode (a field of the wrong
+        // type, a payload written by another release): the row is claimed
+        // and would otherwise be re-reserved after retry_after and crash
+        // the next worker too, for ever. The worker records it in
+        // failed_jobs and then removes it; when the record fails, the row
+        // stays and is tried again after retry_after.
+        throw CorruptPayloadException(
+          id: id,
+          queue: queue,
+          raw: raw,
+          cause: error,
+          remove: () =>
+              _query().where('id', id).where('attempts', current).delete(),
+        );
+      }
+      return (
+        QueuedJob(
           id: id,
           queue: queue,
           payload: payload,
-          attempts: (row['attempts'] as num).toInt() + 1,
+          attempts: current,
           raw: raw,
           reservedUntil: _reservedUntil(now),
-        );
-      }
+          attemptsExhausted: exhausted,
+        ),
+        foreignThrough,
+      );
     }
-    return null;
+    return (null, foreignThrough);
   }
 
   /// When a job reserved at [reservedAt] (`reserved_at`, whole seconds)
@@ -993,24 +1180,61 @@ final class DatabaseQueue
         isUtc: true,
       );
 
-  void _rememberForeign(String queue, Map<String, Object?> row) {
-    final ids = _foreign.putIfAbsent(queue, () => <Object>{});
-    final id = row['id']!;
-    if (!ids.add(id)) {
-      return;
-    }
-    if (ids.length > _maxForeignIds) {
-      ids.remove(ids.first);
+  void _reportForeign(String queue, Object id, String raw) {
+    if (id is int) {
+      if (id <= (_reportedThrough[queue] ?? 0)) {
+        return;
+      }
+      _reportedThrough[queue] = id;
+    } else {
+      if (!_reportedForeign.add(id)) {
+        return;
+      }
+      if (_reportedForeign.length > _maxReportedForeign) {
+        _reportedForeign.remove(_reportedForeign.first);
+      }
     }
     String handler;
     try {
-      final decoded = jsonDecode(row['payload']! as String);
+      final decoded = jsonDecode(raw);
       handler = decoded is Map<String, Object?> ? '${decoded['job']}' : '?';
     } on FormatException {
       handler = '?';
     }
     onForeignJob?.call(queue, id, handler);
   }
+
+  /// Job ids already warned about ([_warnOnce]); bounded, oldest first.
+  final Set<Object> _warned = <Object>{};
+
+  void _warnOnce(Object id, String message) {
+    if (!_warned.add(id)) {
+      return;
+    }
+    if (_warned.length > _maxReportedForeign) {
+      _warned.remove(_warned.first);
+    }
+    logger?.warning(message, <String, Object?>{'job_id': id});
+  }
+
+  /// The row of [job] while no other worker reserved it since: `attempts`
+  /// grows with every reservation, so a row another worker reserved after
+  /// this one ran past `retry_after` does not match. A waiting row whose
+  /// `attempts` match (one `daravel_horizon` quarantines after a reclaim)
+  /// does.
+  QueryBuilder _unchanged(QueuedJob job) =>
+      _query().where('id', job.id).where('attempts', job.attempts);
+
+  /// [_unchanged], and still reserved: what a release puts back.
+  QueryBuilder _owned(QueuedJob job) =>
+      _unchanged(job).whereNotNull('reserved_at');
+
+  void _notOwner(QueuedJob job, String action) => _warnOnce(
+    job.id,
+    'Job ${job.id} on queue [${job.queue}] ran past retry_after: another '
+    'worker took it, so its $action did nothing. Raise retry_after above '
+    'the longest job.',
+  );
 
   /// Moves `reserved_at` to now while the row is still this reservation:
   /// `attempts` grows with every reservation, so a row another worker took
@@ -1034,19 +1258,44 @@ final class DatabaseQueue
     return updated == 1 ? _reservedUntil(now) : null;
   }
 
+  /// Puts [job] back after [delay], while it is still this worker's
+  /// reservation ([_owned]); otherwise it does nothing and warns once.
+  /// Stricter than Laravel, whose `deleteAndRelease` checks only that the
+  /// row exists.
   @override
   Future<void> release(QueuedJob job, Duration delay) =>
       _whileReserved(() async {
-        await _query().where('id', job.id).update(<String, Object?>{
+        final updated = await _owned(job).update(<String, Object?>{
           'reserved_at': null,
           'available_at': _now + delay.inSeconds,
         });
+        if (updated == 0) {
+          _notOwner(job, 'release');
+        }
       });
 
+  /// Removes [job] while no other worker reserved it since ([_unchanged]);
+  /// otherwise it does nothing and warns once. Stricter than Laravel, whose
+  /// `deleteReserved` checks only that the row exists.
   @override
-  Future<void> delete(QueuedJob job) => _whileReserved(() async {
-    await _query().where('id', job.id).delete();
-  });
+  Future<void> delete(QueuedJob job) async {
+    await deleteOwned(job);
+  }
+
+  @override
+  Future<bool> deleteOwned(QueuedJob job) async {
+    var removed = false;
+    await _whileReserved(() async {
+      removed = await _unchanged(job).delete() > 0;
+    });
+    if (!removed) {
+      _notOwner(job, 'delete');
+    }
+    return removed;
+  }
+
+  @override
+  Future<bool> owns(QueuedJob job) => _unchanged(job).exists();
 
   /// Runs [body] (the delete or release of a job this worker ran) again
   /// after a transient error (a deadlock, SQLite busy or locked), for at
@@ -1156,14 +1405,17 @@ final class DatabaseQueue
     ];
   }
 
-  /// Clears `reserved_at` of the row; `attempts` and `available_at` stay.
+  /// Clears `reserved_at` of the row and makes it available now, as a
+  /// release without delay sets `available_at` (Laravel's meaning: when the
+  /// job may run), so a [pop] past foreign rows finds it below its cursor;
+  /// `attempts` stays.
   @override
   Future<bool> reclaim(String queue, Object jobId) async {
     final reclaimed = await _query()
         .where('id', jobId)
         .where('queue', queue)
         .whereNotNull('reserved_at')
-        .update(<String, Object?>{'reserved_at': null});
+        .update(<String, Object?>{'reserved_at': null, 'available_at': _now});
     if (reclaimed > 0) {
       await db.notify(_channel, queue, connection);
     }
@@ -1609,4 +1861,22 @@ final class CreateJobsTable extends Migration {
     await schema.dropIfExists('job_batches');
     await schema.dropIfExists('jobs');
   }
+}
+
+/// Where [DatabaseQueue.pop] resumes on a queue with foreign rows: every
+/// row a worker could take with an id up to [through] was foreign when it
+/// last looked. A row below it becomes available later only by a delayed
+/// `available_at` falling due, a release (which sets `available_at` to the
+/// time of the release or later) or a reservation going stale, so a narrow
+/// query for `available_at` after [since] (less a slack for other
+/// processes' clocks) or a stale `reserved_at` finds it. Pushes always get
+/// ids above [through].
+final class _Cursor {
+  _Cursor(this.since);
+
+  /// When the cursor was first set (seconds, the queue's clock).
+  final int since;
+
+  /// The id through which the rows read were foreign.
+  Object through = 0;
 }

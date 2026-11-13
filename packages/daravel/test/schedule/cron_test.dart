@@ -100,4 +100,44 @@ void dayFieldTests() {
       isFalse,
     );
   });
+
+  test('`?` leaves its day field unrestricted, as `*` does (Laravel 13.40, '
+      'dragonmantank/cron-expression 3.6.1)', () {
+    List<String> dueIn(String expression) {
+      final cron = CronExpression.parse(expression);
+      return [
+        for (var day = 1; day <= 30; day++)
+          if (cron.matches(DateTime.utc(2026, 11, day))) '$day',
+      ];
+    }
+
+    // November 2026: Mondays are the 2nd, 9th, 16th, 23rd and 30th.
+    expect(dueIn('0 0 ? * 1'), ['2', '9', '16', '23', '30']);
+    expect(dueIn('0 0 15 * ?'), ['15']);
+    expect(dueIn('0 0 15 * 1'), [
+      '2',
+      '9',
+      '15',
+      '16',
+      '23',
+      '30',
+    ], reason: 'both restricted: either matches');
+  });
+
+  test('`?` is refused where Laravel refuses it', () {
+    for (final expression in [
+      '? 0 * * *',
+      '0 ? * * *',
+      '0 0 * ? *',
+      '0 0 ? * ?',
+      '0 0 ?/2 * *',
+      '0 0 1,? * *',
+    ]) {
+      expect(
+        () => CronExpression.parse(expression),
+        throwsA(isA<CronFormatException>()),
+        reason: expression,
+      );
+    }
+  });
 }

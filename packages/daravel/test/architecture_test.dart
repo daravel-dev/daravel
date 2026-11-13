@@ -101,6 +101,41 @@ Iterable<File> _dartFiles(String dir) =>
 String _module(String file) => p.split(p.relative(file, from: _src)).first;
 
 void main() {
+  test('no test sets the working directory: dart test runs the files of a '
+      'package as isolates of one process', () {
+    // `IOOverrides.runZoned(getCurrentDirectory: ...)` moves it for one
+    // zone; assigning it moves it for every test file running beside.
+    final assigns = RegExp(r'Directory\.current\s*=(?!=)');
+    final root = p.normalize(p.join(Directory.current.path, '..', '..'));
+    final offenders = <String>[];
+    for (final group in ['packages', 'apps']) {
+      final dir = Directory(p.join(root, group));
+      if (!dir.existsSync()) {
+        continue;
+      }
+      for (final package in dir.listSync().whereType<Directory>()) {
+        final tests = Directory(p.join(package.path, 'test'));
+        if (!tests.existsSync()) {
+          continue;
+        }
+        for (final file
+            in tests
+                .listSync(recursive: true)
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.dart'))) {
+          final lines = file.readAsLinesSync();
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            if (!line.startsWith('//') && assigns.hasMatch(line)) {
+              offenders.add('${p.relative(file.path, from: root)}:${i + 1}');
+            }
+          }
+        }
+      }
+    }
+    expect(offenders, isEmpty);
+  });
+
   test('module imports follow the allowed dependency graph', () {
     final violations = <String>[];
     final imports = RegExp(r'''^import '([^']+)';''', multiLine: true);
@@ -268,7 +303,12 @@ const Map<String, (int, String)> _knownLongLived = {
   ),
   'foundation/application.dart': (1, 'coordinator.listen() at boot'),
   'foundation/embedded_workers.dart': (4, 'embedded workers, at boot'),
-  'http/buffered_web_socket.dart': (1, 'per WebSocket connection'),
+  'http/buffered_web_socket.dart': (
+    3,
+    'per WebSocket connection: the application\'s listen, the server\'s '
+        'read for a handler that returned without listening, or an empty '
+        'stream for a listen after that read ended',
+  ),
   'http/websocket_guard.dart': (
     3,
     'per WebSocket connection: the TCP socket read, and what the '

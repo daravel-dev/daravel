@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 
 import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
+import '../database/query_executor.dart';
 import '../server/coordinator.dart';
 import 'cache.dart';
 import 'tags.dart';
@@ -1607,8 +1608,15 @@ final class DatabaseStore
       return null;
     }
     final exp = (row['expiration'] as num?)?.toInt() ?? 0;
-    if (exp <= _now) {
-      await db.table(table, connection: connection).where('key', key).delete();
+    final now = _now;
+    if (exp <= now) {
+      // Only while it is still expired: another writer may have stored a
+      // new value under the key since it was read.
+      await db
+          .table(table, connection: connection)
+          .where('key', key)
+          .where('expiration', '<=', now)
+          .delete();
       return null;
     }
     return row;
@@ -1664,25 +1672,62 @@ final class DatabaseStore
 
   @override
   Future<bool> add(String key, Object? value, {Duration? ttl}) async {
-    final query = db.table(table, connection: connection);
-    try {
-      await query.insert(<String, Object?>{
-        'key': key,
-        'value': _encode(value),
-        'expiration': _expiration(ttl),
-      });
+    if (await _insertNew(table, <String, Object?>{
+      'key': key,
+      'value': _encode(value),
+      'expiration': _expiration(ttl),
+    })) {
       return true;
-    } catch (_) {
-      // Exists: take over only when expired.
-      final updated = await db
-          .table(table, connection: connection)
-          .where('key', key)
-          .where('expiration', '<=', _now)
-          .update(<String, Object?>{
-            'value': _encode(value),
-            'expiration': _expiration(ttl),
-          });
-      return updated > 0;
+    }
+    // Exists: take over only when expired.
+    final updated = await db
+        .table(table, connection: connection)
+        .where('key', key)
+        .where('expiration', '<=', _now)
+        .update(<String, Object?>{
+          'value': _encode(value),
+          'expiration': _expiration(ttl),
+        });
+    return updated > 0;
+  }
+
+  /// The longest key the `cache` and `cache_locks` tables hold (Laravel's
+  /// `string('key')`, 255 characters).
+  static const int _maxKeyLength = 255;
+
+  /// Inserts [row] into [into]: true, or false when a row with its key
+  /// exists. Only a unique violation means that; any other error (a key
+  /// longer than the column, a missing table) is thrown, never read as
+  /// "taken". Inside a transaction on [connection] the insert runs in a
+  /// savepoint, so the violation does not abort the caller's transaction
+  /// (PostgreSQL refuses every later statement of an aborted one).
+  Future<bool> _insertNew(String into, Map<String, Object?> row) async {
+    _checkKey(row['key']! as String, into);
+    Future<void> insert() => db.table(into, connection: connection).insert(row);
+    try {
+      if (db.inTransactionOn(connection)) {
+        await db.transaction(insert, connection: connection);
+      } else {
+        await insert();
+      }
+      return true;
+    } on UniqueConstraintViolationException {
+      return false;
+    }
+  }
+
+  /// Refuses a [key] longer than the column of [into] holds: PostgreSQL
+  /// would refuse it with an error read as "taken" before, and MySQL's
+  /// `INSERT IGNORE` (`insertOrIgnore`) would cut it to 255 characters and
+  /// store it under another key.
+  static void _checkKey(String key, String into) {
+    if (key.runes.length > _maxKeyLength) {
+      throw ArgumentError.value(
+        key,
+        'key',
+        'is ${key.runes.length} characters; the [$into] table holds at '
+            'most $_maxKeyLength',
+      );
     }
   }
 
@@ -1703,6 +1748,7 @@ final class DatabaseStore
   /// transactions across isolates.
   @override
   Future<int> increment(String key, [int by = 1]) async {
+    _checkKey(key, table);
     for (var attempt = 1; ; attempt++) {
       final row = await _row(key);
       if (row == null) {
@@ -1866,25 +1912,22 @@ final class DatabaseStore
   Future<bool> acquireLock(String name, String owner, Duration ttl) async {
     await _lotteryPrune(lockTable);
     final expiration = _now + (ttl.inMilliseconds / 1000).ceil();
-    try {
-      await db.table(lockTable, connection: connection).insert(
-        <String, Object?>{
-          'key': name,
-          'owner': owner,
-          'expiration': expiration,
-        },
-      );
+    if (await _insertNew(lockTable, <String, Object?>{
+      'key': name,
+      'owner': owner,
+      'expiration': expiration,
+    })) {
       return true;
-    } catch (_) {
-      final updated = await db
-          .table(lockTable, connection: connection)
-          .where('key', name)
-          .where((QueryBuilder q) {
-            q.where('owner', owner).orWhere('expiration', '<=', _now);
-          })
-          .update(<String, Object?>{'owner': owner, 'expiration': expiration});
-      return updated > 0;
     }
+    // Held: take it over when this owner holds it or it expired.
+    final updated = await db
+        .table(lockTable, connection: connection)
+        .where('key', name)
+        .where((QueryBuilder q) {
+          q.where('owner', owner).orWhere('expiration', '<=', _now);
+        })
+        .update(<String, Object?>{'owner': owner, 'expiration': expiration});
+    return updated > 0;
   }
 
   @override

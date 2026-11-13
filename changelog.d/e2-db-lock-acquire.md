@@ -1,0 +1,9 @@
+### Fixed
+
+- Database cache store: `acquireLock` and `add` read any failed insert as "already there". Inside a transaction on PostgreSQL the failed insert aborted the caller's transaction (`Queue.push` of a `ShouldBeUnique` job with `afterCommit` then failed on the next statement), and an error that had nothing to do with an existing row, such as a key longer than the 255-character column, became `false`: a `ShouldBeUnique` job was dropped without an error, `WithoutOverlapping` failed its job three times without running it, and a scheduled task with `withoutOverlapping()` was skipped for ever (PostgreSQL and MySQL). Only a unique violation now means "taken", the insert runs in a savepoint inside a transaction, and a key longer than 255 characters throws an `ArgumentError`, also in `increment`, where MySQL's `INSERT IGNORE` cut it to 255 characters and stored the value under another key.
+- Database cache store: reading an expired entry deleted the key without checking it was still expired, so a value another writer had just stored under it was deleted too.
+- Scheduler: a cron expression with `?` in one day field (`0 0 ? * 1`, `0 0 15 * ?`) matched either day field, so `0 0 ? * 1` ran every day and `0 0 15 * ?` on the 15th and 16th. `?` now leaves its field unrestricted, as `*` does, and is refused outside the day-of-month and day-of-week fields or in both, as Laravel's `dragonmantank/cron-expression` 3.x does.
+
+### Upgrade notes
+
+- Upgrading can change cache and scheduler behaviour: a database cache key longer than 255 characters now throws an `ArgumentError` from `acquireLock`, `add` and `increment` instead of answering `false` (or, on MySQL, being cut); an error other than an existing row is thrown instead of answering `false`; a cron expression with `?` in the minute, hour or month field, in both day fields, or with a step or list (`?/2`), is now refused with `CronFormatException`.
