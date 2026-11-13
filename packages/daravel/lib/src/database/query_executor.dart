@@ -195,7 +195,8 @@ final class PoolWaitProbe {
 
 /// Wraps an executor to report every query to [listeners]. Only used while
 /// listeners are registered, so queries cost nothing extra otherwise.
-final class ListeningQueryExecutor implements QueryExecutor {
+final class ListeningQueryExecutor
+    implements QueryExecutor, UnpreparedExecutor {
   /// Reports the queries of [inner] on [connectionName] to [listeners].
   ListeningQueryExecutor(this.inner, this.connectionName, this.listeners);
 
@@ -249,6 +250,10 @@ final class ListeningQueryExecutor implements QueryExecutor {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) => _timed(sql, bindings, () => inner.insertGetId(sql, bindings));
+
+  @override
+  Future<void> unprepared(String sql) =>
+      _timed(sql, const <Object?>[], () => UnpreparedExecutor.run(inner, sql));
 }
 
 /// A driver that recognises its own transient errors (deadlocks, lock
@@ -265,6 +270,43 @@ abstract interface class RetryableErrors {
 abstract interface class DataExceptionErrors {
   /// Whether [error] is the database refusing a value as its column's type.
   bool isDataException(Object error);
+}
+
+/// An executor that runs SQL as it is, unprepared (`DB.unprepared`,
+/// Laravel's `DB::unprepared`): several statements in one call, and
+/// statements a server cannot prepare. `select`, `statement` and
+/// `insertGetId` run one statement and refuse more on every built-in
+/// driver. Nothing is bound here, so never build the SQL from input. Every
+/// executor of the built-in drivers implements it; a driver of another
+/// package may not.
+abstract interface class UnpreparedExecutor {
+  /// Runs [sql] unprepared; it may hold several statements.
+  Future<void> unprepared(String sql);
+
+  /// [executor]'s [unprepared], or an [UnsupportedError] for an executor
+  /// that has none.
+  static Future<void> run(QueryExecutor executor, String sql) =>
+      switch (executor) {
+        final UnpreparedExecutor unprepared => unprepared.unprepared(sql),
+        _ => throw UnsupportedError(
+          'This database driver (${executor.runtimeType}) cannot run '
+          'unprepared SQL.',
+        ),
+      };
+}
+
+/// SQL holding several statements where `select`, `statement` or
+/// `insertGetId` run one (SQLite's; MySQL and PostgreSQL refuse it with
+/// their own syntax error). Run a script with `DB.unprepared`.
+final class MultipleStatementsException implements Exception {
+  /// The SQL was refused for [message].
+  const MultipleStatementsException(this.message);
+
+  /// What was refused.
+  final String message;
+
+  @override
+  String toString() => 'MultipleStatementsException: $message';
 }
 
 /// A driver that recognises a unique index or primary key refusing a row
@@ -353,7 +395,8 @@ final class PoolExhaustedException extends QueryException {
 /// Wraps an executor so a failing query throws [QueryException], or
 /// [UniqueConstraintViolationException] when [errors] recognises one, as
 /// Laravel's `runQueryCallback` does.
-final class QueryExceptionExecutor implements QueryExecutor {
+final class QueryExceptionExecutor
+    implements QueryExecutor, UnpreparedExecutor {
   /// Wraps [inner], recognising unique violations through [errors].
   QueryExceptionExecutor(this.inner, this.connectionName, this.errors);
 
@@ -413,6 +456,13 @@ final class QueryExceptionExecutor implements QueryExecutor {
     String sql, [
     List<Object?> bindings = const <Object?>[],
   ]) => _guarded(sql, bindings, () => inner.insertGetId(sql, bindings));
+
+  @override
+  Future<void> unprepared(String sql) => _guarded(
+    sql,
+    const <Object?>[],
+    () => UnpreparedExecutor.run(inner, sql),
+  );
 }
 
 /// A transaction (or savepoint) still running when its `timeout` passed

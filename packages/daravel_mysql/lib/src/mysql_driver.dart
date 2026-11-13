@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io' show SecurityContext, stderr;
 import 'dart:typed_data';
@@ -32,7 +33,11 @@ import 'package:mysql_dart/mysql_dart.dart' as my;
 /// is kept by the connection; an error its socket raises later that the
 /// client package leaves unhandled would reach that zone's error handler.
 final class MySqlDriver
-    implements SessionTerminatingDriver, RetryableErrors, QueryErrors {
+    implements
+        SessionTerminatingDriver,
+        RetryableErrors,
+        QueryErrors,
+        UnpreparedExecutor {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
@@ -264,6 +269,17 @@ final class MySqlDriver
 
   /// Added to [queryTimeout] for the client backstop of server mode.
   static const Duration backstopGrace = Duration(seconds: 5);
+
+  /// SQL texts each connection remembers as checked to hold one statement
+  /// (a statement without bindings is prepared once per connection and
+  /// text, then runs as text).
+  static const int singleStatementCacheSize = 256;
+
+  /// The longest text (in UTF-16 code units) a connection remembers as
+  /// checked; a longer one is checked every time it runs, so a
+  /// connection holds at most [singleStatementCacheSize] times this
+  /// (1 Mi UTF-16 code units, at most 2 MiB).
+  static const int singleStatementMaxLength = 4096;
 
   /// False once the server refused the session timeout variable.
   bool _serverTimeouts = true;
@@ -671,6 +687,11 @@ final class MySqlDriver
     bindings: bindings,
   );
 
+  /// Runs [sql] as text, several statements included (`DB.unprepared`).
+  @override
+  Future<void> unprepared(String sql) =>
+      _withConnection((c) => _executor(c).unprepared(sql), sql: sql);
+
   @override
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
       _withConnection(
@@ -692,7 +713,7 @@ final class MySqlDriver
 }
 
 /// Runs statements on one connection (a pooled one, or a transaction's).
-final class _MySqlExecutor implements QueryExecutor {
+final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   _MySqlExecutor(
     this._connection,
     this._queryTimeout,
@@ -729,7 +750,107 @@ final class _MySqlExecutor implements QueryExecutor {
             },
         ];
 
-  Future<my.IResultSet> _run(String sql, List<Object?> bindings) async {
+  /// SQL texts of this connection a `prepare` accepted as one statement,
+  /// most recently used last. Kept per connection, since `sql_mode`
+  /// (`ANSI_QUOTES`, `NO_BACKSLASH_ESCAPES`) and the connection's character
+  /// set change how a text splits; the [Expando] drops an entry with the
+  /// connection the pool replaced.
+  static final Expando<_SingleStatements> _single = Expando<_SingleStatements>(
+    'single statements',
+  );
+
+  /// A statement that may change how the server splits text: `SET`
+  /// (`sql_mode`, `NAMES`, `character_set_client`), also in a leading
+  /// versioned comment (`/*!40101 SET NAMES utf8mb4 */`, as dumps write
+  /// it), and `CALL`: MySQL's manual says a routine runs with the
+  /// `sql_mode` it was created with, but not that the caller's mode is
+  /// restored when it returns, so a `CALL` is treated as a change too.
+  static final RegExp _modeChange = RegExp(
+    r'^\s*(?:(?:/\*(?!!).*?\*/|--[^\n]*(?:\n|$)|#[^\n]*(?:\n|$))\s*)*'
+    r'(?:/\*!\d*\s*)?(?:set|call)\b',
+    caseSensitive: false,
+    dotAll: true,
+  );
+
+  /// Forgets the texts checked on this connection when [sql] may change
+  /// how the server splits text ([_modeChange]); [always] for a script.
+  void _forgetChecked(String sql, {bool always = false}) {
+    if (always || _modeChange.hasMatch(sql)) {
+      _single[_connection]?.clear();
+    }
+  }
+
+  /// Refuses [sql] holding several statements, as a server-side prepare
+  /// does: `mysql_dart` sends a statement without bindings as text, and
+  /// the client announces multi-statement support, so `SELECT 1; DROP
+  /// TABLE t` used to run both (Laravel prepares it, with
+  /// `ATTR_EMULATE_PREPARES => false`, and only `DB::unprepared` runs
+  /// several). The first time a connection sees a text it prepares it
+  /// and closes the statement at once, so no prepared statement stays on
+  /// the server; the text then runs as before. A statement the prepared
+  /// protocol does not support (1295) runs as text, as `pdo_mysql` falls
+  /// back to emulation for it.
+  Future<void> _ensureSingle(String sql) async {
+    final seen = _single[_connection] ??= _SingleStatements();
+    if (seen.touch(sql)) {
+      return;
+    }
+    try {
+      final statement = await _bounded(_connection.prepare(sql));
+      await statement.deallocate();
+    } on MySQLServerException catch (error) {
+      // Several statements fail here with 1064 (a syntax error), which
+      // reaches the caller as a QueryException like any refused query.
+      if (error.errorCode != 1295) {
+        rethrow;
+      }
+    }
+    if (sql.length <= MySqlDriver.singleStatementMaxLength) {
+      seen.add(sql, MySqlDriver.singleStatementCacheSize);
+    }
+  }
+
+  /// [running] bounded by the client backstop outside a transaction, as
+  /// statements are in server mode.
+  Future<T> _bounded<T>(Future<T> running) {
+    final timeout = _queryTimeout;
+    if (timeout == null || inTransaction) {
+      return running;
+    }
+    final limit = timeout + MySqlDriver.backstopGrace;
+    return running.timeout(
+      limit,
+      onTimeout: () {
+        _connection.getSocket().destroy();
+        throw StatementTimeoutException(
+          'Statement still running $limit after it started; the '
+          'connection was closed.',
+          timeout: timeout,
+        );
+      },
+    );
+  }
+
+  /// Runs [sql] as text, several statements included (`DB.unprepared`).
+  /// A script may change the session anywhere, so the texts checked on
+  /// this connection are forgotten.
+  @override
+  Future<void> unprepared(String sql) async {
+    _forgetChecked(sql, always: true);
+    await _run(sql, const [], checked: false);
+  }
+
+  Future<my.IResultSet> _run(
+    String sql,
+    List<Object?> bindings, {
+    bool checked = true,
+  }) async {
+    // Before it runs: a SET that fails half-way may still have changed
+    // the session.
+    _forgetChecked(sql);
+    if (checked && bindings.isEmpty) {
+      await _ensureSingle(sql);
+    }
     final timeout = _queryTimeout;
     if (!serverSide || timeout == null) {
       return _connection.execute(sql, _normalize(bindings), false, timeout);
@@ -939,4 +1060,33 @@ final class StatementTimeoutException implements Exception {
   @override
   String toString() =>
       'StatementTimeoutException${code == null ? '' : ' [$code]'}: $message';
+}
+
+/// The texts one connection checked as a single statement, most recently
+/// used last ([_MySqlExecutor._ensureSingle]).
+final class _SingleStatements {
+  final LinkedHashSet<String> _texts = LinkedHashSet<String>();
+
+  /// Whether [sql] was checked; it becomes the most recently used.
+  bool touch(String sql) {
+    if (!_texts.remove(sql)) {
+      return false;
+    }
+    _texts.add(sql);
+    return true;
+  }
+
+  /// Remembers [sql], dropping the least recently used past [capacity].
+  void add(String sql, int capacity) {
+    _texts.add(sql);
+    if (_texts.length > capacity) {
+      _texts.remove(_texts.first);
+    }
+  }
+
+  /// Forgets every text.
+  void clear() => _texts.clear();
+
+  /// How many texts are remembered.
+  int get length => _texts.length;
 }

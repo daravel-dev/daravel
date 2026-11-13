@@ -420,6 +420,9 @@ jobs:
           --health-retries 20
     env:
       DARAVEL_TEST_MYSQL: mysql://daravel:secret@127.0.0.1:3306/daravel_test
+      # Triggers need a user with SUPER while binary logging is on
+      # (single_statement_test.dart).
+      DARAVEL_TEST_MYSQL_ROOT: mysql://root:secret@127.0.0.1:3306/daravel_test
       DARAVEL_TEST_MARIADB: ${{ startsWith(matrix.server, 'mariadb') && '1' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

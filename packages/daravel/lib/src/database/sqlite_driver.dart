@@ -20,7 +20,11 @@ import 'query_executor.dart';
 /// transactions begin with `BEGIN IMMEDIATE`, so one that reads and then
 /// writes never finds that another isolate wrote in between.
 final class SqliteDriver
-    implements DatabaseDriver, QueryErrors, RetryableErrors {
+    implements
+        DatabaseDriver,
+        QueryErrors,
+        RetryableErrors,
+        UnpreparedExecutor {
   /// SQLITE_CONSTRAINT_UNIQUE (2067) and SQLITE_CONSTRAINT_PRIMARYKEY
   /// (1555), as Laravel matches "UNIQUE constraint failed".
   @override
@@ -219,7 +223,10 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final result = _database.select(sql, _normalize(bindings));
+    final result = _oneStatement(
+      sql,
+      () => _database.select(sql, _normalize(bindings)),
+    );
     return <Map<String, Object?>>[
       for (final row in result) Map<String, Object?>.of(row),
     ];
@@ -233,7 +240,8 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final db = _database..execute(sql, _normalize(bindings));
+    final db = _database;
+    _runOne(db, sql, bindings);
     return db.updatedRows;
   }
 
@@ -245,8 +253,55 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final db = _database..execute(sql, _normalize(bindings));
+    final db = _database;
+    _runOne(db, sql, bindings);
     return db.lastInsertRowId;
+  }
+
+  /// Runs [sql] with `sqlite3_exec`, several statements included
+  /// (`DB.unprepared`, as `PDO::exec` does).
+  @override
+  Future<void> unprepared(String sql) async {
+    if (_mustWait) {
+      await _waitTurn();
+    }
+    _database.execute(sql);
+  }
+
+  /// Runs [sql] as one prepared statement. `Database.execute` without
+  /// parameters used `sqlite3_exec`, which runs every statement in [sql];
+  /// now SQL holding several is refused, as `select` and every call with
+  /// bindings already refused it. PDO SQLite, which Laravel uses, runs the
+  /// first statement and drops the rest without a word; refusing is the
+  /// safer side of that difference, and `DB.unprepared` runs a script.
+  void _runOne(Database db, String sql, List<Object?> bindings) {
+    final statement = _oneStatement(
+      sql,
+      () => db.prepare(sql, checkNoTail: true),
+    );
+    try {
+      statement.execute(_normalize(bindings));
+    } finally {
+      statement.close();
+    }
+  }
+
+  /// [body], with the `ArgumentError` `package:sqlite3` throws for SQL
+  /// holding a second statement turned into a
+  /// [MultipleStatementsException], which the connection reports as a
+  /// `QueryException` like any refused query.
+  static T _oneStatement<T>(String sql, T Function() body) {
+    try {
+      return body();
+    } on ArgumentError catch (error) {
+      if (error.name == 'sql' && '${error.message}'.contains('trailing')) {
+        throw const MultipleStatementsException(
+          'SQLite refused SQL holding several statements; run a script with '
+          'DB.unprepared.',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override

@@ -17,6 +17,8 @@ import '../../daravel/test/database/cache_store_concurrency_test.dart';
 import '../../daravel/test/database/date_queries_and_guards_test.dart';
 import '../../daravel/test/database/orm_polymorphic_test.dart';
 import '../../daravel/test/database/orm_self_relations_and_aggregates_test.dart';
+import '../../daravel/test/database/statement_stacking_test.dart'
+    show statementStackingTests;
 import '../../daravel/test/database/transaction_concurrency_test.dart';
 import '../../daravel/test/database/transaction_timeout_test.dart'
     show transactionTimeoutTests;
@@ -64,6 +66,7 @@ void main() {
   group('date queries and guards', () => dateQueryAndGuardTests(open));
   group('feature flags (Pennant table)', () => featureDatabaseTests(open));
   group('database queue (RQ-2)', () => databaseQueueRq2Tests(open));
+  group('statement stacking (DB-1)', () => statementStackingTests(open));
   group(
     'broadcast scaling',
     () => scalingTests(

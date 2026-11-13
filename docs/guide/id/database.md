@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:f372ec031fac -->
+<!-- source: database.md sha256:6d2f3e972ea5 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -634,6 +634,43 @@ final document = await Document.query()
 SQLite menyimpan kolom ini sebagai teks dan melewati index-nya, jadi migrasi tetap
 berjalan di test, tetapi query jarak melempar error di sana. Di MySQL, `vector` hanya
 menambah kolom: index dan query jarak tidak didukung.
+
+## Satu statement per panggilan, dan skrip
+
+`DB.select`, `DB.statement`, dan `DB.insertGetId` menjalankan tepat satu
+statement, dengan atau tanpa binding, di setiap driver. SQL yang memuat
+statement kedua (`SELECT 1; DROP TABLE users`) ditolak dengan
+`QueryException` dan tidak ada yang dijalankan, sehingga nilai yang
+terselip ke teks SQL tidak bisa menambahkan statement sendiri. `;` atau
+komentar di akhir tetap boleh.
+
+Skrip berisi beberapa statement, atau statement yang tidak bisa di-prepare
+server, dijalankan lewat `DB.unprepared`, seperti `DB::unprepared` di
+Laravel:
+
+```dart
+await DB.unprepared('''
+  CREATE TABLE audit (id integer primary key, note text);
+  CREATE INDEX audit_note ON audit (note);
+''');
+```
+
+Di `DB.unprepared` tidak ada yang di-bind, jadi jangan pernah memasukkan
+input ke SQL-nya; `dartisan lint` menandai interpolasi di sana seperti di
+tempat lain.
+
+- MySQL dan MariaDB memeriksa setiap teks statement baru yang dikirim tanpa
+  binding dengan sebuah prepare yang langsung ditutup, lalu mengingat teks
+  yang sudah diperiksa sebuah koneksi (256 per koneksi, masing-masing
+  sampai 4 096 karakter). Teks yang berulang tidak menambah biaya; teks
+  yang pertama kali muncul di sebuah koneksi menambah satu perjalanan
+  pulang-pergi, jadi kirim nilai sebagai binding, bukan di dalam teks.
+  `SET` atau `CALL` membuat koneksi memeriksa teksnya lagi, karena
+  `sql_mode` dan character set mengubah cara teks dipecah.
+- PostgreSQL sudah menolak statement kedua (`42601`).
+- SQLite juga menolaknya. Laravel di SQLite menjalankan statement pertama
+  dari SQL seperti itu dan membuang sisanya tanpa error; Daravel
+  menolaknya.
 
 ## Error query
 
