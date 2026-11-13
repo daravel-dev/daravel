@@ -71,12 +71,17 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// takes over.
   StreamSubscription<dynamic>? _drain;
 
+  /// [drainUnlistened] read the client's stream to its end.
+  bool _drained = false;
+
   /// Reads what the client sends and drops it, for a handler that returned
   /// and has not listened: the client's close or its going away then ends
-  /// the session. A [listen] after it takes this subscription over and gets
-  /// what arrives from then on; what was dropped before is gone.
+  /// the session. Whatever had arrived and was not read is dropped too. A
+  /// [listen] after it takes this subscription over and gets what arrives
+  /// from then on (its `cancelOnError` does not apply then); one after the
+  /// stream ended gets just its end.
   void drainUnlistened() {
-    if (_listened || _drain != null) {
+    if (_listened || _drain != null || _drained) {
       return;
     }
     _drain = _inner.listen(
@@ -86,6 +91,7 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
       onDone: () {
         unawaited(_drain?.cancel());
         _drain = null;
+        _drained = true;
         _peerClosed();
       },
     );
@@ -104,6 +110,15 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
       onDone?.call();
     }
 
+    if (_drained) {
+      // The server read the stream to its end already: this listener gets
+      // the end, nothing else.
+      return const Stream<dynamic>.empty().listen(
+        null,
+        onError: onError,
+        onDone: done,
+      );
+    }
     final drain = _drain;
     if (drain != null) {
       // The server read for a handler that had not listened yet: this

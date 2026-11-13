@@ -426,8 +426,10 @@ socket. Listen before the handler returns, or within 5 s after: a handler
 may return and listen once its setup is done. When nothing has listened
 5 s after the handler returned, the server listens itself and drops what
 the client sends, so the client's close or its going away still ends the
-session; a `listen` after that takes the reading over and gets what
-arrives from then on. A handler that waits on `socket.done` without
+session. What the client had sent before and nobody had read is dropped
+then too. A `listen` after that takes the reading over and gets what
+arrives from then on; after the client closed, it gets just the end. A
+handler that waits on `socket.done` without
 listening never learns that the client left, and its session lasts until
 the server stops; listen instead, with `socket.listen((_) {})` when the
 messages do not matter. The same goes for a handler that writes in a loop:
