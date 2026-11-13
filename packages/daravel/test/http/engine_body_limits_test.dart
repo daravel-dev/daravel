@@ -244,20 +244,13 @@ void main() {
             utf8.encode(make(mib + 1)),
             chunked: chunked,
           );
-          if (chunked) {
-            // Refused while reading, never handled. The 413 itself does not
-            // reach the client today: a chunked body over any limit
-            // (HTTP_MAX_BODY, BodyLimitsMiddleware) closes the connection
-            // without a response, on main before this change too; reported
-            // separately.
-            expect(over, isNot(startsWith('HTTP/1.1 200')), reason: type);
-          } else {
-            expect(over, startsWith('HTTP/1.1 413'), reason: '$type $how');
-            expect(
-              over,
-              contains(const PayloadTooLargeHttpException().message),
-            );
-          }
+          // Chunked: refused while reading, and answered the same (#369).
+          expect(over, startsWith('HTTP/1.1 413'), reason: '$type $how');
+          expect(
+            over,
+            contains(const PayloadTooLargeHttpException().message),
+            reason: '$type $how',
+          );
           final under = await send(
             engine,
             type,
