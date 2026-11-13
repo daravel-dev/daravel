@@ -213,8 +213,9 @@ final class Encrypter {
     } on FormatException {
       throw const DecryptException('The payload is invalid.');
     }
+    // Both checked by _parsePayload.
     final tag = payload['tag'] as String? ?? '';
-    final mac = payload['mac'] as String? ?? '';
+    final mac = payload['mac']! as String;
     final secret = cg.SecretKey(candidate);
     try {
       if (tag.isNotEmpty) {
@@ -257,9 +258,16 @@ final class Encrypter {
     } on FormatException {
       throw const DecryptException('The payload is invalid.');
     }
+    // Laravel's validPayload: iv, value and mac are strings, and tag is one
+    // when set. Any other shape is refused here, as a DecryptException:
+    // a payload comes from outside (a cookie, an X-XSRF-TOKEN header), so
+    // nothing else may escape from decrypting it.
+    final tag = decoded is Map<String, Object?> ? decoded['tag'] : null;
     if (decoded is! Map<String, Object?> ||
         decoded['iv'] is! String ||
-        decoded['value'] is! String) {
+        decoded['value'] is! String ||
+        decoded['mac'] is! String ||
+        (tag != null && tag is! String)) {
       throw const DecryptException('The payload is invalid.');
     }
     return decoded;
