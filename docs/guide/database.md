@@ -643,8 +643,10 @@ Nothing is bound in `DB.unprepared`, so never put input in its SQL;
   checked (256 per connection, up to 4 096 characters each). A repeated
   text costs nothing extra; a text seen for the first time on a connection
   costs one more round trip, so pass values as bindings rather than in the
-  text. A `SET` or `CALL` makes the connection check its texts again,
-  since `sql_mode` and the character set change how text splits.
+  text. A `SET`, `CALL` or `EXECUTE` (and MariaDB's `BEGIN NOT ATOMIC`)
+  makes the connection check its texts again, since `sql_mode` and the
+  character set change how text splits. A trigger or stored function that
+  changes `sql_mode` is not noticed: keep such changes out of them.
 - PostgreSQL already refused a second statement (`42601`).
 - SQLite refuses it too. Laravel on SQLite runs the first statement of
   such SQL and drops the rest without an error; Daravel refuses instead.

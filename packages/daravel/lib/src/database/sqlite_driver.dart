@@ -274,11 +274,19 @@ final class SqliteDriver
   /// bindings already refused it. PDO SQLite, which Laravel uses, runs the
   /// first statement and drops the rest without a word; refusing is the
   /// safer side of that difference, and `DB.unprepared` runs a script.
+  ///
+  /// SQL holding no statement (empty, blanks, a comment, `;`) without
+  /// bindings does nothing and affects no row, as `sqlite3_exec` did.
   void _runOne(Database db, String sql, List<Object?> bindings) {
-    final statement = _oneStatement(
-      sql,
-      () => db.prepare(sql, checkNoTail: true),
-    );
+    final PreparedStatement statement;
+    try {
+      statement = _oneStatement(sql, () => db.prepare(sql, checkNoTail: true));
+    } on _NoStatement {
+      if (bindings.isEmpty) {
+        return;
+      }
+      rethrow;
+    }
     try {
       statement.execute(_normalize(bindings));
     } finally {
@@ -286,19 +294,28 @@ final class SqliteDriver
     }
   }
 
-  /// [body], with the `ArgumentError` `package:sqlite3` throws for SQL
-  /// holding a second statement turned into a
-  /// [MultipleStatementsException], which the connection reports as a
-  /// `QueryException` like any refused query.
+  /// [body], with the `ArgumentError`s `package:sqlite3` throws for the
+  /// shape of the SQL turned into exceptions the connection reports as a
+  /// `QueryException` like any refused query: a second statement becomes
+  /// a [MultipleStatementsException], no statement at all a
+  /// [_NoStatement]. The errors are recognised by their argument name and
+  /// wording; statement_stacking_test.dart is what notices when an update
+  /// of `package:sqlite3` changes them.
   static T _oneStatement<T>(String sql, T Function() body) {
     try {
       return body();
     } on ArgumentError catch (error) {
-      if (error.name == 'sql' && '${error.message}'.contains('trailing')) {
-        throw const MultipleStatementsException(
-          'SQLite refused SQL holding several statements; run a script with '
-          'DB.unprepared.',
-        );
+      if (error.name == 'sql') {
+        final message = '${error.message}';
+        if (message.contains('trailing')) {
+          throw const MultipleStatementsException(
+            'SQLite refused SQL holding several statements; run a script '
+            'with DB.unprepared.',
+          );
+        }
+        if (message.contains('Must contain')) {
+          throw const _NoStatement();
+        }
       }
       rethrow;
     }
@@ -374,4 +391,12 @@ final class SqliteDriver
         _ => value,
       },
   ];
+}
+
+/// SQL holding no statement (empty, blanks, comments, `;`).
+final class _NoStatement implements Exception {
+  const _NoStatement();
+
+  @override
+  String toString() => 'SQLite: the SQL holds no statement.';
 }

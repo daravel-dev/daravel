@@ -126,6 +126,23 @@ void main() {
     ], reason: 'the table is still there');
   });
 
+  test('a mode changed through PREPARE ... FROM and EXECUTE is noticed too', () async {
+    await db.execute('DROP TABLE IF EXISTS db1_victim');
+    await db.execute('CREATE TABLE db1_victim (n INT)');
+    addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
+    const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
+    await db.select(text);
+    await db.execute(
+      "PREPARE db1_mode FROM 'SET SESSION sql_mode = \"NO_BACKSLASH_ESCAPES\"'",
+    );
+    await db.execute('EXECUTE db1_mode');
+    await db.execute('DEALLOCATE PREPARE db1_mode');
+    await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
+    expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
+      {'c': 0},
+    ]);
+  });
+
   test(
     'a repeated text is checked once; CALL and SET check it again',
     () async {

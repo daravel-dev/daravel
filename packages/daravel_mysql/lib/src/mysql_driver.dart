@@ -281,6 +281,12 @@ final class MySqlDriver
   /// (1 Mi UTF-16 code units, at most 2 MiB).
   static const int singleStatementMaxLength = 4096;
 
+  /// Whether [sql] may change how the server splits text (`SET`, `CALL`,
+  /// `EXECUTE`, MariaDB's `BEGIN NOT ATOMIC`, after blanks and comments),
+  /// so a connection checks its texts again after it.
+  static bool changesSplitting(String sql) =>
+      _MySqlExecutor.changesSplitting(sql);
+
   /// False once the server refused the session timeout variable.
   bool _serverTimeouts = true;
   bool _warned = false;
@@ -759,23 +765,109 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
     'single statements',
   );
 
-  /// A statement that may change how the server splits text: `SET`
-  /// (`sql_mode`, `NAMES`, `character_set_client`), also in a leading
-  /// versioned comment (`/*!40101 SET NAMES utf8mb4 */`, as dumps write
-  /// it), and `CALL`: MySQL's manual says a routine runs with the
-  /// `sql_mode` it was created with, but not that the caller's mode is
-  /// restored when it returns, so a `CALL` is treated as a change too.
-  static final RegExp _modeChange = RegExp(
-    r'^\s*(?:(?:/\*(?!!).*?\*/|--[^\n]*(?:\n|$)|#[^\n]*(?:\n|$))\s*)*'
-    r'(?:/\*!\d*\s*)?(?:set|call)\b',
-    caseSensitive: false,
-    dotAll: true,
-  );
+  /// Whether [sql] may change how the server splits text, by its first
+  /// keyword after blanks and comments:
+  ///
+  /// - `SET` (`sql_mode`, `NAMES`, `character_set_client`; MariaDB's
+  ///   `SET STATEMENT … FOR` too), also inside a leading versioned comment
+  ///   (`/*!40101 SET NAMES utf8mb4 */`, as dumps write it);
+  /// - `CALL`: MySQL's manual says a routine runs with the `sql_mode` it was
+  ///   created with, but not that the caller's mode is restored when it
+  ///   returns;
+  /// - `EXECUTE` (a statement prepared with `PREPARE … FROM`, MariaDB's
+  ///   `EXECUTE IMMEDIATE`) and MariaDB's `BEGIN NOT ATOMIC` block, which
+  ///   may run a `SET` of their own.
+  ///
+  /// A known limit: a trigger or stored function that sets `sql_mode`,
+  /// fired by an ordinary statement, is not noticed. The manual says they
+  /// run with the mode they were created with, not whether the caller's
+  /// is restored.
+  ///
+  /// One pass over the text, without a regular expression: a pattern
+  /// skipping repeated comments backtracked exponentially (26 empty
+  /// comments took 14 s).
+  static bool changesSplitting(String sql) {
+    final n = sql.length;
+    var i = 0;
+    while (i < n) {
+      final c = sql.codeUnitAt(i);
+      if (c == 0x20 || (c >= 0x09 && c <= 0x0d)) {
+        i++;
+      } else if (c == 0x2f && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2a) {
+        if (i + 2 < n && sql.codeUnitAt(i + 2) == 0x21) {
+          // `/*!` and its version: its content runs, so read on inside.
+          i += 3;
+          while (i < n && _isDigit(sql.codeUnitAt(i))) {
+            i++;
+          }
+        } else {
+          final end = sql.indexOf('*/', i + 2);
+          if (end < 0) {
+            return false;
+          }
+          i = end + 2;
+        }
+      } else if (c == 0x23 ||
+          (c == 0x2d &&
+              i + 1 < n &&
+              sql.codeUnitAt(i + 1) == 0x2d &&
+              (i + 2 == n || _isBlank(sql.codeUnitAt(i + 2))))) {
+        // `#` or `-- ` (MySQL wants a blank after the dashes): to the end
+        // of the line.
+        final end = sql.indexOf('\n', i);
+        if (end < 0) {
+          return false;
+        }
+        i = end + 1;
+      } else {
+        break;
+      }
+    }
+    final first = _word(sql, i);
+    switch (first.word) {
+      case 'set' || 'call' || 'execute':
+        return true;
+      case 'begin':
+        var j = first.end;
+        while (j < n && _isBlank(sql.codeUnitAt(j))) {
+          j++;
+        }
+        final second = _word(sql, j);
+        if (second.word != 'not') {
+          return false;
+        }
+        j = second.end;
+        while (j < n && _isBlank(sql.codeUnitAt(j))) {
+          j++;
+        }
+        return _word(sql, j).word == 'atomic';
+      default:
+        return false;
+    }
+  }
+
+  static bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
+
+  static bool _isBlank(int c) => c == 0x20 || (c >= 0x09 && c <= 0x0d);
+
+  /// The ASCII letters at [start] in lower case, and where they end.
+  static ({String word, int end}) _word(String sql, int start) {
+    var end = start;
+    while (end < sql.length) {
+      final c = sql.codeUnitAt(end) | 0x20;
+      if (c < 0x61 || c > 0x7a) {
+        break;
+      }
+      end++;
+    }
+    return (word: sql.substring(start, end).toLowerCase(), end: end);
+  }
 
   /// Forgets the texts checked on this connection when [sql] may change
-  /// how the server splits text ([_modeChange]); [always] for a script.
+  /// how the server splits text ([changesSplitting]); [always] for a
+  /// script.
   void _forgetChecked(String sql, {bool always = false}) {
-    if (always || _modeChange.hasMatch(sql)) {
+    if (always || changesSplitting(sql)) {
       _single[_connection]?.clear();
     }
   }

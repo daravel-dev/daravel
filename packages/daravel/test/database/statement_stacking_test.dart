@@ -71,6 +71,24 @@ void statementStackingTests(DatabaseOpener open) {
     expect(await values(), [1, 2, 3, 4]);
   });
 
+  test('SQLite: SQL without a statement does nothing in statement and '
+      'insertGetId, as sqlite3_exec did, and select reports it as a '
+      'QueryException', () async {
+    if (db.dialectOf() != SqlDialect.sqlite) {
+      markTestSkipped('SQLite only');
+      return;
+    }
+    for (final sql in ['', '  ', '-- why', '/* why */', ';']) {
+      expect(await db.statement(sql), 0, reason: '"$sql"');
+      expect(await db.insertGetId(sql), anything, reason: '"$sql"');
+      await expectLater(
+        db.select(sql),
+        throwsA(isA<QueryException>()),
+        reason: '"$sql"',
+      );
+    }
+  });
+
   test('a failing unprepared script is a QueryException', () async {
     await expectLater(
       db.unprepared('INSERT INTO no_such_table_db1 (n) VALUES (1)'),

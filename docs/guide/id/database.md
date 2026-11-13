@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:6d2f3e972ea5 -->
+<!-- source: database.md sha256:3819726f3fe5 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -665,8 +665,10 @@ tempat lain.
   sampai 4 096 karakter). Teks yang berulang tidak menambah biaya; teks
   yang pertama kali muncul di sebuah koneksi menambah satu perjalanan
   pulang-pergi, jadi kirim nilai sebagai binding, bukan di dalam teks.
-  `SET` atau `CALL` membuat koneksi memeriksa teksnya lagi, karena
-  `sql_mode` dan character set mengubah cara teks dipecah.
+  `SET`, `CALL`, atau `EXECUTE` (dan `BEGIN NOT ATOMIC` di MariaDB)
+  membuat koneksi memeriksa teksnya lagi, karena `sql_mode` dan character
+  set mengubah cara teks dipecah. Trigger atau stored function yang
+  mengubah `sql_mode` tidak terdeteksi: jangan ubah mode di dalamnya.
 - PostgreSQL sudah menolak statement kedua (`42601`).
 - SQLite juga menolaknya. Laravel di SQLite menjalankan statement pertama
   dari SQL seperti itu dan membuang sisanya tanpa error; Daravel
