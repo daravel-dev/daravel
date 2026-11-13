@@ -849,15 +849,23 @@ final class ServerEngine {
         );
       }
       await handled;
-      if (!socket.isListened) {
-        // The handler returned without listening: what the client sends is
-        // read here and dropped, so its close or its going away ends the
-        // session, as for a handler that listens.
-        socket.listen(
-          (_) {},
-          // A stream error ends the session too, and `done` reports it.
-          onError: (Object _) {},
-        );
+      // The handler returned without listening: what the client sends is
+      // read here and dropped, so its close or its going away ends the
+      // session, as for a handler that listens. Not when the socket is
+      // closing or closed (its close reads the client's answer itself),
+      // nor when something listens already.
+      if (socket.readyState == WebSocket.open && !socket.isListened) {
+        try {
+          socket.listen(
+            (_) {},
+            // A stream error ends the session too, and `done` reports it.
+            onError: (Object _) {},
+          );
+        } on StateError {
+          // A last fence: the stream was read without going through this
+          // socket (none of the server's paths does that), so it is read
+          // already and nothing is left to do.
+        }
       }
       await socket.done;
     } catch (error, stackTrace) {
