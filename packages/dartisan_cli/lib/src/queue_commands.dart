@@ -132,10 +132,17 @@ final class QueueFailedCommand extends DaravelCommand {
   });
 }
 
-/// `queue:retry <id|uuid|all>` — pushes failed jobs back onto the queue.
+/// `queue:retry <id|uuid|all> [--queue=name]` — pushes failed jobs back
+/// onto the queue.
+///
+/// `all` (or `--queue`, all of that queue, as in Laravel) reads the failed
+/// jobs a page at a time and goes past one whose payload cannot be read: it
+/// stays in `failed_jobs`, is printed, and the command ends with 1.
 final class QueueRetryCommand extends DaravelCommand {
   /// The `dartisan queue:retry` command.
-  QueueRetryCommand(super.createApp);
+  QueueRetryCommand(super.createApp) {
+    argParser.addOption('queue', help: 'Retry every failed job of this queue.');
+  }
 
   @override
   String get name => 'queue:retry';
@@ -143,26 +150,81 @@ final class QueueRetryCommand extends DaravelCommand {
   @override
   String get description => 'Retry a failed queue job (or `all`).';
 
+  /// How long one locked pass of `all` runs before it lets go of the lock
+  /// and goes on from where it stopped.
+  static const Duration passBudget = Duration(seconds: 30);
+
   @override
   Future<int> run() => withApp((app) async {
     final ids = argResults!.rest;
-    if (ids.isEmpty) {
-      usageException('Provide a failed job id/uuid or `all`.');
+    final queue = argResults!['queue'] as String?;
+    if (ids.isEmpty && queue == null) {
+      usageException('Provide a failed job id/uuid, `all` or --queue.');
     }
     final manager = App.make<QueueManager>();
-    final targets = ids.length == 1 && ids.first == 'all'
-        ? await manager.retryAllFailed()
-        : [for (final id in ids) ?await manager.retryFailed(id)];
-    for (final failed in targets) {
-      stdout.writeln(
-        'The failed job [${failed.uuid}] has been pushed back onto the queue.',
-      );
+    void pushed(FailedJob failed) => stdout.writeln(
+      'The failed job [${failed.uuid}] has been pushed back onto the queue.',
+    );
+    if ((ids.length == 1 && ids.first == 'all') || queue != null) {
+      return _retryAll(manager, queue, pushed);
     }
-    if (targets.isEmpty) {
+    var found = false;
+    for (final id in ids) {
+      final failed = await manager.retryFailed(id);
+      if (failed != null) {
+        found = true;
+        pushed(failed);
+      }
+    }
+    if (!found) {
       stdout.writeln('No failed jobs matched.');
     }
     return 0;
   });
+
+  Future<int> _retryAll(
+    QueueManager manager,
+    String? queue,
+    void Function(FailedJob failed) pushed,
+  ) async {
+    var retried = 0;
+    var skipped = 0;
+    var after = 0;
+    int? upTo;
+    while (true) {
+      final RetryAllResult result;
+      try {
+        result = await manager.retryAllFailed(
+          queue: queue,
+          budget: passBudget,
+          after: after,
+          upTo: upTo,
+          onRetried: pushed,
+          onSkipped: (failed, error) => stderr.writeln(
+            'The failed job [${failed.uuid}] (id ${failed.id}) cannot be '
+            'read and stays in failed_jobs: $error',
+          ),
+        );
+      } on RetryAllRunningException catch (error) {
+        stderr.writeln(error.message);
+        return 1;
+      }
+      retried += result.retried.length;
+      skipped += result.skippedCount;
+      // Without pages (upTo null) each pass reads them all again: go on
+      // while passes retry something, so skipped ones do not loop.
+      if (result.remaining == 0 ||
+          (result.upTo == null && result.retried.isEmpty)) {
+        break;
+      }
+      after = result.after;
+      upTo = result.upTo;
+    }
+    if (retried == 0 && skipped == 0) {
+      stdout.writeln('No failed jobs matched.');
+    }
+    return skipped == 0 ? 0 : 1;
+  }
 }
 
 /// `queue:forget <id>` — deletes a failed job.

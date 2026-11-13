@@ -1312,10 +1312,72 @@ abstract interface class FailedJobProvider {
   Future<int> prune(Duration olderThan);
 }
 
+/// A [FailedJobProvider] that reads its failed jobs a page at a time, by
+/// their integer row ids, so retrying all of them (`queue:retry all`,
+/// Horizon's retry-all) never holds every payload at once. Optional, as
+/// Laravel's `ids()` is (`method_exists`): a provider without it is read
+/// with [FailedJobProvider.all].
+abstract interface class FailedJobPages {
+  /// The largest id now (of [queue] when given), or null when none.
+  Future<int?> lastId({String? queue});
+
+  /// Up to [limit] failed jobs (of [queue] when given) whose id is above
+  /// [after] and at most [upTo], by id.
+  Future<List<FailedJob>> page({
+    required int after,
+    required int upTo,
+    int limit = 500,
+    String? queue,
+  });
+
+  /// How many failed jobs (of [queue] when given) have an id above [after]
+  /// and at most [upTo].
+  Future<int> countBetween({
+    required int after,
+    required int upTo,
+    String? queue,
+  });
+}
+
 /// In-memory failed job list (sync/memory connections, tests).
-final class MemoryFailedJobProvider implements FailedJobProvider {
+final class MemoryFailedJobProvider
+    implements FailedJobProvider, FailedJobPages {
   final List<FailedJob> _jobs = <FailedJob>[];
   int _nextId = 0;
+
+  Iterable<FailedJob> _between(int after, int upTo, String? queue) =>
+      _jobs.where((job) {
+        final id = job.id as int;
+        return id > after &&
+            id <= upTo &&
+            (queue == null || job.queue == queue);
+      });
+
+  @override
+  Future<int?> lastId({String? queue}) async {
+    int? last;
+    for (final job in _jobs) {
+      if (queue == null || job.queue == queue) {
+        last = job.id as int;
+      }
+    }
+    return last;
+  }
+
+  @override
+  Future<List<FailedJob>> page({
+    required int after,
+    required int upTo,
+    int limit = 500,
+    String? queue,
+  }) async => _between(after, upTo, queue).take(limit).toList();
+
+  @override
+  Future<int> countBetween({
+    required int after,
+    required int upTo,
+    String? queue,
+  }) async => _between(after, upTo, queue).length;
 
   @override
   Future<Object> log({
@@ -1376,7 +1438,8 @@ final class MemoryFailedJobProvider implements FailedJobProvider {
 }
 
 /// Laravel-compatible `failed_jobs` table.
-final class DatabaseFailedJobProvider implements FailedJobProvider {
+final class DatabaseFailedJobProvider
+    implements FailedJobProvider, FailedJobPages {
   /// Failed jobs in the [table] (`failed_jobs`) of [db].
   DatabaseFailedJobProvider(
     this.db, {
@@ -1416,6 +1479,46 @@ final class DatabaseFailedJobProvider implements FailedJobProvider {
   @override
   Future<List<FailedJob>> all() async =>
       (await _query().orderBy('id', 'desc').get()).map(_fromRow).toList();
+
+  QueryBuilder _between(int after, int upTo, String? queue) {
+    final query = _query().where('id', '>', after).where('id', '<=', upTo);
+    if (queue != null) {
+      query.where('queue', queue);
+    }
+    return query;
+  }
+
+  @override
+  Future<int?> lastId({String? queue}) async {
+    final query = _query();
+    if (queue != null) {
+      query.where('queue', queue);
+    }
+    return switch (await query.max('id')) {
+      null => null,
+      final num id => id.toInt(),
+      final Object id => int.parse('$id'),
+    };
+  }
+
+  @override
+  Future<List<FailedJob>> page({
+    required int after,
+    required int upTo,
+    int limit = 500,
+    String? queue,
+  }) async => (await _between(
+    after,
+    upTo,
+    queue,
+  ).orderBy('id').limit(limit).get()).map(_fromRow).toList();
+
+  @override
+  Future<int> countBetween({
+    required int after,
+    required int upTo,
+    String? queue,
+  }) => _between(after, upTo, queue).count();
 
   @override
   Future<FailedJob?> find(Object id) async {
