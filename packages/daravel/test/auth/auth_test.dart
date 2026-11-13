@@ -521,6 +521,43 @@ void main() {
     expect((await get('/jwt-me', token: jwt)).status, 401);
   });
 
+  test('AU3: a time claim no date holds is null, never a wrapped one', () {
+    const maxSeconds = 8640000000000;
+    for (final value in <num>[
+      1 << 62,
+      0x7fffffffffffffff,
+      -0x8000000000000000,
+      9007199254740993,
+      maxSeconds + 1,
+      -maxSeconds - 1,
+      1e308,
+      double.infinity,
+      double.nan,
+    ]) {
+      for (final claim in ['exp', 'nbf', 'iat']) {
+        final claims = JwtClaims({claim: value});
+        final time = switch (claim) {
+          'exp' => claims.expiresAt,
+          'nbf' => claims.notBefore,
+          _ => claims.issuedAt,
+        };
+        expect(time, isNull, reason: '$claim $value');
+      }
+    }
+    expect(
+      JwtClaims({'exp': maxSeconds}).expiresAt,
+      DateTime.fromMillisecondsSinceEpoch(maxSeconds * 1000, isUtc: true),
+    );
+    expect(
+      JwtClaims({'exp': -maxSeconds}).expiresAt,
+      DateTime.fromMillisecondsSinceEpoch(-maxSeconds * 1000, isUtc: true),
+    );
+    expect(
+      JwtClaims({'exp': 1700000000}).expiresAt,
+      DateTime.utc(2023, 11, 14, 22, 13, 20),
+    );
+  });
+
   test('AU3: 100 000 random tokens: only JwtException, getters never '
       'throw, HTTP answers 401', () async {
     final random = Random(20261113);
@@ -528,7 +565,15 @@ void main() {
       0 => null,
       1 => random.nextBool(),
       2 => random.nextInt(1 << 31) - (1 << 30),
-      3 => [1e308, -1e308, double.maxFinite, 1.5, -0.0][random.nextInt(5)],
+      3 => switch (random.nextInt(3)) {
+        0 => [1e308, -1e308, double.maxFinite, 1.5, -0.0][random.nextInt(5)],
+        // An int in [2^53, 2^63), either sign: * 1000 wraps around.
+        _ =>
+          ((random.nextInt(1 << 30) << 33) |
+                  random.nextInt(1 << 30) |
+                  (1 << 53)) *
+              (random.nextBool() ? 1 : -1),
+      },
       4 => 'k${random.nextInt(4)}',
       5 => String.fromCharCodes(
         List.generate(random.nextInt(8), (_) => random.nextInt(0x3000)),

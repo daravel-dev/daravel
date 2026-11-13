@@ -158,15 +158,23 @@ final class JwtClaims {
   /// A NumericDate claim as a time; null when it is not a number or no
   /// [DateTime] can hold it (`1e308`).
   static DateTime? _time(Object? value) {
-    if (value is! num || !value.isFinite) {
+    // The range first, in seconds: multiplied before, a large int wrapped
+    // around (2^62 * 1000 is 0 in 64 bits) and read as 1970. Compared
+    // both ways, not with abs(): -2^63.abs() is still negative.
+    if (value is! num ||
+        !value.isFinite ||
+        value > _maxSeconds ||
+        value < -_maxSeconds) {
       return null;
     }
-    final ms = value * 1000;
-    if (ms.abs() > _maxMs) {
-      return null;
-    }
-    return DateTime.fromMillisecondsSinceEpoch(ms.round(), isUtc: true);
+    return DateTime.fromMillisecondsSinceEpoch(
+      (value * 1000).round(),
+      isUtc: true,
+    );
   }
+
+  /// [_maxMs] in seconds.
+  static const int _maxSeconds = _maxMs ~/ 1000;
 }
 
 /// Signs and verifies JWTs (RFC 7519) with a key ring.
