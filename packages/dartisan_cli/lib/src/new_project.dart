@@ -376,9 +376,12 @@ APP_ISOLATES=1
 # Load shedding: 503 + Retry-After while a worker's event loop is this late
 HTTP_MAX_QUEUE_DELAY=200ms
 # HTTP_MAX_IN_FLIGHT=0
-# Request body limit in bytes (50 MiB; 0 for none). BodyLimitsMiddleware
-# tightens it to 1 MiB for JSON and forms.
+# Request body limit in bytes (50 MiB; 0 for none), and the lower limits of
+# JSON and form bodies (1 MiB each; 0 for none of their own).
+# BodyLimitsMiddleware or a route's bodyLimit replaces them.
 # HTTP_MAX_BODY=52428800
+# HTTP_MAX_JSON_BODY=1048576
+# HTTP_MAX_FORM_BODY=1048576
 # Request headers: 431 above 32 KiB in all, 16 KiB for one header or
 # 100 headers (0 for none).
 # HTTP_MAX_HEADER_BYTES=32768

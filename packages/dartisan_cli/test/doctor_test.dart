@@ -394,6 +394,42 @@ void main() {
     ]);
   });
 
+  test('body limits: shown by type; turned off in production warns', () async {
+    List<String> limits(List<DoctorCheck> checks) => [
+      for (final title in titled(checks, CheckStatus.ok))
+        if (title.startsWith('Body limits')) title,
+    ];
+    expect(limits(await diagnose(const {})), [
+      'Body limits: JSON 1 MiB, form 1 MiB, other 50 MiB',
+    ]);
+    // Never above HTTP_MAX_BODY; 0 is no limit of its own.
+    expect(
+      limits(
+        await diagnose(const {
+          'HTTP_MAX_BODY': '524288',
+          'HTTP_MAX_JSON_BODY': '0',
+          'HTTP_MAX_FORM_BODY': '2048',
+        }),
+      ),
+      ['Body limits: JSON 512 KiB, form 2 KiB, other 512 KiB'],
+    );
+    expect(
+      titled(
+        await diagnose(const {
+          'APP_ENV': 'production',
+          'HTTP_MAX_JSON_BODY': '0',
+          'HTTP_MAX_FORM_BODY': '0',
+        }),
+        CheckStatus.warning,
+      ),
+      contains('HTTP_MAX_JSON_BODY, HTTP_MAX_FORM_BODY=0 in production'),
+    );
+    expect(
+      titled(await diagnose({'APP_ENV': 'production'}), CheckStatus.warning),
+      isNot(contains(contains('HTTP_MAX_JSON_BODY'))),
+    );
+  });
+
   test('production: no APP_KEY is an error, weak hashing warns', () async {
     final checks = await diagnose({
       'APP_ENV': 'production',

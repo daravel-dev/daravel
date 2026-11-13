@@ -189,6 +189,38 @@ DoctorCheck? idleTransactionTimeoutCheck(ConnectionConfig? connection) {
   };
 }
 
+/// The body limits a request of each type gets in [app] (served with
+/// [serve]), as `dartisan doctor` shows them: the global
+/// `BodyLimitsMiddleware`'s when the application uses one, otherwise the
+/// engine's (`HTTP_MAX_JSON_BODY`, `HTTP_MAX_FORM_BODY`, each never above
+/// `HTTP_MAX_BODY`). A route's `bodyLimit` still replaces them.
+DoctorCheck bodyLimitsCheck(Application app, ServeOptions serve) {
+  String size(int? bytes) => switch (bytes) {
+    null => 'no limit',
+    final b when b % (1 << 20) == 0 => '${b >> 20} MiB',
+    final b when b % (1 << 10) == 0 => '${b >> 10} KiB',
+    final b => '$b bytes',
+  };
+  int? lower(int? a, int? b) => a == null ? b : (b == null || a < b ? a : b);
+  final middleware = app.kernel.middleware.orderedGlobal
+      .whereType<BodyLimitsMiddleware>()
+      .firstOrNull;
+  if (middleware != null) {
+    return DoctorCheck(
+      CheckStatus.ok,
+      'Body limits (BodyLimitsMiddleware): JSON ${size(middleware.json)}, '
+      'form ${size(middleware.form)}, other ${size(middleware.other)}',
+    );
+  }
+  final other = serve.maxBodyBytes;
+  return DoctorCheck(
+    CheckStatus.ok,
+    'Body limits: JSON ${size(lower(app.kernel.jsonBodyLimit, other))}, '
+    'form ${size(lower(app.kernel.formBodyLimit, other))}, '
+    'other ${size(other)}',
+  );
+}
+
 /// `doctor [--production]` — environment and configuration pre-flight.
 final class DoctorCommand extends DaravelCommand {
   /// The `dartisan doctor` command.
@@ -616,6 +648,7 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    checks.add(bodyLimitsCheck(app, serve));
 
     if (paths != null) {
       final storage = Directory(p.join(paths.root, 'storage'));
@@ -821,6 +854,25 @@ final class DoctorCommand extends DaravelCommand {
           'Requests have no body limit: a client can make a worker buffer '
               'gigabytes. Leave it unset (50 MiB) or set the largest upload '
               'you accept.',
+        ),
+      );
+    }
+    final typeLimitsOff = [
+      if (app.kernel.jsonBodyLimit == null) 'HTTP_MAX_JSON_BODY',
+      if (app.kernel.formBodyLimit == null) 'HTTP_MAX_FORM_BODY',
+    ];
+    final bodyMiddleware = app.kernel.middleware.orderedGlobal
+        .whereType<BodyLimitsMiddleware>()
+        .isNotEmpty;
+    if (typeLimitsOff.isNotEmpty && !bodyMiddleware) {
+      checks.add(
+        DoctorCheck(
+          CheckStatus.warning,
+          '${typeLimitsOff.join(', ')}=0 in production',
+          'JSON or form bodies are read up to HTTP_MAX_BODY (50 MiB), as '
+              'before 1.28.0: one large body makes a worker parse and '
+              'validate it all. Leave them unset (1 MiB) or set the largest '
+              'body you accept.',
         ),
       );
     }

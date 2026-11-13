@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/configuration.md`.
 const String pageIdConfiguration =
-    r'''<!-- source: configuration.md sha256:fbead05afbbb -->
+    r'''<!-- source: configuration.md sha256:1f273feeb54d -->
 # Konfigurasi
 
 ## File environment
@@ -118,7 +118,9 @@ setelah boot.
 | `HTTP_ACCESS_LOG` | `true` | Satu baris `info` per request (method, path, status, waktu); `false` bila proxy di depan sudah mencatat request. Output log console, JSON, dan file harian tidak pernah memblokir worker: lewat dari 8 MiB yang menunggu, baris dibuang dan dihitung (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
-| `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |
+| `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas). Body JSON dan form mendapat batas sendiri yang lebih rendah, di bawah |
+| `HTTP_MAX_JSON_BODY` | `1048576` (1 MiB) | Body JSON terbesar (`application/json` dan `+json`), sejak 1.28.0; tidak pernah di atas `HTTP_MAX_BODY`. `bodyLimit` milik route atau `BodyLimitsMiddleware` menggantikannya. `0` membuat JSON tanpa batas sendiri (hanya `HTTP_MAX_BODY`), seperti sebelum 1.28.0: satu body besar lalu membuat worker mengurai dan memvalidasi seluruhnya (lihat catatan rilis) |
+| `HTTP_MAX_FORM_BODY` | `1048576` (1 MiB) | Sama, untuk body `application/x-www-form-urlencoded` |
 | `HTTP_JSON_MAX_DEPTH` | `512` | Kedalaman body JSON, dengan arti `$depth` pada `json_decode` PHP, sehingga body terbaca seperti di Laravel: array dan objek yang bersarang 511 tingkat terbaca, 512 tingkat atau lebih menjadi input kosong (validasi berjalan atas input kosong, `422` untuk `required`), bukan `400`. Dihitung pada byte sebelum di-decode; body form dan multipart tidak terpengaruh. Body JSON yang rusak menjadi `400` (`Malformed JSON body`), perbedaan yang disengaja: Laravel membacanya sebagai input kosong. `0` untuk tanpa batas |
 | `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | Baris request dan seluruh header; di atasnya `431 Request Header Fields Too Large` sebelum routing, juga untuk handshake WebSocket (`0` untuk tanpa batas). Ini membatasi apa yang diurai aplikasi, bukan apa yang dibaca `dart:io` (sampai 1 MiB) |
 | `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | Satu header, nama dan nilainya; `431` di atasnya (`0` untuk tanpa batas). Bawaan nginx adalah 8 KiB per baris |
@@ -135,7 +137,7 @@ setelah boot.
 `doctor --production` memperlakukan peringatan sebagai kegagalan dan
 mewajibkan `APP_ENV=production`, karena pemeriksaan yang hanya berlaku di
 sana akan terlewati tanpanya. Dengan `APP_ENV=production`, `APP_KEY` yang
-kosong adalah error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` di bawah 10, `HTTP_MAX_BODY=0` dan `HTTP_JSON_MAX_DEPTH` bernilai `0` atau di atas 1 024 (body JSON sedalam beberapa ribu tingkat bisa membuat stack meluap)
+kosong adalah error, `HASH_VERIFY=false`, `BCRYPT_ROUNDS` di bawah 10, `HTTP_MAX_BODY=0`, `HTTP_MAX_JSON_BODY=0` atau `HTTP_MAX_FORM_BODY=0` (tanpa `BodyLimitsMiddleware`) dan `HTTP_JSON_MAX_DEPTH` bernilai `0` atau di atas 1 024 (body JSON sedalam beberapa ribu tingkat bisa membuat stack meluap)
 adalah peringatan, sedangkan `APP_URL` yang masih `http`,
 `HASH_DRIVER=pbkdf2` dan rahasia di `.env` polos adalah catatan. Saran
 tuning (satu isolate di mesin dengan core lebih banyak, `LOG_LEVEL` di bawah

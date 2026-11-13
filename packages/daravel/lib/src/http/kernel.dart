@@ -10,6 +10,7 @@ import '../validation/form_request.dart';
 import 'exception_handler.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
+import 'middleware/body_limits.dart';
 import 'middleware.dart';
 import 'multipart.dart';
 import 'request.dart';
@@ -44,6 +45,8 @@ final class HttpKernel {
     this.logger,
     this.multipartLimits = const MultipartLimits(),
     this.jsonMaxDepth = Request.defaultJsonMaxDepth,
+    this.jsonBodyLimit = BodyLimits.json,
+    this.formBodyLimit = BodyLimits.form,
   });
 
   /// The routes.
@@ -68,6 +71,16 @@ final class HttpKernel {
   /// the same for a served request and one from the test client.
   final int? jsonMaxDepth;
 
+  /// The largest JSON body, given to every JSON request before the
+  /// middleware runs (`HTTP_MAX_JSON_BODY`, 1 MiB; `null` none of its
+  /// own). It lowers the request's limit and never raises it, so a smaller
+  /// `HTTP_MAX_BODY` still applies; a route's `bodyLimit` and
+  /// `BodyLimitsMiddleware`, set later, replace it.
+  final int? jsonBodyLimit;
+
+  /// The largest form body (`HTTP_MAX_FORM_BODY`), as [jsonBodyLimit].
+  final int? formBodyLimit;
+
   /// Default handler timeout applied when a route sets none (`null` = none).
   Duration? defaultTimeout;
 
@@ -87,6 +100,20 @@ final class HttpKernel {
     _bindLogContext(request);
     request.multipartLimits = multipartLimits;
     request.jsonMaxDepth = jsonMaxDepth;
+    // JSON and form bodies get their own limit (1 MiB by default), for a
+    // served request and one from the test client alike; enforced when the
+    // body is read (the declared length first, then while reading).
+    final typed = BodyLimits.forType(
+      request,
+      json: jsonBodyLimit,
+      form: formBodyLimit,
+    );
+    if (typed != null) {
+      final current = request.maxBodyBytes;
+      request.maxBodyBytes = current == null || typed < current
+          ? typed
+          : current;
+    }
     Response response;
     try {
       response = await MiddlewarePipeline.run(
