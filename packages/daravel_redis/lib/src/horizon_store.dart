@@ -314,11 +314,20 @@ final class RedisHorizonStore implements BufferedHorizonStore {
 
   // -- reads ----------------------------------------------------------------
 
+  /// How many HGETs [_jobs] sends at once: a connection holds 1 024
+  /// commands waiting for replies, shared with every other caller.
+  static const int _readBatch = 256;
+
   Future<List<RecordedJob>> _jobs(List<Object?> uuids) async {
-    final records = await Future.wait([
-      for (final uuid in uuids)
-        client.command(['HGET', _key('job:$uuid'), 'record']),
-    ]);
+    final records = <Object?>[];
+    for (var i = 0; i < uuids.length; i += _readBatch) {
+      records.addAll(
+        await Future.wait([
+          for (final uuid in uuids.skip(i).take(_readBatch))
+            client.command(['HGET', _key('job:$uuid'), 'record']),
+        ]),
+      );
+    }
     return [
       for (final record in records)
         if (record != null)

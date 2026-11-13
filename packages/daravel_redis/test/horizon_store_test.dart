@@ -215,6 +215,19 @@ void main() {
     expect(summary['failed_past_week'], 10);
   });
 
+  test('a page of more jobs than a connection holds commands for at once '
+      '(1 024) is read in batches', () async {
+    Clock.travelTo(start);
+    final store = make();
+    for (var i = 0; i < 1200; i++) {
+      await store.record(job('c$i', later: i));
+    }
+    await store.flush();
+    final page = await store.recent('completed', limit: 1200);
+    expect(page, hasLength(1200));
+    expect(page.first.uuid, 'c1199', reason: 'newest first');
+  });
+
   test('a job trimmed off every list loses its hash; one still listed '
       'keeps it', () async {
     Clock.travelTo(start);
