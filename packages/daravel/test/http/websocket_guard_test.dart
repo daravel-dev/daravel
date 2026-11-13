@@ -193,6 +193,24 @@ void main() {
       expect(received, isEmpty);
     });
 
+    test('after a violation, what the client still sends is dropped: no '
+        'echo, no PONG', () async {
+      final client = await connect('/echo');
+      client
+        ..send(0x1, Uint8List(40000), fin: false)
+        ..send(0x0, Uint8List(40000))
+        // Sent before the client saw the close.
+        ..send(0x1, utf8.encode('after'))
+        ..send(0x9, utf8.encode('ping'));
+      final opcodes = <int>[];
+      while (opcodes.lastOrNull != 0x8) {
+        opcodes.add((await client.next()).opcode);
+      }
+      expect(opcodes, [0x8]);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(received, isEmpty);
+    });
+
     test('a close in the middle of a message drops the message', () async {
       final client = await connect('/echo');
       client

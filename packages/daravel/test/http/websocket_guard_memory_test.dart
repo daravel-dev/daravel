@@ -40,17 +40,20 @@ void main() {
 
   tearDownAll(() => server.kill());
 
-  /// The server process's resident memory now.
-  Future<int> rss() async {
+  /// A number the server answers on [path].
+  Future<int> number(String path) async {
     final client = HttpClient();
     try {
-      final request = await client.get('127.0.0.1', port, '/rss');
+      final request = await client.get('127.0.0.1', port, path);
       final response = await request.close();
       return int.parse(await utf8.decodeStream(response));
     } finally {
       client.close(force: true);
     }
   }
+
+  /// The server process's resident memory now.
+  Future<int> rss() => number('/rss');
 
   Future<RawWsClient> connect(String path) => RawWsClient.connect(port, path);
 
@@ -133,6 +136,41 @@ void main() {
     client.socket.destroy();
   });
 
+  test(
+    'a client that resets the connection while the server sends: the '
+    'session ends, the server does not keep what it goes on sending',
+    () async {
+      final before = await rss();
+      final ended = await number('/firehose-ended');
+      // Sessions of the tests before (a handler that never reads keeps its
+      // own until the server stops; dart:io reads nothing for it).
+      final open = await number('/open');
+      final client = await connect('/firehose');
+      await client.next(); // the first MiB arrived
+      // Data left unread when the socket closes makes the OS reset the
+      // connection (RST): the server's next write fails.
+      client.pauseReading();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      client.socket.destroy();
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while ((await number('/open') > open ||
+              await number('/firehose-ended') == ended) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(await number('/open'), open, reason: 'the session ended');
+      expect(
+        await number('/firehose-ended'),
+        ended + 1,
+        reason: 'the handler saw the socket closed',
+      );
+      final grew = await rss() - before;
+      printOnFailure('server grew by ${grew >> 20} MiB');
+      // 100 MiB were to be sent; the socket buffers at most 8 MiB.
+      expect(grew, lessThan(32 << 20));
+    },
+  );
+
   test('200 connections sending fragments without end: each closed, the '
       'server bounded', () async {
     final before = await rss();
@@ -158,7 +196,14 @@ void main() {
     ]);
     final grew = await rss() - before;
     printOnFailure('server grew by ${grew >> 20} MiB');
-    expect(codes.toSet(), {1009});
+    // Each connection was closed: with 1009, or, for a client still
+    // sending when the guard's grace destroyed the socket and that had
+    // not read the close frame yet, by a reset that drops it (null). These
+    // clients never answer the close and go on sending, as an attacker
+    // does; under load some read too late.
+    expect(codes.toSet().difference({1009, null}), isEmpty);
+    expect(codes, contains(1009));
+    expect([for (final client in clients) client.ended], everyElement(true));
     expect(grew, lessThan(128 << 20));
     for (final client in clients) {
       client.socket.destroy();

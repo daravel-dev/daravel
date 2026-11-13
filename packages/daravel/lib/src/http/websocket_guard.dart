@@ -95,9 +95,17 @@ final class WebSocketGuard {
   /// guarded socket.
   HttpRequest wrap(HttpRequest request) => _GuardedRequest(request, this);
 
-  /// The WebSocket `dart:io` made over the guarded socket: a violation
-  /// closes it with its code, so the close frame is written between
-  /// frames.
+  /// The WebSocket a violation closes with its code, so the close frame is
+  /// written between frames. Called twice per connection:
+  /// 1. by the engine's `_upgrade` with `dart:io`'s WebSocket, as soon as
+  ///    it exists, so a violation in the first frames (before the handler
+  ///    runs) closes it;
+  /// 2. by `_session` with the BufferedWebSocket over it, which replaces
+  ///    the first. Once the application's frames flow, `dart:io`'s sink is
+  ///    bound to BufferedWebSocket's feed and its own `close` throws; only
+  ///    BufferedWebSocket can close it then (its queue first unbound).
+  ///
+  /// Both report [WebSocket.done]; disposing twice does nothing more.
   void attach(WebSocket socket) {
     _webSocket = socket;
     unawaited(
@@ -611,15 +619,32 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     (bytes.offsetInBytes & 15) == 0 ? bytes : Uint8List.fromList(bytes),
   );
 
+  /// What the client may still send after a violation, read and dropped:
+  /// enough for its close frame and what was in flight, so the connection
+  /// ends with a FIN and the client sees the close code. Past it, reading
+  /// stops and TCP holds the client back (a socket destroyed with unread
+  /// bytes is reset, and the client may lose the close frame, which one
+  /// that floods on can do without).
+  static const int discardAfterViolation = 4 << 20;
+  int _discarded = 0;
+
+  void _read(Uint8List chunk) {
+    if (_guard._violated) {
+      _discarded += chunk.length;
+      if (_discarded > discardAfterViolation) {
+        // A pause of its own, which no resume from `dart:io` undoes.
+        _reading?.pause();
+      }
+      return;
+    }
+    _guard._inbound.add(chunk, _toDartIo);
+  }
+
   /// What `dart:io` reads: the client's frames, through [_Inbound].
   late final StreamController<Uint8List> _in = StreamController<Uint8List>(
     sync: true,
     onListen: () {
-      _reading = _inner.listen(
-        (chunk) => _guard._inbound.add(chunk, _toDartIo),
-        onError: _in.addError,
-        onDone: _in.close,
-      );
+      _reading = _inner.listen(_read, onError: _in.addError, onDone: _in.close);
     },
     onPause: () => _reading?.pause(),
     onResume: () => _reading?.resume(),
@@ -788,9 +813,12 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   void _write(List<int> data) {
     // The TCP socket reads from [_out]; it pauses it while the OS does not
     // take more, which is what [_paused] follows.
+    // A write that fails (the client reset the connection) ends it here
+    // too: what dart:io and the application still write is dropped, and
+    // dart:io's reading ends, so the session does.
     _written ??= _inner
         .addStream(_out.stream)
-        .then<void>((_) {}, onError: (Object _) {});
+        .then<void>((_) {}, onError: (Object _) => destroy());
     if (!_paused && _waiting.isEmpty) {
       _out.add(data);
       return;
@@ -868,6 +896,12 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       _closed.complete();
     }
   }
+
+  // The only holder of this socket is the WebSocket of
+  // `WebSocketTransformer.upgrade`, which uses `listen`, `addStream` and
+  // `close` and none of the three below (checked in the SDK this package
+  // requires). While `_inner.addStream` is bound, `_inner.flush` and
+  // `_inner.addError` would throw `StateError`.
 
   @override
   Future<void> get done => _inner.done;
