@@ -724,7 +724,11 @@ final class ServerEngine {
         // The handler returned without listening: what the client sends is
         // read here and dropped, so its close or its going away ends the
         // session, as for a handler that listens.
-        socket.listen((_) {});
+        socket.listen(
+          (_) {},
+          // A stream error ends the session too, and `done` reports it.
+          onError: (Object _) {},
+        );
       }
       await socket.done;
     } catch (error, stackTrace) {
