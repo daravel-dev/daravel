@@ -62,6 +62,7 @@ void main() {
     final errors = <String>[];
     final sessions = <Future<void>>[];
     final uncaught = <Object>[];
+    final observed = _CountingObserver();
 
     /// Each connection in a request scope of its own, as the server runs
     /// it (an error zone per request).
@@ -71,6 +72,7 @@ void main() {
       errors.clear();
       sessions.clear();
       uncaught.clear();
+      observed.reset();
       inRequestScopes = false;
       relay = _FlakyRelay();
       pusher = PusherServer(
@@ -79,6 +81,7 @@ void main() {
         channel,
         relay: relay,
         onError: (message, _) => errors.add(message),
+        observer: observed,
       );
       http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       http.listen((request) async {
@@ -142,6 +145,42 @@ void main() {
       expect(client.socket.closeCode, 4100);
       await Future.wait(sessions);
       expect(broadcastStats()['channels'], 0);
+    });
+
+    test('a join that fails leaves the channel neither subscribed nor '
+        'counted', () async {
+      final client = await connect();
+      await client.next();
+      channel.failNext('channels', 'join');
+      client.subscribe('news');
+      await client.ended;
+      await Future.wait(sessions);
+      expect(observed.subscriptions, 0, reason: 'never joined');
+      expect(observed.unsubscriptions, 0);
+      expect(broadcastStats()['channels'], 0);
+      expect(errors, isEmpty);
+    });
+
+    test('a message on a channel topic that is no envelope is dropped; the '
+        'connection goes on', () async {
+      inRequestScopes = true;
+      final client = await connect();
+      await client.next();
+      client.subscribe('news');
+      expect(
+        (await client.next())['event'],
+        'pusher_internal:subscription_succeeded',
+      );
+      await broadcaster.publish('news', 'no newline here');
+      await broadcaster.publish(
+        'news',
+        'other.1\n${jsonEncode({'event': 'e', 'channel': 'news', 'data': '1'})}',
+      );
+      expect((await client.next())['event'], 'e');
+      expect(uncaught, isEmpty);
+      expect(errors, isEmpty);
+      await client.socket.close();
+      await Future.wait(sessions);
     });
 
     test('a relay that failed to start is started again by the next '
@@ -323,4 +362,21 @@ final class _Client {
   );
 
   Future<void> cancel() => _reading.cancel();
+}
+
+/// Counts the subscriptions a [PusherServer] reports.
+final class _CountingObserver extends PusherObserver {
+  int subscriptions = 0;
+  int unsubscriptions = 0;
+
+  void reset() {
+    subscriptions = 0;
+    unsubscriptions = 0;
+  }
+
+  @override
+  void subscribed(String app, String channel) => subscriptions++;
+
+  @override
+  void unsubscribed(String app, String channel) => unsubscriptions++;
 }
