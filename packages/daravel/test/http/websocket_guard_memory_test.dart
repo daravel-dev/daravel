@@ -84,6 +84,9 @@ void main() {
       '$name: from ${start >> 20} MiB: warm ${warm >> 20}, after 1x '
       '${once >> 20}, after 4x ${four >> 20} MiB',
     );
+    // The highest level before the 4x round, not the level just before it:
+    // memory given back to the OS after a round lowers that one, and the
+    // next round taking some of it again is not growth.
     expect(
       four - max(warm, once),
       lessThan(8 << 20),
