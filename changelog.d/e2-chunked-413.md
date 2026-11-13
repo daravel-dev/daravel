@@ -1,0 +1,3 @@
+### Fixed
+
+- A request body that goes over its limit while it is read (sent `chunked`, or longer than its `Content-Length`), whether `HTTP_MAX_BODY`, `BodyLimitsMiddleware` or a route's `bodyLimit`, is answered with the same `413` as a declared one, and the connection is closed after it. Before, the read cancelled the body and the connection closed with no response, so the client could not tell why (since 1.0.0). The rest of such a body is thrown away up to 256 KiB before the answer (`Request.refusedBodyDiscardBytes`), then paused, and read off for at most a second after it; a client that keeps sending is cut off then (`Request.bodyRefusedWhileReading`).

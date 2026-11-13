@@ -1157,17 +1157,27 @@ final class ServerEngine {
                   request.detachBody();
                   unread = await _settleUnreadBody(raw!);
                 }
+                // Over its limit while it was read (chunked, or longer than
+                // declared): the rest is still coming, so answer, then close.
+                final refused = request.bodyRefusedWhileReading;
                 try {
-                  if (unread != null &&
-                      !unread.arrived &&
+                  if ((refused || (unread != null && !unread.arrived)) &&
                       response.body is! StreamBody) {
+                    // The detached socket reads off the rest; the body is
+                    // not cancelled, which would end the connection before
+                    // the response leaves.
                     await _writeClosing(raw!, response);
                   } else {
-                    if (_stopping) {
-                      // A request in flight when the drain began.
+                    if (_stopping || refused) {
+                      // A request in flight when the drain began, or a
+                      // body still arriving.
                       raw!.response.persistentConnection = false;
                     }
                     await response.writeTo(raw!.response);
+                    if (refused) {
+                      // Written and flushed: the connection may go now.
+                      await request.releaseRefusedBody();
+                    }
                   }
                 } catch (error) {
                   logger.warning(
