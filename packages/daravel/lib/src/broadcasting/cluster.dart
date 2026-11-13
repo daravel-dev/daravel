@@ -382,12 +382,17 @@ final class DatabaseBroadcastRelay implements BroadcastRelay {
         notification,
         connection: connection,
       );
-      wakeups = stream?.listen((_) {
-        final wake = _wake;
-        if (wake != null && !wake.isCompleted) {
-          wake.complete();
-        }
-      });
+      wakeups = stream?.listen(
+        (_) {
+          final wake = _wake;
+          if (wake != null && !wake.isCompleted) {
+            wake.complete();
+          }
+        },
+        // A lost LISTEN connection: reported, and the loop goes on reading
+        // once a second, as it does in case a notification was missed.
+        onError: (Object error) => onError?.call(error),
+      );
     } catch (error) {
       onError?.call(error);
     } finally {

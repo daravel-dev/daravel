@@ -824,20 +824,33 @@ final class _Connection {
       userInfo = member?['user_info'];
     }
     final topic = _topic(channel);
+    BroadcastSubscription? created;
     if (!_subscriptions.containsKey(channel)) {
       // Listening first, so nothing published from here on is missed;
       // what arrives before subscription_succeeded waits for it.
       _early[channel] = [];
-      final subscription = await _server._broadcaster.subscribe(topic);
-      subscription.messages.listen((envelope) {
-        final newline = envelope.indexOf('\n');
-        // `<except>\n<frame>`: not to the connection that sent it.
-        if (envelope.substring(0, newline) != id) {
-          _deliver(channel, envelope.substring(newline + 1));
-        }
-      });
+      final subscription = created = await _server._broadcaster.subscribe(
+        topic,
+      );
+      subscription.messages.listen(
+        (envelope) {
+          final newline = envelope.indexOf('\n');
+          // `<except>\n<frame>`, as PusherServer._send publishes it;
+          // anything else on the topic is not a frame for clients.
+          if (newline < 0) {
+            return;
+          }
+          // Not to the connection that sent it.
+          if (envelope.substring(0, newline) != id) {
+            _deliver(channel, envelope.substring(newline + 1));
+          }
+        },
+        onError: (Object error) => _server.onError?.call(
+          'Connection $id lost a message on $channel',
+          error,
+        ),
+      );
       _subscriptions[channel] = subscription;
-      _server.observer.subscribed(_app.id, channel);
     }
     final Map<Object?, Object?> joined;
     try {
@@ -852,7 +865,26 @@ final class _Connection {
               as Map;
     } on Object {
       _early.remove(channel); // nothing to wait for any more
+      if (created != null) {
+        // Not subscribed: the channel is not this connection's to leave
+        // on close, nor counted. The join may still have reached the
+        // shared state (a reply that timed out), so leave it there.
+        _subscriptions.remove(channel);
+        _members.remove(channel);
+        try {
+          await created.cancel();
+          await _leave(channel);
+        } on Object catch (error) {
+          _server.onError?.call(
+            'Connection $id could not leave $channel',
+            error,
+          );
+        }
+      }
       rethrow;
+    }
+    if (created != null) {
+      _server.observer.subscribed(_app.id, channel);
     }
     final members = joined['members'] as Map?;
     send(
