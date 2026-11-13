@@ -11,6 +11,8 @@
 
 - `daravel_redis` Horizon store: a page of more than 1 024 jobs (`recent`, `tagged`) failed with `RedisConnectionException` (too many commands waiting on the connection); the job records are now read 256 at a time.
 
+- `daravel_horizon`: a job that crashed its workers was quarantined only when it was among the first 1 000 pending jobs of its queue; it is now looked for page by page through the whole queue (pages overlap, as workers pop from the head meanwhile), up to 100 000 jobs, and a job not found within that is logged and stays queued.
+
 ### Upgrade notes
 
 - `daravel_horizon`: the dashboard is closed outside `APP_ENV=local` until the `viewHorizon` gate or `HorizonDashboard.auth` allows a request; middleware such as `['auth']` alone no longer opens it, and tests that relied on `APP_ENV=testing` need `HorizonDashboard.auth((request) => true)` (reset with `HorizonDashboard.auth(null)`) or the gate. New public name `HorizonDashboard.auth`.

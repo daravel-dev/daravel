@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'auto_scaler.dart';
 import 'config.dart';
 import 'messages.dart';
+import 'pending_search.dart';
 import 'reservation.dart';
 import 'signals.dart';
 import 'store/horizon_store.dart';
@@ -1210,15 +1211,18 @@ final class HorizonMaster {
       return;
     }
     try {
-      QueuedJobView? found;
-      for (final view in await target.pending(queue, limit: 1000)) {
-        if ('${view.id}' == id) {
-          found = view;
-          break;
-        }
-      }
+      // The whole queue, page by page: a job taken back may sit behind
+      // thousands of others.
+      final search = await findPending(target, queue, id);
+      final found = search.job;
       if (found == null) {
-        return; // Already gone (finished elsewhere, or deleted).
+        if (!search.exhausted) {
+          logger.error(
+            'Job $uuid crashed $crashes workers; it is not among the first '
+            '${search.read} pending jobs of [$queue], so it stays queued.',
+          );
+        }
+        return; // Read to the end: gone (finished elsewhere, or deleted).
       }
       final exception = JobQuarantinedException(uuid, crashes);
       await failed.log(
