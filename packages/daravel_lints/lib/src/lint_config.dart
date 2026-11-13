@@ -75,19 +75,29 @@ final class LintConfig {
   /// The file rules to run in the project at [root]: [rules], plus the
   /// enabled [projectRuleNames] built for that project
   /// (`string_column_name` over its `lib/app/models`,
-  /// [StringColumnName.forProject]). What went wrong building one (models
-  /// that cannot be read) goes to [warn]; the rule then checks nothing.
+  /// [StringColumnName.forProject]), and `prefer_sql_identifier` given the
+  /// project's model classes (`Region.where(sort)` is judged, #322). What
+  /// went wrong reading the models (a folder that cannot be read) goes to
+  /// [warn]; the rules then know no model.
   List<LintRule> rulesIn(String root, {void Function(String)? warn}) {
-    final result = [...rules];
-    if (enabled.contains('string_column_name') &&
-        !disabled.contains('string_column_name')) {
-      final (rule, warning) = StringColumnName.forProject(root);
-      if (warning != null) {
-        warn?.call(warning);
-      }
-      result.add(rule);
+    bool on(String name) => enabled.contains(name) && !disabled.contains(name);
+    final columns = on('string_column_name');
+    final identifiers = on('prefer_sql_identifier');
+    if (!columns && !identifiers) {
+      return rules;
     }
-    return result;
+    final (rule, warning) = StringColumnName.forProject(root);
+    if (warning != null) {
+      warn?.call(warning);
+    }
+    return [
+      for (final r in rules)
+        // With the project's models, Region.where(sort) is judged (#322).
+        r is PreferSqlIdentifier
+            ? PreferSqlIdentifier(modelClasses: rule.index.modelClasses)
+            : r,
+      if (columns) rule,
+    ];
   }
 
   /// Whether the registry check runs.

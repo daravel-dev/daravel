@@ -18,12 +18,16 @@ import 'package:path/path.dart' as p;
 /// `emailVerifiedAt`}. The field of a column is read, never derived from
 /// its name: `model:sync` renames a field that would clash.
 final class ModelColumnIndex {
-  /// An index of [fields]: model class → column → field of `cols`.
-  ModelColumnIndex(Map<String, Map<String, String>> fields)
-    : _fields = {
-        for (final MapEntry(:key, :value) in fields.entries)
-          key: Map.unmodifiable(value),
-      };
+  /// An index of [fields]: model class → column → field of `cols`; and
+  /// [superclasses], class → the class it extends, for [modelClasses].
+  ModelColumnIndex(
+    Map<String, Map<String, String>> fields, {
+    Map<String, String> superclasses = const {},
+  }) : _fields = {
+         for (final MapEntry(:key, :value) in fields.entries)
+           key: Map.unmodifiable(value),
+       },
+       _superclasses = Map.unmodifiable(superclasses);
 
   /// Reads every `*.dart` file under `[root]/lib/app/models`.
   factory ModelColumnIndex.scan(String root) {
@@ -54,26 +58,65 @@ final class ModelColumnIndex {
 
   /// One index of the models of [indexes] (a class in two: the later one
   /// wins).
-  factory ModelColumnIndex.merge(Iterable<ModelColumnIndex> indexes) =>
-      ModelColumnIndex({for (final index in indexes) ...index._fields});
+  factory ModelColumnIndex.merge(Iterable<ModelColumnIndex> indexes) {
+    final list = indexes.toList();
+    return ModelColumnIndex(
+      {for (final index in list) ...index._fields},
+      superclasses: {for (final index in list) ...index._superclasses},
+    );
+  }
 
-  /// The `cols` records of the classes in [source].
+  /// The `cols` records of the classes in [source], and the class each
+  /// class extends.
   factory ModelColumnIndex.ofSource(String source) {
     final unit = parseString(content: source, throwIfDiagnostics: false).unit;
     final fields = <String, Map<String, String>>{};
+    final superclasses = <String, String>{};
     for (final declaration in unit.declarations.whereType<ClassDeclaration>()) {
+      final name = declaration.namePart.typeName.lexeme;
       final columns = _colsOf(declaration);
       if (columns != null) {
-        fields[declaration.namePart.typeName.lexeme] = columns;
+        fields[name] = columns;
+      }
+      final superclass = declaration.extendsClause?.superclass.name.lexeme;
+      if (superclass != null) {
+        superclasses[name] = superclass;
       }
     }
-    return ModelColumnIndex(fields);
+    return ModelColumnIndex(fields, superclasses: superclasses);
   }
 
   final Map<String, Map<String, String>> _fields;
+  final Map<String, String> _superclasses;
 
   /// The model classes with a `cols` record.
   Iterable<String> get models => _fields.keys;
+
+  /// The classes of the index that are models: they extend `Model`, or a
+  /// class of the index that does (`Region extends BaseModel`,
+  /// `BaseModel extends Model`). A chain that leaves the index is not
+  /// followed: a class it does not know is not guessed to be a model.
+  Set<String> get modelClasses => {
+    for (final name in _superclasses.keys)
+      if (_reachesModel(name)) name,
+  };
+
+  bool _reachesModel(String name) {
+    final seen = <String>{};
+    for (
+      String? current = name;
+      current != null;
+      current = _superclasses[current]
+    ) {
+      if (current == 'Model') {
+        return true;
+      }
+      if (!seen.add(current)) {
+        return false;
+      }
+    }
+    return false;
+  }
 
   /// The field of `[model].cols` for [column], `null` when there is none.
   String? fieldOf(String model, String column) => _fields[model]?[column];

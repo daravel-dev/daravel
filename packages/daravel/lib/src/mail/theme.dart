@@ -1,6 +1,7 @@
 import 'package:markdown/markdown.dart' as md;
 
 import '../foundation/html_escape.dart';
+import 'one_pass.dart';
 
 /// The look of markdown mail and notification mail: Laravel 12's default
 /// mail theme (`resources/views/vendor/mail/html/themes/default.css`), with
@@ -153,12 +154,14 @@ final class MailTheme {
   /// </x-mail::panel>
   /// ```
   String render(String markdown) {
-    final withComponents = markdown
-        .replaceAllMapped(_buttonTag, (m) {
-          final attributes = _attributes(m[1]!);
-          return '\n\n${button(_unescape(m[2]!.trim()), attributes['url'] ?? '#', color: attributes['color'] ?? 'primary')}\n\n';
-        })
-        .replaceAllMapped(_panelTag, (m) => '\n\n${panel(m[1]!.trim())}\n\n');
+    final withButtons = replaceButtonTags(markdown, (source, inner) {
+      final attributes = _attributes(source);
+      return '\n\n${button(_unescape(inner.trim()), attributes['url'] ?? '#', color: attributes['color'] ?? 'primary')}\n\n';
+    });
+    final withComponents = replacePanelTags(
+      withButtons,
+      (inner) => '\n\n${panel(inner.trim())}\n\n',
+    );
     return _inline(
       md.markdownToHtml(
         withComponents,
@@ -167,18 +170,8 @@ final class MailTheme {
     );
   }
 
-  static final RegExp _buttonTag = RegExp(
-    r'<x-mail::button\b([^>]*)>(.*?)</x-mail::button>',
-    dotAll: true,
-  );
-  static final RegExp _panelTag = RegExp(
-    r'<x-mail::panel>(.*?)</x-mail::panel>',
-    dotAll: true,
-  );
-
   static Map<String, String> _attributes(String source) => {
-    for (final m in RegExp(r'([\w-]+)="([^"]*)"').allMatches(source))
-      m[1]!: _unescape(m[2]!),
+    for (final (name, value) in attributePairs(source)) name: _unescape(value),
   };
 
   /// A whole message: header, [body] (HTML from [render]), an optional
@@ -190,7 +183,9 @@ final class MailTheme {
         : '<img src="${escapeHtml(logoUrl!)}" alt="${escapeHtml(appName)}" '
               'style="height: 75px; margin-top: 15px; margin-bottom: 10px; '
               'max-height: 75px; width: 75px;">';
-    final footerHtml =
+    // `<p style="[^"]*">` stays a regular expression: from each opener it
+    // reads only to the next `"`, so its scans do not overlap.
+    final footerParagraphs =
         render(footer ?? '© $year ${escapeHtml(appName)}. All rights reserved.')
             .replaceAllMapped(
               RegExp('<p style="[^"]*">'),
@@ -198,13 +193,12 @@ final class MailTheme {
                   '<p style="box-sizing: border-box; font-family: $_font; '
                   'line-height: 1.5em; margin-top: 0; color: $muted; '
                   'font-size: 12px; text-align: center;">',
-            )
-            .replaceAllMapped(
-              RegExp('<a ([^>]*?)style="[^"]*">'),
-              (m) =>
-                  '<a ${m[1]}style="color: $muted; '
-                  'text-decoration: underline;">',
             );
+    final footerHtml = replaceStyledAnchors(
+      footerParagraphs,
+      (before) =>
+          '<a ${before}style="color: $muted; text-decoration: underline;">',
+    );
     final subcopyHtml = subcopy == null
         ? ''
         : '<table class="subcopy" width="100%" cellpadding="0" cellspacing="0" '
@@ -283,17 +277,30 @@ final class MailTheme {
           'padding: 10px 0;',
       'table': 'margin: 30px auto; width: 100%;',
     };
-    return html.replaceAllMapped(
-      RegExp(r'<(p|h1|h2|h3|a|ul|ol|blockquote|img|th|td|table)\b([^>]*)>'),
-      (m) {
-        final attributes = m[2]!;
+    return replaceOpeningTags(
+      html,
+      const [
+        'p',
+        'h1',
+        'h2',
+        'h3',
+        'a',
+        'ul',
+        'ol',
+        'blockquote',
+        'img',
+        'th',
+        'td',
+        'table',
+      ],
+      (name, attributes) {
         if (attributes.contains('style=')) {
-          return m[0]!;
+          return '<$name$attributes>';
         }
         final style =
             'box-sizing: border-box; font-family: $_font; '
-            '${styles[m[1]]!}';
-        return '<${m[1]}$attributes style="$style">';
+            '${styles[name]!}';
+        return '<$name$attributes style="$style">';
       },
     );
   }
@@ -311,27 +318,33 @@ String mailPanel(String markdown) =>
 
 /// A plain-text version of themed markdown: links and buttons as
 /// `text: url`, tags removed.
+///
+/// Tags, buttons and links are read in one pass (`one_pass.dart`): the
+/// regular expressions used before scanned to the end of the text from
+/// every opener without its closer, and this runs for every markdown mail.
 String markdownToText(String markdown) {
-  final text = markdown
-      .replaceAllMapped(
-        RegExp(
-          r'<x-mail::button\b[^>]*url="([^"]*)"[^>]*>(.*?)</x-mail::button>',
-          dotAll: true,
-        ),
-        (m) => '${m[2]!.trim()}: ${m[1]}',
-      )
-      .replaceAllMapped(
-        RegExp(r'<a [^>]*href="([^"]*)"[^>]*>(.*?)</a>', dotAll: true),
-        (m) => '${m[2]}: ${m[1]}',
-      )
-      .replaceAll(RegExp(r'<br\s*/?>\n?'), '\n')
-      .replaceAll(RegExp(r'<[^>]+>'), '')
-      .replaceAllMapped(
-        RegExp(r'\[([^\]]*)\]\(([^)]*)\)'),
-        (m) => '${m[1]}: ${m[2]}',
-      )
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
+  final buttons = replaceAttributeTags(
+    markdown,
+    open: '<x-mail::button',
+    boundary: true,
+    attribute: 'url',
+    close: '</x-mail::button>',
+    replace: (url, inner) => '${inner.trim()}: $url',
+  );
+  final links = replaceAttributeTags(
+    buttons,
+    open: '<a ',
+    boundary: false,
+    attribute: 'href',
+    close: '</a>',
+    replace: (href, inner) => '$inner: $href',
+  );
+  // `<br>` and blank lines: linear as they are (each match starts at its
+  // own literal and scans only its own run of white space or newlines).
+  final text = replaceLinks(
+    removeTags(links.replaceAll(RegExp(r'<br\s*/?>\n?'), '\n')),
+    (label, target) => '$label: $target',
+  ).replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
   // Last: escaped text such as `&lt;it&gt;` must not look like a tag above.
   return _unescape(text);
 }
