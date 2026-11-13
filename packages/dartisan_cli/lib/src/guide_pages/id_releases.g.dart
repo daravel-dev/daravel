@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/releases.md`.
 const String pageIdReleases =
-    r'''<!-- source: releases.md sha256:4b27db86f7f2 -->
+    r'''<!-- source: releases.md sha256:92d8595ba5e8 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -17,6 +17,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.27.4` | Perbaikan keamanan: mail Markdown dan alamat mail dibaca dalam satu lintasan; aturan validasi numerik dalam waktu linear |
 | `1.27.3` | Perbaikan keamanan: URL permintaan dari baris permintaan, Host yang sah dan listener; header terusan hanya dari proxy tepercaya; garis miring dan token bearer dibaca dalam satu lintasan; host paling panjang 253 karakter |
 | `1.27.2` | Perbaikan keamanan: nama channel broadcast dan pola channel berwaktu linear, distinct berwaktu linear; sum dan avg di PostgreSQL dan MySQL; publish berurutan |
 | `1.27.1` | Perbaikan keamanan: pencocokan waktu linear untuk header part multipart, aturan validasi numerik, dan pola origin WebSocket; shutdown sesudah hashing password |
