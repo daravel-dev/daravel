@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:41b1d0c80d24 -->
+<!-- source: responses.md sha256:191840915c8d -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -441,7 +441,11 @@ Handler yang kembali tanpa mendengarkan tidak masalah: server lalu
 mendengarkan sendiri dan membuang yang dikirim client. Handler yang
 menunggu `socket.done` tanpa mendengarkan tidak pernah tahu client sudah
 pergi, dan sesinya bertahan sampai server berhenti; dengarkan saja, dengan
-`socket.listen((_) {})` bila pesannya tidak penting.
+`socket.listen((_) {})` bila pesannya tidak penting. Handler yang menulis
+dalam loop sebaiknya berulang selama `socket.readyState == WebSocket.open`:
+`socket.closeCode` tetap `null` sampai close dari client terbaca, jadi
+`while (socket.closeCode == null)` tidak pernah berakhir di handler yang
+tidak mendengarkan.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame
