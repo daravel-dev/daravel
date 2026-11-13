@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:6f8aa3dd9a0f -->
+    r'''<!-- source: responses.md sha256:350ed966a6d1 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -442,15 +442,18 @@ menghemat CPU dan memori per koneksi saat satu pesan dikirim ke banyak
 socket.
 
 Server hanya tahu client pergi selama ada yang mendengarkan socket-nya.
-Handler yang kembali tanpa mendengarkan tidak masalah: server lalu
-mendengarkan sendiri dan membuang yang dikirim client. Handler yang
-menunggu `socket.done` tanpa mendengarkan tidak pernah tahu client sudah
-pergi, dan sesinya bertahan sampai server berhenti; dengarkan saja, dengan
-`socket.listen((_) {})` bila pesannya tidak penting. Handler yang menulis
-dalam loop sebaiknya berulang selama `socket.readyState == WebSocket.open`:
-`socket.closeCode` tetap `null` sampai close dari client terbaca, jadi
-`while (socket.closeCode == null)` tidak pernah berakhir di handler yang
-tidak mendengarkan.
+Dengarkan sebelum handler kembali, atau paling lambat 5 detik sesudahnya:
+handler boleh kembali lalu mendengarkan begitu persiapannya selesai. Bila
+5 detik sesudah handler kembali belum ada yang mendengarkan, server
+mendengarkan sendiri dan membuang yang dikirim client, sehingga close atau
+kepergian client tetap mengakhiri sesi; `listen` sesudah itu mengambil
+alih pembacaan dan menerima yang tiba sejak saat itu. Handler yang menunggu
+`socket.done` tanpa mendengarkan tidak pernah tahu client sudah pergi, dan
+sesinya bertahan sampai server berhenti; dengarkan saja, dengan
+`socket.listen((_) {})` bila pesannya tidak penting. Begitu pula handler
+yang menulis dalam loop: tanpa pendengar, `socket.readyState` maupun
+`socket.closeCode` tidak berubah saat client menutup atau pergi, jadi
+dengarkan juga, lalu berulang selama `socket.readyState == WebSocket.open`.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame

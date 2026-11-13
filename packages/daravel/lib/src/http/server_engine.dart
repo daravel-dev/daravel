@@ -849,25 +849,25 @@ final class ServerEngine {
         );
       }
       await handled;
-      // The handler returned without listening: what the client sends is
-      // read here and dropped, so its close or its going away ends the
-      // session, as for a handler that listens. Not when the socket is
-      // closing or closed (its close reads the client's answer itself),
-      // nor when something listens already.
-      if (socket.readyState == WebSocket.open && !socket.isListened) {
-        try {
-          socket.listen(
-            (_) {},
-            // A stream error ends the session too, and `done` reports it.
-            onError: (Object _) {},
-          );
-        } on StateError {
-          // A last fence: the stream was read without going through this
-          // socket (none of the server's paths does that), so it is read
-          // already and nothing is left to do.
+      // A handler that returned without listening may still listen later
+      // (once its async setup is done). If nothing has listened after
+      // [_lateListen], what the client sends is read here and dropped, so
+      // its close or its going away ends the session; a listen after that
+      // takes the reading over. Not when the socket is closing or closed
+      // (its close reads the client's answer itself).
+      final takeOver = Timer(_lateListen, () {
+        if (socket.readyState == WebSocket.open && !socket.isListened) {
+          try {
+            socket.drainUnlistened();
+          } on StateError {
+            // A last fence: the stream was read without going through this
+            // socket (none of the server's paths does that), so it is read
+            // already and nothing is left to do.
+          }
         }
-      }
+      });
       await socket.done;
+      takeOver.cancel();
     } catch (error, stackTrace) {
       logger.error(
         'WebSocket handler failed for request $id',
@@ -961,6 +961,10 @@ final class ServerEngine {
   /// client before it is told to go away, when its handler has not returned
   /// by then (one that runs until the socket closes).
   static const Duration drainGreeting = Duration(milliseconds: 100);
+
+  /// How long a `router.ws` handler that returned without listening has to
+  /// listen before the server reads (and drops) what its client sends.
+  static const Duration _lateListen = Duration(seconds: 5);
 
   /// Closes [socket] `goingAway` at once, or at a random moment within its
   /// route's drain [spread] (bounded by the shutdown timeout).

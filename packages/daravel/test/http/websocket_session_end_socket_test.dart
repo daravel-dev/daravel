@@ -19,8 +19,12 @@ void main() {
   /// Sockets a handler left open, for the test to close from outside.
   final held = <WebSocket>[];
 
+  /// What a handler that listens late received.
+  final lateReceived = <Object?>[];
+
   setUp(() async {
     held.clear();
+    lateReceived.clear();
     app = Application.configure(basePath: Directory.systemTemp.path)
         .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
         .withLogLevel(LogLevel.critical)
@@ -61,6 +65,14 @@ void main() {
               // Returns; the application closes it later from outside.
               held.add(socket);
               socket.add('hello');
+            }, compress: false)
+            ..ws('/late', (socket, request) {
+              // Returns, then listens once its setup is done.
+              socket.add('hi');
+              final after = int.parse(request.uri.queryParameters['ms']!);
+              Timer(Duration(milliseconds: after), () {
+                socket.listen(lateReceived.add);
+              });
             }, compress: false),
         )
         .create();
@@ -85,13 +97,21 @@ void main() {
     reason: 'nothing logged as an error',
   );
 
-  Future<void> expectSessionEnded() async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
+  /// The session ended within [within] (a handler that returned without
+  /// listening is read by the server 5 s after it returned), with nothing
+  /// logged as an error; how long it took.
+  Future<int> expectSessionEnded({
+    Duration within = const Duration(seconds: 10),
+  }) async {
+    final watch = Stopwatch()..start();
+    final deadline = DateTime.now().add(within);
     while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
+    printOnFailure('the session ended after ${watch.elapsedMilliseconds} ms');
     expect(engine.openWebSockets, 0, reason: 'the session ended');
     expectNoErrors();
+    return watch.elapsedMilliseconds;
   }
 
   Future<void> openAndEnd(
@@ -130,7 +150,7 @@ void main() {
         expect(close.opcode, 0x8);
         expect(close.closeCode, code);
         await client.close();
-        await expectSessionEnded();
+        await expectSessionEnded(within: const Duration(seconds: 1));
       });
     }
 
@@ -138,7 +158,7 @@ void main() {
       final client = await RawWsClient.connect(engine.port!, '/close-only');
       expect(await client.closeFrame(), 1000);
       await client.close();
-      await expectSessionEnded();
+      await expectSessionEnded(within: const Duration(seconds: 1));
     });
 
     test('returns, and the application closes it later from outside', () async {
@@ -148,7 +168,7 @@ void main() {
       await held.single.close(4001, 'later');
       expect(await client.closeFrame(), 4001);
       await client.close();
-      await expectSessionEnded();
+      await expectSessionEnded(within: const Duration(seconds: 1));
     });
   });
 
@@ -186,6 +206,61 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       client.socket.destroy();
       await expectEndedQuietly();
+    });
+  });
+
+  group('a handler that returns and listens later', () {
+    test(
+      '40 ms later: it gets what the client sent before and after',
+      () async {
+        final client = await RawWsClient.connect(engine.port!, '/late?ms=40');
+        expect(String.fromCharCodes((await client.next()).payload), 'hi');
+        client.send(0x1, 'before'.codeUnits);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        client.send(0x1, 'after'.codeUnits);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        expect(lateReceived, ['before', 'after']);
+        await client.close();
+        await expectSessionEnded(within: const Duration(seconds: 2));
+      },
+    );
+
+    test('6 s later, after the server read for it: the listen does not '
+        'throw, and it gets what the client sends from then on', () async {
+      final client = await RawWsClient.connect(engine.port!, '/late?ms=6000');
+      expect(String.fromCharCodes((await client.next()).payload), 'hi');
+      client.send(0x1, 'dropped'.codeUnits);
+      await Future<void>.delayed(const Duration(milliseconds: 6500));
+      client.send(0x1, 'kept'.codeUnits);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(lateReceived, ['kept']);
+      expectNoErrors();
+      await client.close();
+      await expectSessionEnded(within: const Duration(seconds: 2));
+    });
+  });
+
+  group('a handler that returned and never listens', () {
+    test('the client closes after 1 s: the session ends when the server '
+        'reads for it, 5 s after the handler returned', () async {
+      final watch = Stopwatch()..start();
+      final client = await RawWsClient.connect(engine.port!, '/greet');
+      await client.next(); // hello
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await client.close();
+      await expectSessionEnded();
+      printOnFailure('ended ${watch.elapsedMilliseconds} ms after connect');
+      expect(watch.elapsed, greaterThan(const Duration(milliseconds: 4500)));
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 6500)));
+    });
+
+    test('the client closes after 7 s: the session ends at once', () async {
+      final client = await RawWsClient.connect(engine.port!, '/greet');
+      await client.next(); // hello
+      await Future<void>.delayed(const Duration(seconds: 7));
+      await client.close();
+      final ms = await expectSessionEnded(within: const Duration(seconds: 2));
+      expect(ms, lessThan(1000));
     });
   });
 }

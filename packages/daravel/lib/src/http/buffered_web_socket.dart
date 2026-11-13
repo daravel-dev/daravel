@@ -62,10 +62,34 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// Whether this connection was closed for reading too slowly.
   bool get isSlowClient => _overflowed;
 
-  /// Whether anything listened to what the client sends (the handler,
-  /// `Broadcast.pipe`).
+  /// Whether the application listened to what the client sends (the
+  /// handler, `Broadcast.pipe`); not the server's own [drainUnlistened].
   bool get isListened => _listened;
   bool _listened = false;
+
+  /// The server's subscription of [drainUnlistened], which a later [listen]
+  /// takes over.
+  StreamSubscription<dynamic>? _drain;
+
+  /// Reads what the client sends and drops it, for a handler that returned
+  /// and has not listened: the client's close or its going away then ends
+  /// the session. A [listen] after it takes this subscription over and gets
+  /// what arrives from then on; what was dropped before is gone.
+  void drainUnlistened() {
+    if (_listened || _drain != null) {
+      return;
+    }
+    _drain = _inner.listen(
+      (_) {},
+      // A stream error ends the session too, and `done` reports it.
+      onError: (Object _) {},
+      onDone: () {
+        unawaited(_drain?.cancel());
+        _drain = null;
+        _peerClosed();
+      },
+    );
+  }
 
   @override
   StreamSubscription<dynamic> listen(
@@ -75,13 +99,25 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     bool? cancelOnError,
   }) {
     _listened = true;
+    void done() {
+      _peerClosed();
+      onDone?.call();
+    }
+
+    final drain = _drain;
+    if (drain != null) {
+      // The server read for a handler that had not listened yet: this
+      // listener takes its subscription over (a stream is listened once).
+      _drain = null;
+      return drain
+        ..onData(onData)
+        ..onError(onError ?? (Object _) {})
+        ..onDone(done);
+    }
     return _inner.listen(
       onData,
       onError: onError,
-      onDone: () {
-        _peerClosed();
-        onDone?.call();
-      },
+      onDone: done,
       cancelOnError: cancelOnError,
     );
   }

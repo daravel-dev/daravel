@@ -268,7 +268,11 @@ const Map<String, (int, String)> _knownLongLived = {
   ),
   'foundation/application.dart': (1, 'coordinator.listen() at boot'),
   'foundation/embedded_workers.dart': (4, 'embedded workers, at boot'),
-  'http/buffered_web_socket.dart': (1, 'per WebSocket connection'),
+  'http/buffered_web_socket.dart': (
+    2,
+    'per WebSocket connection: the application\'s listen, or the server\'s '
+        'read for a handler that returned without listening',
+  ),
   'http/websocket_guard.dart': (
     3,
     'per WebSocket connection: the TCP socket read, and what the '
@@ -288,9 +292,8 @@ const Map<String, (int, String)> _knownLongLived = {
         'server, which answers and closes the connection',
   ),
   'http/server_engine.dart': (
-    7,
-    'the engine at start (lag sampler, sockets), and per connection (a '
-        'WebSocket whose handler returned without listening included)',
+    6,
+    'the engine at start (lag sampler, sockets), and per connection',
   ),
   'mail/smtp.dart': (1, 'per SMTP connection, closed after the send'),
   'observability/metrics.dart': (1, 'the metrics publisher, at boot'),
