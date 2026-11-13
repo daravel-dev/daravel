@@ -11,6 +11,8 @@ import 'package:test/test.dart';
 // package has the MySQL driver. Not published (.pubignore): the imports
 // reach into the workspace.
 import '../../daravel/test/broadcasting/scaling_test.dart' show scalingTests;
+import '../../daravel/test/database/cache_counter_values_test.dart'
+    show cacheCounterValueTests;
 import '../../daravel/test/database/cache_lock_insert_test.dart'
     show cacheLockInsertTests;
 import '../../daravel/test/database/cache_store_concurrency_test.dart';
@@ -60,6 +62,7 @@ void main() {
   group('transaction concurrency', () => transactionConcurrencyTests(open));
   group('transaction timeout', () => transactionTimeoutTests(open));
   group('cache store concurrency', () => cacheStoreConcurrencyTests(open));
+  group('cache counter values (LK-1)', () => cacheCounterValueTests(open));
   group('cache lock insert (LK-1)', () => cacheLockInsertTests(open));
   group('date queries and guards', () => dateQueryAndGuardTests(open));
   group('feature flags (Pennant table)', () => featureDatabaseTests(open));

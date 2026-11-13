@@ -757,12 +757,14 @@ final class CacheManager {
       ..extend('process', () => process)
       ..extend(
         'file',
+        // Locks in two layers: the coordinator between this process's
+        // isolates, the lock file between processes sharing the directory.
         () => FileStore(
           p.isAbsolute(config.path)
               ? config.path
               : p.join(basePath, config.path),
+          isolateLocks: process,
         ),
-        lockStore: process,
       )
       ..extend(
         'database',
