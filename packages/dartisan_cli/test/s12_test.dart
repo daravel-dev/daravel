@@ -1,10 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:daravel/daravel.dart';
 import 'package:dartisan_cli/dartisan_cli.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+/// The repository root, from where this package's library is rather than
+/// the working directory: `dart test` runs the test files as isolates of
+/// one process, so a working directory one of them moved would move this.
+final String repoRoot = p.normalize(
+  p.join(
+    p.dirname(
+      Isolate.resolvePackageUriSync(
+        Uri.parse('package:dartisan_cli/dartisan_cli.dart'),
+      )!.toFilePath(),
+    ),
+    '..',
+    '..',
+    '..',
+  ),
+);
 
 void main() {
   late Directory root;
@@ -750,7 +767,7 @@ final class Score extends Model {
     test('the starter Dockerfile shares the runtime stage', () {
       String runtime(String dockerfile) =>
           dockerfile.substring(dockerfile.indexOf('FROM debian')).trim();
-      final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+      final repo = repoRoot;
       final starter = File(
         p.join(repo, 'apps', 'daravel_starter', 'Dockerfile'),
       ).readAsStringSync().replaceAll('\r\n', '\n');
@@ -820,7 +837,7 @@ final class Score extends Model {
       test(
         '$template project resolves, analyzes and passes its tests (e2e)',
         () async {
-          final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+          final repo = repoRoot;
           final target = p.join(root.path, template);
           final runner = GlobalDartisanRunner();
           expect(
@@ -1090,7 +1107,7 @@ final class Score extends Model {
         appName: 'Shop',
         source: const GitSource(),
       );
-      final repo = p.normalize(p.join(Directory.current.path, '..', '..'));
+      final repo = repoRoot;
       final starter = File(
         p.join(
           repo,

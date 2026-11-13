@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:5bce9fa59dc2 -->
+<!-- source: README.md sha256:63368368d13d -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -39,7 +39,10 @@ Auto-scaler adalah fungsi murni: per queue ia menghendaki
 jalan T yang dihaluskan, W adalah target tunggu queue), membatasi jumlahnya
 ke batas plan, bergeser paling banyak `balanceMaxShift` per evaluasi, dan
 hanya mengurangi worker setelah dua evaluasi berturut-turut ketika setiap
-queue menunggu di bawah setengah targetnya.
+queue menunggu di bawah setengah targetnya. Di antrean database, job yang
+diambil kembali master dari worker yang crash menjadi tersedia lagi pada
+saat itu, jadi waktu tunggunya dihitung sejak diambil kembali, bukan sejak
+pertama kali di-push.
 
 ## API dashboard
 

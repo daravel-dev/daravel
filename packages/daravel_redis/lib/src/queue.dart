@@ -48,7 +48,8 @@ final class RedisQueue
         WakeableQueueDriver,
         ExtendingQueueDriver,
         BrowsableQueueDriver,
-        ReclaimableQueueDriver {
+        ReclaimableQueueDriver,
+        OwnershipQueueDriver {
   /// A queue in Redis, as Laravel's `redis` queue driver.
   RedisQueue(
     this.client, {
@@ -231,14 +232,15 @@ return false''');
       payload = JobPayload.decode(raw);
     } on Object catch (error) {
       // A payload that does not decode would stay reserved and be popped
-      // again after every retry_after, for ever. It is removed here, and
-      // the worker records it in failed_jobs, as with the database queue.
-      await _remove(queue, id, attempts);
+      // again after every retry_after, for ever. The worker records it in
+      // failed_jobs and then removes it, as with the database queue; when
+      // the record fails, it stays and is tried again.
       throw CorruptPayloadException(
         id: id,
         queue: queue,
         raw: raw,
         cause: error,
+        remove: () => _remove(queue, id, attempts),
       );
     }
     // List engine: the reservation's score is s = now + R (R =
@@ -421,10 +423,28 @@ return 1''');
 
   @override
   Future<void> delete(QueuedJob job) async {
-    if (!await _remove(job.queue, '${job.id}', job.attempts)) {
+    await deleteOwned(job);
+  }
+
+  @override
+  Future<bool> deleteOwned(QueuedJob job) async {
+    final removed = await _remove(job.queue, '${job.id}', job.attempts);
+    if (!removed) {
       _notOwner(job, 'delete');
     }
+    return removed;
   }
+
+  /// Whether the job's hash still holds [job]'s `attempts`: every
+  /// reservation raises them.
+  @override
+  Future<bool> owns(QueuedJob job) async =>
+      await client.command([
+        'HGET',
+        '${_jobPrefix(job.queue)}${job.id}',
+        'attempts',
+      ]) ==
+      '${job.attempts}';
 
   /// Removes job [id] reserved with [attempts]; whether it was.
   Future<bool> _remove(String queue, String id, int attempts) async =>

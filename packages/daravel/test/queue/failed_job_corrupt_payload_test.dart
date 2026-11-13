@@ -148,4 +148,28 @@ void main() {
       expect([for (final row in left) row['attempts']], [0, 0, 0, 0]);
     });
   });
+
+  test('a Daravel payload that does not decode stays in the queue when '
+      'failed_jobs cannot be written: recorded first, removed after', () async {
+    await app.run(() async {
+      final now = Clock.now().millisecondsSinceEpoch ~/ 1000;
+      await DB.table('jobs').insert({
+        'queue': 'default',
+        'payload': '{"job":"report","uuid":5}',
+        'attempts': 0,
+        'reserved_at': null,
+        'available_at': now,
+        'created_at': now,
+      });
+      await DB.statement('DROP TABLE failed_jobs');
+      final worker = QueueWorker(Queue.manager);
+      expect(
+        await worker.runNextJob(Queue.connection(), const WorkerOptions()),
+        isTrue,
+      );
+      final left = await DB.table('jobs').get();
+      expect(left, hasLength(1), reason: 'not lost: the record failed');
+      expect(left.single['attempts'], 1, reason: 'reserved, tried again later');
+    });
+  });
 }

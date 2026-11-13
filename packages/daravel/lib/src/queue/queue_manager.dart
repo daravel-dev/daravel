@@ -8,6 +8,7 @@ import '../foundation/clock.dart';
 
 import '../cache/cache.dart';
 import '../database/database_manager.dart';
+import '../database/query_executor.dart';
 import '../database/orm/model.dart';
 import '../events/events.dart';
 import '../foundation/config.dart';
@@ -435,11 +436,13 @@ final class JobProcessor {
         timeout: timeout ?? payload.timeout,
       ),
     );
-    if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
+    if (queued.attemptsExhausted ||
+        _alreadyExceeded(payload, queued.attempts, maxTries)) {
       // Laravel's markJobAsFailedIfAlreadyExceedsMaxAttempts: a job
       // reserved again after its last try (released by middleware such as
       // WithoutOverlapping, or abandoned past its timeout) fails without
-      // running, instead of being released for ever.
+      // running, instead of being released for ever. So does one whose
+      // driver cannot count another attempt (the database queue at 255).
       if (debounce != null && await debounce.get<String>(debounced) == owner) {
         await debounce.forget(debounced);
       }
@@ -831,6 +834,11 @@ final class JobProcessor {
     JobPayload payload,
   ) async {
     await driver.delete(queued);
+    await _releaseUnique(payload);
+  }
+
+  /// Releases the unique-job lock(s) of [payload].
+  Future<void> _releaseUnique(JobPayload payload) async {
     final unique = payload.uniqueKey;
     if (unique != null) {
       // Both formats, whichever release dispatched it (ADR-041).
@@ -844,6 +852,114 @@ final class JobProcessor {
     }
   }
 
+  /// Records [queued] in `failed_jobs`, then removes it from the queue:
+  /// in one transaction when both tables are on the same connection, so
+  /// neither happens without the other; otherwise in that order, so a
+  /// record that fails leaves the job in the queue instead of losing it,
+  /// and a removal that fails after the record is logged (the job may run
+  /// again). Stricter than Laravel, whose `Job::fail` deletes first and
+  /// records from the `JobFailed` event.
+  ///
+  /// Null, with nothing recorded, when the driver says another worker
+  /// reserved the job since ([OwnershipQueueDriver]): this worker ran past
+  /// `retry_after` and the job runs elsewhere, so it is not failed here.
+  /// In the transaction the removal decides (and the record is rolled
+  /// back); otherwise the driver is asked before the record.
+  ///
+  /// A record refused because `failed_jobs` holds the job's uuid already
+  /// does not decide by itself (a retry whose old row is still there, a row
+  /// restored from a backup, another app sharing the table): ownership
+  /// does. When the job is no longer this worker's (another worker failed
+  /// it: two reservations at 255 attempts, or a failure between asking and
+  /// recording), it is not failed here; when it still is, or the driver
+  /// cannot tell (`sync`, `memory`), the error is thrown, as before.
+  ///
+  /// In the transaction, a deadlock on the removal is not retried by the
+  /// driver (PostgreSQL refuses every statement of a failed transaction):
+  /// the transaction fails, nothing is recorded, and the job stays reserved
+  /// until `retry_after` and is failed again then.
+  Future<({Object id})?> _recordThenFinish(
+    QueueDriver driver,
+    QueuedJob queued,
+    Object error,
+    StackTrace stackTrace,
+  ) async {
+    Future<Object> record() => failedJobs.log(
+      connection: driver.name,
+      queue: queued.queue,
+      payload: queued.raw,
+      exception: '$error\n$stackTrace',
+    );
+    void notOwner() => logger?.warning(
+      'Job ${queued.id} on queue [${queued.queue}] ran past retry_after: '
+      'another worker took it, so it is not failed here. Raise '
+      'retry_after above the longest job.',
+      <String, Object?>{'job_id': queued.id},
+    );
+    final failed = failedJobs;
+    if (driver is DatabaseQueue &&
+        failed is DatabaseFailedJobProvider &&
+        identical(driver.db, failed.db) &&
+        driver.connection == failed.connection) {
+      try {
+        return await driver.db.transaction(() async {
+          Object? id;
+          UniqueConstraintViolationException? recorded;
+          StackTrace? recordedTrace;
+          try {
+            // A savepoint: a unique violation must not abort the
+            // transaction (PostgreSQL) before the removal decides.
+            id = await driver.db.transaction(
+              record,
+              connection: driver.connection,
+            );
+          } on UniqueConstraintViolationException catch (error, trace) {
+            recorded = error;
+            recordedTrace = trace;
+          }
+          if (!await driver.deleteOwned(queued)) {
+            throw const _NotOwner(); // The driver warned.
+          }
+          if (recorded != null) {
+            // Still this worker's job: the uuid was there before. Rolled
+            // back, and thrown as it was before.
+            Error.throwWithStackTrace(recorded, recordedTrace!);
+          }
+          await _releaseUnique(queued.payload);
+          return (id: id!);
+        }, connection: driver.connection);
+      } on _NotOwner {
+        return null;
+      }
+    }
+    if (driver is OwnershipQueueDriver && !await driver.owns(queued)) {
+      notOwner();
+      return null;
+    }
+    final Object id;
+    try {
+      id = await record();
+    } on UniqueConstraintViolationException {
+      if (driver is OwnershipQueueDriver && !await driver.owns(queued)) {
+        notOwner();
+        return null;
+      }
+      rethrow;
+    }
+    try {
+      await _finish(driver, queued, queued.payload);
+    } on Object catch (removeError, removeTrace) {
+      logger?.error(
+        'Job ${queued.id} is in failed_jobs but could not be removed from '
+        'queue [${queued.queue}]; it may run again',
+        error: removeError,
+        stackTrace: removeTrace,
+        context: <String, Object?>{'job_id': queued.id, 'queue': queued.queue},
+      );
+    }
+    return (id: id);
+  }
+
   Future<void> _fail(
     QueueDriver driver,
     QueuedJob queued,
@@ -851,13 +967,11 @@ final class JobProcessor {
     StackTrace stackTrace, {
     required Job? job,
   }) async {
-    await _finish(driver, queued, queued.payload);
-    final failedId = await failedJobs.log(
-      connection: driver.name,
-      queue: queued.queue,
-      payload: queued.raw,
-      exception: '$error\n$stackTrace',
-    );
+    final recorded = await _recordThenFinish(driver, queued, error, stackTrace);
+    if (recorded == null) {
+      return; // Another worker runs it: no record, no hook, no event.
+    }
+    final failedId = recorded.id;
     logger?.error(
       'Job ${queued.payload.displayName} failed',
       error: error,
@@ -2021,8 +2135,9 @@ final class QueueWorker {
         }
         return true;
       } on CorruptPayloadException catch (error, stackTrace) {
-        // The driver removed the row; it goes to failed_jobs like any job
-        // that cannot run, instead of ending the worker.
+        // A job that cannot run goes to failed_jobs, instead of ending the
+        // worker: recorded first, then removed from the queue, so a record
+        // that fails leaves it there for another try.
         _logger?.error(
           'Job ${error.id} failed',
           error: error,
@@ -2037,9 +2152,21 @@ final class QueueWorker {
           );
         } on Object catch (logError, logTrace) {
           _failed(
-            'Could not record failed job ${error.id}',
+            'Could not record failed job ${error.id}; it stays in the queue '
+            'and is tried again after retry_after',
             logError,
             logTrace,
+          );
+          return true;
+        }
+        try {
+          await error.remove?.call();
+        } on Object catch (removeError, removeTrace) {
+          _failed(
+            'Job ${error.id} is in failed_jobs but could not be removed from '
+            'queue [${error.queue}]; it is tried again after retry_after',
+            removeError,
+            removeTrace,
           );
         }
         return true;
@@ -2090,4 +2217,10 @@ final class _DispatchLocks {
       );
     }
   }
+}
+
+/// Thrown inside the failed-job transaction to roll the record back when
+/// the job turned out to be another worker's.
+final class _NotOwner implements Exception {
+  const _NotOwner();
 }
