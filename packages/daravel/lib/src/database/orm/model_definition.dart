@@ -240,16 +240,40 @@ final class ModelDefinition<T extends Model> {
       relation(name) ??
       (throw StateError('Model [$table] has no relation named [$name].'));
 
-  /// Whether [key] may be mass assigned.
+  /// Whether [key] may be mass assigned, as Laravel's
+  /// `GuardsAttributes::isFillable` decides.
+  ///
+  /// With [fillable], only a key listed exactly. Otherwise nothing when
+  /// [guarded] holds `*`; a key with a `.` or starting with `_` never; and
+  /// with columns in [guarded], only a plain identifier
+  /// (`^[A-Za-z_][A-Za-z0-9_]*$`) that is not one of them in any letter
+  /// case. The query grammar trims and quotes keys, and the database
+  /// matches column names without regard to case (SQLite, MySQL), so
+  /// `'role '`, `'ROLE'`, `'users.role'` or `'meta->role'` would otherwise
+  /// write the guarded column `role` or `meta`. Laravel refuses those as
+  /// keys that are not columns of the table; without the table's columns
+  /// at hand, Daravel refuses every key that is not a plain identifier.
   bool isFillable(String key) {
     if (fillable.contains(key)) {
       return true;
     }
-    if (fillable.isNotEmpty) {
+    if (fillable.isNotEmpty || guarded.contains('*')) {
       return false;
     }
-    return !guarded.contains('*') && !guarded.contains(key);
+    if (key.contains('.') || key.startsWith('_')) {
+      return false;
+    }
+    if (guarded.isEmpty) {
+      return true;
+    }
+    if (!_plainIdentifier.hasMatch(key)) {
+      return false;
+    }
+    final lower = key.toLowerCase();
+    return !guarded.any((column) => column.toLowerCase() == lower);
   }
+
+  static final RegExp _plainIdentifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
   /// Whether nothing is fillable (default: `guarded = ['*']`).
   bool get totallyGuarded => fillable.isEmpty && guarded.contains('*');
