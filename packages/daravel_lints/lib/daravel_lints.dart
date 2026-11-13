@@ -253,6 +253,54 @@ final class StringColumnName extends LintRule {
     );
   }
 
+  /// The string replaced by the token the finding names
+  /// (`User.cols.email`), written with the model's name as the query
+  /// chain writes it, so it names the same class and needs no import. Not
+  /// offered in a list typed to hold strings (`<String>['id']`), nor in a
+  /// constant context it cannot leave by removing the `const` of the
+  /// enclosing list (`User.cols.email` is not a constant); when the fix
+  /// removes that `const`, its message says so. The token runs the same
+  /// SQL with the same bindings as the string, in every method the rule
+  /// reports (`string_column_equivalence_test` in `daravel`).
+  @override
+  LintFix? fixFor(CompilationUnit unit, AstNode node) {
+    if (node is! SimpleStringLiteral) {
+      return null;
+    }
+    final list = node.parent is ListLiteral
+        ? node.parent! as ListLiteral
+        : null;
+    final arguments = (list ?? node).parent;
+    final call = arguments?.parent;
+    if (arguments is! ArgumentList || call is! MethodInvocation) {
+      return null;
+    }
+    final method = call.methodName.name;
+    final position = arguments.arguments.indexOf(list ?? node);
+    final reported = list == null
+        ? firstArgument.contains(method) &&
+              (position == 0 || (position == 1 && method == 'pluck'))
+        : listArgument.contains(method) && position == 0;
+    final model = reported ? _modelOf(call.target) : null;
+    final field = model == null ? null : index.fieldOf(model, node.value);
+    final elementType = list?.typeArguments?.arguments;
+    if (field == null ||
+        (elementType != null &&
+            RegExp(r'^String\??$')
+                .hasMatch(elementType.first.toSource().replaceAll(' ', '')))) {
+      return null;
+    }
+    final leave = leaveConstantContext(node);
+    if (leave == null) {
+      return null;
+    }
+    final text = '$model.cols.$field';
+    return LintFix(
+      leave.isEmpty ? 'Write as $text' : 'Write as $text (removes const)',
+      [LintEdit(node.offset, node.length, text), ...leave],
+    );
+  }
+
   /// The model a query chain starts from: `User` in `User.query()...` or
   /// `User.where(...)...`.
   String? _modelOf(Expression? target) {

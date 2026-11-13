@@ -1,0 +1,3 @@
+### Fixed
+
+- Security: slashes are trimmed from request paths in one pass. Trimming them with a regular expression took time quadratic in a run of slashes inside the path, so one request held an isolate for seconds; this affected the 404 and 405 responses, `Request.url`, the paginator's path and `DaravelUri.path`, from 1.0.0 on. `UploadedFile` paths are trimmed the same way. `Str.plural` and `Str.singular` no longer take quadratic time on a long run of letters followed by another character; they give the same results as before. Until you upgrade, limit the length of the request URL at the proxy in front of the application (for example 8 KiB).

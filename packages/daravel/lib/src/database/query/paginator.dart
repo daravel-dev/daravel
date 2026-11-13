@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../foundation/slashes.dart';
 import '../../foundation/config.dart';
 import '../../foundation/container.dart';
 import '../../foundation/locale.dart';
@@ -41,7 +42,7 @@ abstract final class Pagination {
 /// Laravel URL format (`path?query&page=N`, RFC 3986 encoding).
 abstract base class _UrlPaginator {
   _UrlPaginator({required String path, required this.query})
-    : path = path != '/' ? path.replaceAll(RegExp(r'/+$'), '') : path;
+    : path = path != '/' ? trimTrailingSlashes(path) : path;
 
   /// Base URL of the paginated resource (Laravel `path()`).
   final String path;

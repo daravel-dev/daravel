@@ -28,23 +28,34 @@ final class ModelColumnIndex {
   /// Reads every `*.dart` file under `[root]/lib/app/models`.
   factory ModelColumnIndex.scan(String root) {
     final directory = Directory(p.join(root, 'lib', 'app', 'models'));
-    final fields = <String, Map<String, String>>{};
-    if (directory.existsSync()) {
-      final files =
-          directory
-              .listSync(recursive: true)
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.dart'))
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path));
-      for (final file in files) {
-        fields.addAll(
-          ModelColumnIndex.ofSource(file.readAsStringSync())._fields,
-        );
-      }
+    if (!directory.existsSync()) {
+      return ModelColumnIndex(const {});
     }
-    return ModelColumnIndex(fields);
+    final files =
+        directory
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    return ModelColumnIndex.ofSources([
+      for (final file in files) file.readAsStringSync(),
+    ]);
   }
+
+  /// The `cols` records of the classes in [sources], the model files in
+  /// path order (a class declared twice: the later one wins, as in
+  /// [ModelColumnIndex.scan]). The editor plugin reads the files through
+  /// the analysis server, so unsaved changes count.
+  factory ModelColumnIndex.ofSources(Iterable<String> sources) =>
+      ModelColumnIndex.merge([
+        for (final source in sources) ModelColumnIndex.ofSource(source),
+      ]);
+
+  /// One index of the models of [indexes] (a class in two: the later one
+  /// wins).
+  factory ModelColumnIndex.merge(Iterable<ModelColumnIndex> indexes) =>
+      ModelColumnIndex({for (final index in indexes) ...index._fields});
 
   /// The `cols` records of the classes in [source].
   factory ModelColumnIndex.ofSource(String source) {

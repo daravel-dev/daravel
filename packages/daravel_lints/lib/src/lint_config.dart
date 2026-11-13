@@ -10,6 +10,11 @@ import '../daravel_lints.dart';
 /// name like any rule.
 const String registryRuleName = 'registry_entry_missing';
 
+/// Opt-in rules built for one project, so not in [optionalRules]:
+/// `string_column_name` reads the project's models. Enabled by name like
+/// the others; [LintConfig.rulesIn] builds them.
+const Set<String> projectRuleNames = {'string_column_name'};
+
 /// Which rules a project runs: [defaultRules], plus the [optionalRules]
 /// in [enabled], minus the rules in [disabled].
 ///
@@ -44,6 +49,7 @@ final class LintConfig {
   /// Every rule name a configuration may set.
   static Set<String> get knownNames => {
     for (final rule in [...defaultRules, ...optionalRules]) rule.name,
+    ...projectRuleNames,
     registryRuleName,
   };
 
@@ -57,13 +63,32 @@ final class LintConfig {
     }
   }
 
-  /// The file rules to run.
+  /// The file rules to run that need no project: without the
+  /// [projectRuleNames] ([rulesIn] adds those).
   List<LintRule> get rules => [
     for (final rule in defaultRules)
       if (!disabled.contains(rule.name)) rule,
     for (final rule in optionalRules)
       if (enabled.contains(rule.name) && !disabled.contains(rule.name)) rule,
   ];
+
+  /// The file rules to run in the project at [root]: [rules], plus the
+  /// enabled [projectRuleNames] built for that project
+  /// (`string_column_name` over its `lib/app/models`,
+  /// [StringColumnName.forProject]). What went wrong building one (models
+  /// that cannot be read) goes to [warn]; the rule then checks nothing.
+  List<LintRule> rulesIn(String root, {void Function(String)? warn}) {
+    final result = [...rules];
+    if (enabled.contains('string_column_name') &&
+        !disabled.contains('string_column_name')) {
+      final (rule, warning) = StringColumnName.forProject(root);
+      if (warning != null) {
+        warn?.call(warning);
+      }
+      result.add(rule);
+    }
+    return result;
+  }
 
   /// Whether the registry check runs.
   bool get registries => !disabled.contains(registryRuleName);

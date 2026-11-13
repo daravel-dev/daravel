@@ -1469,10 +1469,13 @@ final class OpenApiGenerateCommand extends DaravelCommand {
   });
 }
 
-/// `model:sync [Model] [--dry-run] [--typed-ids]` — rewrites the accessor
-/// region of models from the database schema (BLUEPRINT_V2 §8.3) and fills
-/// an empty statics region with the query shortcuts `make:model` writes.
-/// `--typed-ids` (opt-in, ADR-032) also writes a typed id per model.
+/// `model:sync [Model...] [--dry-run] [--typed-ids]` — rewrites the
+/// accessor region of models from the database schema (BLUEPRINT_V2 §8.3)
+/// and fills an empty statics region with the query shortcuts `make:model`
+/// writes. `--typed-ids` (opt-in, ADR-032) opts the synced models in to a
+/// typed id; the opt-in stays in each model's `<dartisan:ids>` region, so
+/// later runs keep it without the flag (#330). A foreign key to a model
+/// with a typed id gets that type ([foreignIdTypes]).
 ///
 /// It does not compile the application (#329): the models are read from
 /// their sources, and the schema through a program in `.dart_tool` that
@@ -1513,9 +1516,11 @@ final class ModelSyncCommand extends DaravelCommand {
         'typed-ids',
         negatable: false,
         help:
-            'Also write a typed id (extension type UserId) in a '
-            '// <dartisan:ids> region and type the primary key getter, '
-            'find and findOrFail with it (opt-in).',
+            'Opt the synced models (all, or the ones named) in to a typed '
+            'id: an extension type UserId in a // <dartisan:ids> region, '
+            'for the primary key getter, find and findOrFail, and for '
+            'foreign keys to it. Later runs keep it without the flag; '
+            'delete the region to opt out.',
       );
   }
 
@@ -1599,9 +1604,8 @@ regions.''';
 
   Future<int> _sync(Application app) async {
     final paths = ProjectPaths.locate(app.basePath);
-    final only = argResults!.rest.isEmpty
-        ? null
-        : Naming.snake(argResults!.rest.first);
+    // `model:sync Attempt AttemptItem`: these models only.
+    final only = {for (final name in argResults!.rest) Naming.snake(name)};
     final dir = Directory(paths.models);
     if (!dir.existsSync()) {
       stdout.writeln('No models found in lib/app/models.');
@@ -1611,40 +1615,134 @@ regions.''';
     final check = argResults!['check'] as bool;
     final typedIds = argResults!['typed-ids'] as bool;
     final formatter = RegionFormatter.forProject(paths.root);
-    var synced = 0;
-    var withPaths = 0;
-    var stale = 0;
-    for (final file in dir.listSync().whereType<File>().where(
-      (f) => f.path.endsWith('.dart'),
-    )) {
-      if (only != null && p.basenameWithoutExtension(file.path) != only) {
-        continue;
-      }
+    final dialect = App.make<DatabaseManager>().dialectOf();
+    // First every model, selected or not: a foreign key is typed by the
+    // model it references, which this run may not sync.
+    final models =
+        <
+          ({
+            File file,
+            String source,
+            ModelSource model,
+            List<ColumnInfo>? columns,
+            bool typed,
+          })
+        >[];
+    final files =
+        dir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    for (final file in files) {
       final source = file.readAsStringSync();
       final model = ModelSource.parse(source);
       if (model == null) {
         continue;
       }
-      if (!await Schema.hasTable(model.table) &&
-          !await Schema.hasView(model.table)) {
+      final selected =
+          only.isEmpty || only.contains(p.basenameWithoutExtension(file.path));
+      final exists =
+          await Schema.hasTable(model.table) ||
+          await Schema.hasView(model.table);
+      models.add((
+        file: file,
+        source: source,
+        model: model,
+        columns: exists ? await Schema.getColumns(model.table) : null,
+        // The opt-in lives in the source; the flag adds the models this
+        // run syncs.
+        typed: hasTypedIds(source) || (typedIds && selected),
+      ));
+    }
+    final byTable = <String, List<TypedModel>>{};
+    for (final (:file, source: _, :model, :columns, :typed) in models) {
+      final representation = typed && columns != null
+          ? typedIdRepresentation(
+              model,
+              columns,
+              dialect: dialect,
+            ).representation
+          : null;
+      (byTable[model.table] ??= []).add((
+        className: model.className,
+        table: model.table,
+        primaryKey: model.primaryKey,
+        idType: representation == null ? null : idTypeName(model.className),
+        file: p.basename(file.path),
+      ));
+    }
+    // Foreign keys are typed, and their notes printed, only in a project
+    // that uses typed ids.
+    final anyTyped = byTable.values.any((l) => l.any((m) => m.idType != null));
+    final barrelFile = File(paths.modelsBarrel);
+    final barrel = barrelFile.existsSync()
+        ? barrelFile.readAsStringSync()
+        : null;
+    var noForeignKeys = false;
+    var unmodelled = 0;
+    var synced = 0;
+    var withPaths = 0;
+    var stale = 0;
+    for (final (:file, :source, :model, :columns, :typed) in models) {
+      if (only.isNotEmpty &&
+          !only.contains(p.basenameWithoutExtension(file.path))) {
+        continue;
+      }
+      if (columns == null) {
         stdout.writeln(
           '${model.className}: table [${model.table}] does not exist; run migrate first.',
         );
         continue;
       }
+      var foreign = (
+        types: const <String, String>{},
+        files: const <String, String>{},
+        notes: const <String>[],
+        unmodelled: 0,
+      );
+      if (anyTyped) {
+        try {
+          foreign = foreignIdTypes(
+            model,
+            p.basename(file.path),
+            await Schema.getForeignKeys(model.table),
+            byTable,
+          );
+        } on UnsupportedError {
+          noForeignKeys = true;
+        }
+      }
+      unmodelled += foreign.unmodelled;
       final sync = syncModelSource(
         source,
         model,
-        await Schema.getColumns(model.table),
-        dialect: App.make<DatabaseManager>().dialectOf(),
-        idStub: typedIds ? _idStub(paths) : null,
+        columns,
+        dialect: dialect,
+        idStub: typed ? _idStub(paths) : null,
         formatter: formatter,
+        foreignIds: foreign.types,
       );
       final plan = sync.plan;
-      for (final warning in sync.warnings) {
+      for (final warning in [...sync.warnings, ...foreign.notes]) {
         stdout.writeln('${model.className}: $warning');
       }
-      final updated = sync.source;
+      var updated = sync.source;
+      if (updated != null && foreign.files.isNotEmpty) {
+        final imported = addModelImports(
+          updated,
+          foreign.files,
+          barrel: barrel,
+        );
+        updated = imported.source;
+        for (final added in imported.added) {
+          stdout.writeln(
+            "${model.className}: ${dryRun || check ? 'would add' : 'added'} "
+            "import '$added' to ${p.basename(file.path)}.",
+          );
+        }
+      }
       if (updated == null) {
         stdout.writeln(
           '${model.className}: no // <dartisan:accessors> region; skipped.',
@@ -1671,6 +1769,18 @@ regions.''';
       }
       synced++;
     }
+    if (noForeignKeys) {
+      stdout.writeln(
+        'The database driver does not report foreign keys: foreign keys '
+        'are left untyped.',
+      );
+    }
+    if (unmodelled > 0) {
+      stdout.writeln(
+        '$unmodelled foreign key(s) reference a table without a model in '
+        'lib/app/models: left untyped.',
+      );
+    }
     if (withPaths > 0 && !File(paths.modelsBarrel).existsSync()) {
       stdout.writeln(
         'Tip: a lib/app/models/models.dart exporting every model lets one '
@@ -1678,13 +1788,19 @@ regions.''';
         'projects have it and make:model keeps it.',
       );
     }
-    if (synced == 0) {
-      stdout.writeln(
-        only == null ? 'No models synced.' : 'Model [$only] not found.',
-      );
-      return only == null ? 0 : 1;
+    final found = {
+      for (final m in models) p.basenameWithoutExtension(m.file.path),
+    };
+    final missing = only.difference(found);
+    for (final name in missing) {
+      stdout.writeln('Model [$name] not found.');
     }
-    return stale == 0 ? 0 : 1;
+    if (synced == 0 && only.isEmpty) {
+      stdout.writeln('No models synced.');
+    }
+    return stale == 0 && missing.isEmpty && (synced > 0 || only.isEmpty)
+        ? 0
+        : 1;
   }
 }
 
@@ -1745,14 +1861,20 @@ final class LintCommand extends Command<int> {
     for (final warning in config.warnings) {
       stderr.writeln('Warning: $warning');
     }
+    final rules = config.rulesIn(
+      root,
+      warn: (warning) => stderr.writeln('Warning: $warning'),
+    );
     final issues = lintProject(
       root,
-      rules: config.rules,
+      rules: rules,
       registries: config.registries,
     );
     final optIn = [
-      for (final rule in config.rules)
-        if (optionalRules.any((o) => o.name == rule.name)) rule.name,
+      for (final rule in rules)
+        if (optionalRules.any((o) => o.name == rule.name) ||
+            projectRuleNames.contains(rule.name))
+          rule.name,
     ];
     final off = [
       for (final rule in defaultRules)

@@ -19,7 +19,10 @@ final class HostAuthority {
 /// it (`isHostValid`): dot-separated labels of `[-a-zA-Z0-9_]` with an
 /// optional final dot, a valid IPv4 address when the last label is
 /// numeric, or a valid IPv6 address in brackets. A raw IDN is refused, as
-/// there. The port is digits up to 65535. An empty value is an empty host.
+/// there. A host longer than 253 characters, which no DNS name is (RFC 1035
+/// §2.3.4), is refused too, though Symfony has no such limit: the host is
+/// matched against domain routes. The port is digits up to 65535. An empty
+/// value is an empty host.
 ///
 /// One pass over [value], no regular expression: a `Host` line may be as
 /// long as the header limit allows.
@@ -44,7 +47,7 @@ HostAuthority? parseHostAuthority(String value) {
     final colon = value.indexOf(':');
     host = colon < 0 ? value : value.substring(0, colon);
     rest = colon < 0 ? '' : value.substring(colon);
-    if (!_isNameOrIpv4(host)) {
+    if (host.length > 253 || !_isNameOrIpv4(host)) {
       return null;
     }
   }

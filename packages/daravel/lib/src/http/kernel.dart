@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../foundation/slashes.dart';
 import '../foundation/config.dart';
 import '../foundation/container.dart';
 import '../logging/logger.dart';
@@ -271,7 +272,7 @@ final class HttpKernel {
 
   static String _label(Request request) {
     // Laravel's Request::path(): trimmed of slashes, '/' for the root.
-    final trimmed = request.path.replaceAll(RegExp(r'^/+|/+$'), '');
+    final trimmed = trimSlashes(request.path);
     return trimmed.isEmpty ? '/' : trimmed;
   }
 }

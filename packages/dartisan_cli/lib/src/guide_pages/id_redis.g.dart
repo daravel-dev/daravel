@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/redis.md`.
-const String pageIdRedis = r'''<!-- source: redis.md sha256:d623e865ad28 -->
+const String pageIdRedis = r'''<!-- source: redis.md sha256:e37bc649b7dd -->
 # Redis
 
 Di satu server, Daravel tidak membutuhkan Redis: isolate coordinator
@@ -72,6 +72,15 @@ Cache memakai koneksi `cache` (`REDIS_CACHE_DB`, default 1), sehingga
 `dartisan cache:clear` hanya menghapus key cache itu sendiri (`SCAN` dan
 `UNLINK` pada prefix-nya, tidak pernah `FLUSHDB`) dan tidak pernah
 menyentuh job yang sedang antre.
+
+`php artisan cache:clear` milik Laravel tidak sehati-hati itu: store Redis-nya
+mengosongkan seluruh database cache (`RedisStore::flush()` adalah
+`$this->connection()->flushdb();` di Laravel 13). Bila keduanya memakai Redis
+yang sama, entri cache Daravel ikut terhapus (database cache memang dipakai
+bersama). Queue dan Horizon berada di `REDIS_DB` dan tidak tersentuh, kecuali
+cache memakai database yang sama: `REDIS_CACHE_DB` sama dengan `REDIS_DB`,
+atau Redis Cluster, yang hanya punya database 0. Dalam keadaan itu, kosongkan
+cache dari Daravel (`dartisan cache:clear`), bukan dari Laravel.
 
 ## Konfigurasi
 

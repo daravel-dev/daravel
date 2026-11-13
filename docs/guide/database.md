@@ -351,23 +351,52 @@ model:sync` compiles the application first.
 
 ### Typed ids (opt-in)
 
-A Daravel-only option: with `dartisan model:sync --typed-ids`, each model
+A Daravel-only option: with `dartisan model:sync --typed-ids`, a model
 gets an [extension type](https://dart.dev/language/extension-types) for its
 primary key, so a wrong-typed id is caught at compile time:
 `Post.find(user.id)` does not compile once `find` takes a `PostId`.
-Without the flag, `model:sync` writes exactly what it wrote before.
+A model opts in once and stays opted in. The flag writes the id in a
+`// <dartisan:ids>` region in the model file, and later runs of
+`model:sync` keep it there without the flag. You can therefore try it on
+a few models first:
 
 ```bash
-dart run bin/dartisan.dart model:sync --typed-ids        # every model
-dart run bin/dartisan.dart model:sync Post --typed-ids   # one model
+dart run bin/dartisan.dart model:sync --typed-ids                     # every model
+dart run bin/dartisan.dart model:sync Attempt AttemptItem --typed-ids  # these two
+dart run bin/dartisan.dart model:sync                                 # keeps both
 ```
 
-The flag writes the id in a `// <dartisan:ids>` region at the end of the
-model file (from the `model.id` stub, see `stub:publish`), types the
-primary key getter, and retypes the generated `find` and `findOrFail` in
-the `<dartisan:statics>` region. Statics you wrote yourself keep their
-types. A key that is neither an integer nor text gets a warning and no
-typed id.
+The region sits at the end of the model file (from the `model.id` stub,
+see `stub:publish`). The flag also types the primary key getter and
+retypes the generated `find` and `findOrFail` in the `<dartisan:statics>`
+region. Statics you wrote yourself keep their types. A key that is
+neither an integer nor text gets a warning and no typed id.
+
+A foreign key gets the typed id of the model it references, read from the
+table's foreign key constraints (`Schema.getForeignKeys`). With
+`assessment_id` constrained to `assessments`,
+`Assessment.find(session.assessmentId)` compiles without a cast, and
+`Assessment.find(session.userId)` does not. This applies to the getter,
+the setter, `cols` (`Session.cols.assessmentId.eq(...)` takes an
+`AssessmentId`), `createWith` and `updateWith`. If the model is in
+another file, `model:sync` adds one import of that file when nothing in
+the file brings the type in yet (an import of the model, or of
+`models.dart`). It prints the import it adds, and never removes or
+reorders yours. A foreign key stays `int` when:
+- the referenced model has no typed id (`model:sync` says so);
+- no model in `lib/app/models` maps the referenced table (one summary
+  line), or two models map it (a warning);
+- the key is composite, or references a column other than the primary
+  key;
+- the model casts the column itself (`casts:` wins);
+- the database driver does not report foreign keys.
+
+A polymorphic key (`commentable_id` with `commentable_type`) has no
+constraint, so it stays untyped.
+
+To opt a model out, delete its `<dartisan:ids>` region and any `idType:`
+you gave its `ModelDefinition`, then run `model:sync`: its key, its
+`find`/`findOrFail` and the foreign keys to it return to `int`/`Object`.
 
 ```dart
 // <dartisan:statics>
