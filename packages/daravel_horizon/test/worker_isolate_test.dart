@@ -58,6 +58,31 @@ Future<void> until(bool Function() done, String what) async {
   }
 }
 
+/// A store that breaks its contract: [record] throws at once, then fails
+/// later, in turn. Other reads are not used by a worker.
+final class _BrokenStore implements HorizonStore {
+  var _calls = 0;
+
+  @override
+  Future<void> record(RecordedJob job) {
+    if ((_calls++).isEven) {
+      throw StateError('store down (sync)');
+    }
+    return Future<void>.error(StateError('store down (async)'));
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
+/// [testApp] with [_BrokenStore] bound (top-level, for worker isolates).
+Application brokenStoreApp() {
+  final app = testApp();
+  app.container.singleton<HorizonStore>((_) => _BrokenStore());
+  return app;
+}
+
 void main() {
   late Application app;
 
@@ -182,6 +207,57 @@ void main() {
     expect(HorizonTags.model(ref), 'Thing:42');
     expect(() => HorizonTags.model('x'), throwsArgumentError);
   });
+
+  test(
+    'a store that throws or fails while recording never stops the worker '
+    'nor counts against the job',
+    timeout: const Timeout(Duration(minutes: 1)),
+    () async {
+      await app.run(() async {
+        await Queue.push(const Mark('x1'), queue: 'a');
+        await Queue.push(const Mark('x2'), queue: 'a');
+      });
+      final reports = ReceivePort();
+      final errors = ReceivePort();
+      final received = <Object?>[];
+      final uncaught = <Object?>[];
+      final port = Completer<SendPort>();
+      reports.listen((m) {
+        if (m case [final String _, final SendPort p]) {
+          port.complete(p);
+        } else {
+          received.add(m);
+        }
+      });
+      errors.listen(uncaught.add);
+      await Isolate.spawn(
+        horizonWorkerMain,
+        HorizonWorkerStart(
+          factory: brokenStoreApp,
+          name: 'horizon-test-broken-store',
+          queues: 'a',
+          master: reports.sendPort,
+          heartbeat: const Duration(milliseconds: 50),
+          sleep: const Duration(milliseconds: 50),
+        ),
+        onError: errors.sendPort,
+        debugName: 'horizon-test-broken-store',
+      );
+      final worker = await port.future.timeout(const Duration(seconds: 10));
+      await until(
+        () => marks().contains('a:x1') && marks().contains('a:x2'),
+        'both jobs',
+      );
+      worker.send(const Stop());
+      await until(() => received.whereType<Exited>().isNotEmpty, 'Exited');
+      expect(uncaught, isEmpty, reason: 'no uncaught error in the worker');
+      expect(received.whereType<Exited>().single.code, 0);
+      expect(received.whereType<Heartbeat>().last.processed, 2);
+      expect(marks(), ['a:x1', 'a:x2'], reason: 'each ran once');
+      reports.close();
+      errors.close();
+    },
+  );
 }
 
 final class Thing extends Model {

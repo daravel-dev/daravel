@@ -402,13 +402,31 @@ abstract final class HorizonDashboard {
     if (tag is! String || tag.trim().isEmpty) {
       return Response.json({'message': 'A tag is required.'}, status: 422);
     }
-    await _call('monitor', (s) => s.monitor(tag.trim()));
-    return Response.noContent();
+    return _change('monitor', (s) => s.monitor(tag.trim()));
   }
 
-  static Future<Object?> _unmonitor(Request request) async {
-    await _call('unmonitor', (s) => s.unmonitor(request.param<String>('tag')));
-    return Response.noContent();
+  static Future<Object?> _unmonitor(Request request) =>
+      _change('unmonitor', (s) => s.unmonitor(request.param<String>('tag')));
+
+  /// [change] on the store: 204, or a 500 when the store fails, logged.
+  /// Unlike a read, a change that did not happen is never an empty answer.
+  static Future<Response> _change(
+    String op,
+    Future<void> Function(HorizonStore store) change,
+  ) async {
+    try {
+      await change(horizonStoreOf(Container.current));
+      return Response.noContent();
+    } on Object catch (error, stackTrace) {
+      Container.current.make<Logger>().error(
+        'Horizon dashboard: [$op] failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return Response.json({
+        'message': 'The Horizon store could not $op the tag.',
+      }, status: 500);
+    }
   }
 
   static Future<Object?> _tagged(Request request) async => {

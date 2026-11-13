@@ -86,6 +86,8 @@ HorizonDashboard.auth(
 
 `middleware: ['web', 'auth']` sends guests to the login page instead of a
 403; a `middleware:` entry the application does not register stops the boot.
+Behind the `web` group, a POST or DELETE without the XSRF token (retry,
+monitoring) answers 419 before the gate is asked, as in Laravel.
 
 ## Store
 

@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:93ba5d4ca93a -->
+<!-- source: README.md sha256:160bf9a0687c -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -90,7 +90,9 @@ HorizonDashboard.auth(
 ```
 
 `middleware: ['web', 'auth']` mengarahkan tamu ke halaman login, bukan 403;
-entri `middleware:` yang tidak didaftarkan aplikasi menghentikan boot.
+entri `middleware:` yang tidak didaftarkan aplikasi menghentikan boot. Di
+belakang grup `web`, POST atau DELETE tanpa token XSRF (retry, monitoring)
+dijawab 419 sebelum gate ditanya, seperti di Laravel.
 
 ## Store
 

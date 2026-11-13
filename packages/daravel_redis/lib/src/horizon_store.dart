@@ -287,6 +287,13 @@ final class RedisHorizonStore implements BufferedHorizonStore {
     _closed = true;
   }
 
+  /// [body] in the root zone, outside the caller's transaction, with its
+  /// result or error handed back in the caller's zone. A future failing in
+  /// the root zone never reaches a listener in a request's error zone: its
+  /// error would be uncaught there, and the request would wait for ever.
+  static Future<T> _outside<T>(Future<T> Function() body) =>
+      Zone.root.run(() => SharedResult(body)).value;
+
   void _dropped(HorizonStoreDrop reason, int count, [Object? error]) {
     appMetrics?.registry
         .counter(
@@ -396,12 +403,12 @@ final class RedisHorizonStore implements BufferedHorizonStore {
   }
 
   @override
-  Future<void> monitor(String tag) => Zone.root.run(() async {
+  Future<void> monitor(String tag) => _outside(() async {
     await client.command(['SADD', _key('monitored'), tag]);
   });
 
   @override
-  Future<void> unmonitor(String tag) => Zone.root.run(() async {
+  Future<void> unmonitor(String tag) => _outside(() async {
     await client.command(['SREM', _key('monitored'), tag]);
     await client.command(['DEL', _key('tag:$tag')]);
   });
@@ -436,7 +443,7 @@ final class RedisHorizonStore implements BufferedHorizonStore {
   );
 
   @override
-  Future<void> snapshot() => Zone.root.run(() async {
+  Future<void> snapshot() => _outside(() async {
     // The series to extend: the known ones and those with jobs since the
     // last snapshot. Their keys go through KEYS; a name that appears in
     // between keeps its counts for the next snapshot.
