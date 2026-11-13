@@ -27,7 +27,14 @@ void main() {
     client = TestClient(app);
   }
 
-  tearDown(() => app.shutdown());
+  // Outside local the dashboard needs the viewHorizon gate or a callback:
+  // the tests open it, the last one checks it closed.
+  setUp(() => HorizonDashboard.auth((Request request) => true));
+
+  tearDown(() async {
+    HorizonDashboard.auth(null);
+    await app.shutdown();
+  });
 
   test('dispatched jobs wait on their queues and show as pending', () async {
     await boot();
@@ -69,7 +76,8 @@ void main() {
     expect((await client.get('/horizon')).status, 200);
   });
 
-  test('outside local and testing the dashboard needs middleware', () async {
+  test('outside local the dashboard needs the gate or a callback', () async {
+    HorizonDashboard.auth(null);
     await boot({
       'APP_ENV': 'production',
       'APP_KEY': 'base64:${base64.encode(List.filled(32, 3))}',

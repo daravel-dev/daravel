@@ -23,17 +23,19 @@ proses itu juga melayani dashboard). `dart run bin/dartisan.dart
 schedule:work` mengambil snapshot metrik setiap lima menit untuk tab Metrics.
 
 File SQLite di `.env.example` hanya untuk mencoba: di produksi gunakan
-PostgreSQL atau MySQL, dan lindungi dashboard, yang menjawab 403 di luar
-`APP_ENV=local` sampai ada middleware:
+PostgreSQL atau MySQL. Di luar `APP_ENV=local` dashboard menjawab 403 sampai
+gate `viewHorizon` mengizinkan user yang sedang login (dengan `withSession()`)
+atau `HorizonDashboard.auth` mengizinkan request-nya (tanpa session):
 
 ```dart
-.withHorizon(
-  createApp: createApp,
-  plans: plans,
-  middleware: ['auth', 'can:viewHorizon'],
-)
-// bootstrap/policies.dart
-gate.define('viewHorizon', (user, _) => user.authIdentifier == 1);
+// bootstrap/policies.dart, dengan session
+gate.define('viewHorizon', (user, _) => user?.authIdentifier == 1);
+
+// bootstrap/app.dart, tanpa session: header rahasia yang ditambahkan proxy
+HorizonDashboard.auth(
+  (request) =>
+      constantTimeEquals(request.header('x-horizon-key') ?? '', horizonKey),
+);
 ```
 
 `dart test` memeriksa queue, API dashboard, dan 403.

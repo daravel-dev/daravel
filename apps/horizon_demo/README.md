@@ -23,17 +23,19 @@ dashboard from that process). `dart run bin/dartisan.dart schedule:work`
 takes a metric snapshot every five minutes for the Metrics tab.
 
 The SQLite file of `.env.example` is for trying it out: in production use
-PostgreSQL or MySQL, and protect the dashboard, which answers 403 outside
-`APP_ENV=local` until it has middleware:
+PostgreSQL or MySQL. Outside `APP_ENV=local` the dashboard answers 403 until
+the `viewHorizon` gate allows the signed-in user (with `withSession()`) or
+`HorizonDashboard.auth` allows the request (without sessions):
 
 ```dart
-.withHorizon(
-  createApp: createApp,
-  plans: plans,
-  middleware: ['auth', 'can:viewHorizon'],
-)
-// bootstrap/policies.dart
-gate.define('viewHorizon', (user, _) => user.authIdentifier == 1);
+// bootstrap/policies.dart, with sessions
+gate.define('viewHorizon', (user, _) => user?.authIdentifier == 1);
+
+// bootstrap/app.dart, without sessions: a secret header a proxy adds
+HorizonDashboard.auth(
+  (request) =>
+      constantTimeEquals(request.header('x-horizon-key') ?? '', horizonKey),
+);
 ```
 
 `dart test` checks the queues, the dashboard's API and the 403.

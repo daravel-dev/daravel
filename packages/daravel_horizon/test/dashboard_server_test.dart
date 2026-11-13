@@ -31,6 +31,8 @@ void main() {
   test(
     'the dashboard server answers Horizon\'s routes and nothing else',
     () async {
+      HorizonDashboard.auth((Request request) => true);
+      addTearDown(() => HorizonDashboard.auth(null));
       final app = serverApp();
       await app.boot();
       addTearDown(app.shutdown);
