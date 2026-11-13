@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.27.4
+
+A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: markdown mail (`markdownToText`, the components, attributes and inline styles of `MailTheme.render`, the footer links of `MailTheme.layout`) and `MailAddress.parse` are read in one pass; the regular expressions used before took time quadratic in a run of text without its closing part, so user text in a mail held the worker or request for seconds to minutes (since 1.9.0).
+- Security: `gt`, `gte`, `lt`, `lte`, `decimal` and `multiple_of` compare a numeric value's digits in linear time; turning them into one big integer took time quadratic in their number, 35 to 46 s for 1 000 000 digits (since 1.22.0).
+
 ## 1.27.3
 
 A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
