@@ -354,11 +354,50 @@ Future<Map<String, int>?> analyzeErrors(
   } on ProcessException {
     return null;
   }
+  return countAnalyzeErrors(
+    '${result.stdout}\n${result.stderr}',
+    root,
+    paths,
+    exitCode: result.exitCode,
+  );
+}
+
+/// The errors per file of [paths] (project-relative, in the project at
+/// [root]) in [output], the `--format=machine` lines of `dart analyze`;
+/// `null` when they give no verdict: an [exitCode] other than 0 with no
+/// finding, or an error in a file that is not one of [paths].
+///
+/// Paths are compared in their canonical form: `dart analyze` writes the
+/// real path, which can differ from [root] as written (a symbolic link,
+/// macOS's `/var` → `/private/var`; a Windows 8.3 short name,
+/// `C:\Users\RUNNER~1`), and Windows paths compare without case. An
+/// error that matches none of [paths] cannot be counted, and an error not
+/// counted would let a broken fix through, so it ends with no verdict.
+Map<String, int>? countAnalyzeErrors(
+  String output,
+  String root,
+  List<String> paths, {
+  int exitCode = 0,
+}) {
+  String canonical(String path) {
+    final absolute = p.normalize(
+      p.isAbsolute(path) ? path : p.join(root, path),
+    );
+    String real;
+    try {
+      real = File(absolute).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      real = absolute;
+    }
+    return Platform.isWindows ? real.toLowerCase() : real;
+  }
+
+  final byFile = {for (final path in paths) canonical(path): path};
   final counts = {for (final path in paths) path: 0};
   var findings = 0;
   // SEVERITY|TYPE|CODE|FILE|LINE|COLUMN|LENGTH|MESSAGE
-  for (final line in '${result.stdout}\n${result.stderr}'.split('\n')) {
-    final fields = machineFields(line);
+  for (final line in output.split('\n')) {
+    final fields = machineFields(line.trimRight());
     if (fields.length < 8 ||
         !const {'ERROR', 'WARNING', 'INFO'}.contains(fields[0])) {
       continue;
@@ -367,13 +406,11 @@ Future<Map<String, int>?> analyzeErrors(
     if (fields[0] != 'ERROR') {
       continue;
     }
-    final file = p.isAbsolute(fields[3])
-        ? p.relative(fields[3], from: root)
-        : fields[3];
-    final path = file.replaceAll(r'\', '/');
-    if (counts.containsKey(path)) {
-      counts[path] = counts[path]! + 1;
+    final path = byFile[canonical(fields[3])];
+    if (path == null) {
+      return null;
     }
+    counts[path] = counts[path]! + 1;
   }
-  return result.exitCode == 0 || findings > 0 ? counts : null;
+  return exitCode == 0 || findings > 0 ? counts : null;
 }

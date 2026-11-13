@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:dartisan_cli/dartisan_cli.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// The diff `dartisan lint --fix --dry-run` prints (#360): Myers' shortest
@@ -69,6 +71,82 @@ void main() {
       '--- a.dart\n+++ a.dart\n@@ 2 @@\n-b\n+B\n@@ 5 @@\n+e\n',
     );
     expect(lintFixDiff('a.dart', 'x', 'x'), '--- a.dart\n+++ a.dart\n');
+  });
+
+  group('countAnalyzeErrors', () {
+    late Directory root;
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('count_errors');
+      File(p.join(root.path, 'lib', 'a.dart'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('x\n');
+    });
+    tearDown(() => root.deleteSync(recursive: true));
+
+    /// One `--format=machine` error line for [file].
+    String error(String file) {
+      final escaped = file.replaceAll(r'\', r'\\');
+      return 'ERROR|COMPILE_TIME_ERROR|X|$escaped|1|1|1|bad';
+    }
+
+    String real(String relative) =>
+        File(p.join(root.path, relative)).resolveSymbolicLinksSync();
+
+    test('counts the real path dart analyze writes', () {
+      expect(
+        countAnalyzeErrors(error(real('lib/a.dart')), root.path, [
+          'lib/a.dart',
+        ]),
+        {'lib/a.dart': 1},
+      );
+    });
+
+    test('an error in a file it was not asked about: no verdict', () {
+      expect(
+        countAnalyzeErrors(error(real('lib/a.dart')), root.path, [
+          'lib/b.dart',
+        ]),
+        isNull,
+      );
+    });
+
+    test('a root reached through a link counts the same', () {
+      final link = Link('${root.path}_link');
+      try {
+        link.createSync(root.path);
+      } on FileSystemException {
+        markTestSkipped('cannot make links here');
+        return;
+      }
+      addTearDown(link.deleteSync);
+      expect(
+        countAnalyzeErrors(error(real('lib/a.dart')), link.path, [
+          'lib/a.dart',
+        ]),
+        {'lib/a.dart': 1},
+      );
+    });
+
+    test('Windows: a short 8.3 root and another case count the same', () {
+      // `cmd` prints the 8.3 name of the folder, as GitHub's runner has
+      // it (`C:\Users\RUNNER~1\...`); the same path when the volume has
+      // no short names. (No quotes around the path: Dart's own quoting of
+      // the argument would reach `for` as part of the name; the temporary
+      // folder has no spaces.)
+      expect(root.path, isNot(contains(' ')));
+      final short = Process.runSync('cmd', [
+        '/c',
+        'for %I in (${root.path}) do @echo %~sI',
+      ]).stdout.toString().trim();
+      expect(Directory(short).existsSync(), isTrue, reason: short);
+      for (final base in [short, root.path.toUpperCase()]) {
+        expect(
+          countAnalyzeErrors(error(real('lib/a.dart')), base, ['lib/a.dart']),
+          {'lib/a.dart': 1},
+          reason: base,
+        );
+      }
+    }, skip: Platform.isWindows ? false : 'Windows paths');
   });
 
   test('machine output fields are unescaped', () {
