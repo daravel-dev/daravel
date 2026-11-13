@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/sessions.md`.
 const String pageIdSessions =
-    r'''<!-- source: sessions.md sha256:e123d402e6b2 -->
+    r'''<!-- source: sessions.md sha256:3a19b4ec8815 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -72,6 +72,15 @@ Dengan beberapa isolate atau server, pakai `database` atau `redis` (atau
 driver `file` di satu mesin): driver `array` hanya memori satu isolate.
 `CreateSessionsTable` membuat tabel Laravel dan tidak berbuat apa-apa bila
 tabelnya sudah ada.
+
+Seperti di Laravel, 2 dari 100 request membersihkan sesi yang kedaluwarsa,
+tetapi request itu tidak menunggunya: pembersihan berjalan di background,
+satu per satu per isolate, dan shutdown menunggu pembersihan yang sedang
+berjalan. Driver `file` membersihkan dalam putaran berisi paling banyak
+2.000 berkas atau 250 ms, masing-masing melanjutkan dari posisi putaran
+sebelumnya, sehingga direktori dengan banyak sesi tidak pernah menahan
+request lain di isolate itu. Kedaluwarsa membandingkan waktu modifikasi
+berkas dengan `Clock.now()`, jadi `travel()` di uji membuat berkas menua.
 
 ### Driver redis dan cache
 

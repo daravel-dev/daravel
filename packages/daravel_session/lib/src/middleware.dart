@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -13,7 +14,7 @@ import 'session.dart';
 /// (decrypted by [EncryptCookiesMiddleware] when that runs first), the
 /// attributes from the handler; the response gets the cookie back, the
 /// previous URL is recorded for `GET` page requests, and 2 requests in 100
-/// sweep expired sessions.
+/// start a sweep of expired sessions, which they do not wait for.
 final class StartSessionMiddleware implements RunsBeforeBindings {
   /// Starts the session of each request and saves it after the response.
   const StartSessionMiddleware({this.lottery});
@@ -34,7 +35,7 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
     }
     request.attributes[RequestSession.sessionAttribute] = session;
     Container.current.currentScope?.put<Session>(session);
-    await _collectGarbage(manager, config);
+    _collectGarbage(manager, config);
 
     final response = await next(request);
 
@@ -75,14 +76,14 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
     );
   }
 
-  Future<void> _collectGarbage(
-    SessionManager manager,
-    SessionConfig config,
-  ) async {
+  /// Starts a sweep for a request that wins the lottery, without waiting
+  /// for it ([SessionGarbageCollector]).
+  void _collectGarbage(SessionManager manager, SessionConfig config) {
     final (hits, outOf) = config.lottery;
     final random = lottery ?? _shared;
     if (random.nextInt(outOf) + 1 <= hits) {
-      await manager.handler.gc(config.lifetime);
+      // Never fails: a sweep's error goes to the application's logger.
+      unawaited(manager.garbageCollector.trigger());
     }
   }
 
