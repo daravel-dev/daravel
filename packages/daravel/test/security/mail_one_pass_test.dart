@@ -1,13 +1,16 @@
 @Tags(['security'])
 library;
 
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:daravel/daravel.dart';
 import 'package:daravel/src/foundation/regexp_chars.dart';
 import 'package:daravel/src/mail/one_pass.dart';
 import 'package:test/test.dart';
 
+import 'layout_golden.dart';
 import 'mail_golden.dart';
 
 /// Mail markdown and addresses are read in one pass. The regular
@@ -160,6 +163,105 @@ void main() {
       });
     }
 
+    // HTML as markdown renders it, and component attributes: tag names
+    // with and without a word boundary, `style="`, attribute pieces.
+    // Attribute pairs match in about 42 000 of the values and opening tags
+    // in about 45 000 (several times in 14 000 and 16 000).
+    const htmlFragments = [
+      '<p',
+      '<p ',
+      '<p>',
+      '<h1',
+      '<h10',
+      '<h2 ',
+      '<a ',
+      '<a',
+      '<ab',
+      '<table',
+      '<thead',
+      '<td ',
+      '<th>',
+      '<img ',
+      '<blockquote',
+      '<ul>',
+      '<ol ',
+      '<b',
+      'style="',
+      'x="',
+      'data-y="',
+      'a-b',
+      'url="u"',
+      'color="c" ',
+      '"',
+      '>',
+      '<',
+      ' ',
+      'w',
+      '-',
+      '=',
+      '"x">',
+      '\n',
+      '_',
+      '9',
+      // So that styled anchors match often (13 200 of 100 000 values,
+      // 1 233 several times) rather than 4 times.
+      'style="c">',
+      '<a style="c">',
+      '<a x ',
+    ];
+    String htmlValue(int parts) => [
+      for (var n = random.nextInt(parts + 1); n > 0; n--)
+        htmlFragments[random.nextInt(htmlFragments.length)],
+    ].join();
+    const tagNames = [
+      'p',
+      'h1',
+      'h2',
+      'h3',
+      'a',
+      'ul',
+      'ol',
+      'blockquote',
+      'img',
+      'th',
+      'td',
+      'table',
+    ];
+    for (final (label, expected, actual)
+        in <(String, String Function(String), String Function(String))>[
+          (
+            'attributePairs',
+            (t) => [
+              for (final m in RegExp(r'([\w-]+)="([^"]*)"').allMatches(t))
+                pair(m),
+            ].join(),
+            (t) => [for (final (a, b) in attributePairs(t)) '{$a|$b}'].join(),
+          ),
+          (
+            'replaceOpeningTags',
+            (t) => t.replaceAllMapped(
+              RegExp('<(${tagNames.join('|')})\\b([^>]*)>'),
+              pair,
+            ),
+            (t) => replaceOpeningTags(t, tagNames, (a, b) => '{$a|$b}'),
+          ),
+          (
+            'replaceStyledAnchors',
+            (t) => t.replaceAllMapped(
+              RegExp('<a ([^>]*?)style="[^"]*">'),
+              (m) => '{${m[1]}}',
+            ),
+            (t) => replaceStyledAnchors(t, (a) => '{$a}'),
+          ),
+        ]) {
+      test('$label: 100 000 random values', () {
+        for (var i = 0; i < 100000; i++) {
+          final text = htmlValue(i.isEven ? 6 : 14);
+          expect(actual(text), expected(text), reason: text);
+        }
+      });
+    }
+
     test('replaceAttributeTags: values written out', () {
       final regex = RegExp(
         r'<a [^>]*href="([^"]*)"[^>]*>(.*?)</a>',
@@ -215,6 +317,21 @@ void main() {
         expect(outcome(() => MailAddress.parse(input)), address, reason: input);
       }
     });
+
+    test('MailTheme.layout (footer and subcopy): what the regular '
+        'expressions gave on 200 random values', () {
+      for (final (footer, subcopy, digest) in layoutGolden) {
+        final html = MailTheme(
+          appName: 'App',
+          footer: footer,
+        ).layout('<p>b</p>', subcopy: subcopy);
+        expect(
+          '${sha256.convert(utf8.encode(html))}',
+          digest,
+          reason: '$footer | $subcopy',
+        );
+      }
+    });
   });
 
   // Three sizes, n, 8n and 64n: the step 8n to 64n is judged, about 8
@@ -261,6 +378,40 @@ void main() {
       (
         'MailTheme.render, panels without a closing tag',
         (n) => theme.render('<x-mail::panel>' * (n ~/ 15)),
+        8000,
+      ),
+      // Button attributes: a run of word characters without `="`.
+      (
+        'MailTheme.render, a button with a long attribute run',
+        (n) => theme.render('<x-mail::button ${'a' * n}>x</x-mail::button>'),
+        8000,
+      ),
+      // An HTML block passes through markdown as it is, so its tags reach
+      // the inline styles without a `>`.
+      (
+        'MailTheme.render, <p  then <a  without >',
+        (n) => theme.render('<p ${'<a ' * (n ~/ 3)}'),
+        8000,
+      ),
+      (
+        'MailTheme.render, <p  repeated without >',
+        (n) => theme.render('<p ${'<p ' * (n ~/ 3)}'),
+        8000,
+      ),
+      (
+        'MailTheme.layout, a footer of <a  without style=',
+        (n) => MailTheme(
+          appName: 'App',
+          footer: '<p ${'<a ' * (n ~/ 3)}',
+        ).layout('b'),
+        8000,
+      ),
+      (
+        'MailTheme.layout, a footer of <a style=" without >',
+        (n) => MailTheme(
+          appName: 'App',
+          footer: '<p ${'<a style="' * (n ~/ 10)}',
+        ).layout('b'),
         8000,
       ),
       (
