@@ -13,6 +13,8 @@
 
 - `daravel_horizon`: a job that crashed its workers was quarantined only when it was among the first 1 000 pending jobs of its queue; it is now looked for page by page through the whole queue (pages overlap, as workers pop from the head meanwhile), up to 100 000 jobs, and a job not found within that is logged and stays queued.
 
+- `daravel_horizon` dashboard: the payloads of `/api/jobs/pending` and `/api/jobs/failed/{uuid}` came back as stored, hidden Context (`Context.addHidden`) included, and the page showed them. They now leave without the hidden Context (Daravel's `context` and Laravel's `illuminate:log:context` alike), the rest redacted as a log context is (`LOG_REDACT`). Laravel Horizon's API returns the hidden Context; this one does not. Retrying a job still pushes its stored payload.
+
 ### Upgrade notes
 
 - `daravel_horizon`: the dashboard is closed outside `APP_ENV=local` until the `viewHorizon` gate or `HorizonDashboard.auth` allows a request; middleware such as `['auth']` alone no longer opens it, and tests that relied on `APP_ENV=testing` need `HorizonDashboard.auth((request) => true)` (reset with `HorizonDashboard.auth(null)`) or the gate. New public name `HorizonDashboard.auth`.

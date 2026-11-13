@@ -16,6 +16,20 @@ final class Mail extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+/// A job whose data holds a password, for the redaction of payloads.
+final class Signup extends Job {
+  const Signup();
+  @override
+  String get jobName => 'signup';
+  @override
+  Map<String, Object?> toJson() => const {
+    'email': 'ana@example.com',
+    'password': 'hunter2',
+  };
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}
+
 /// [env] `BASE_PATH` is the test's own directory: the default signal
 /// store is a file cache under it, which test files running in parallel
 /// would otherwise share (a status written by one seen by another).
@@ -255,6 +269,56 @@ void main() {
     expect(a['length'], 2);
     expect(a['processes'], 1);
     expect(a['wait'], isNotNull, reason: 'two jobs of 12 ms on one worker');
+  });
+
+  test('payloads leave without their hidden context, the rest redacted '
+      'as in the logs', () async {
+    await boot();
+    await app.run(() async {
+      Context.add('trace', 't-visible');
+      Context.addHidden('tenant_key', 'hidden-value');
+      await Queue.push(const Signup(), queue: 'a');
+      await App.make<QueueManager>().processor.failedJobs.log(
+        connection: 'database',
+        queue: 'a',
+        payload: JobPayload.forJob(const Signup(), uuid: 'd1').encode(),
+        exception: 'StateError: boom',
+      );
+      // A job Laravel pushed onto the shared table: its Context under
+      // Laravel's own key.
+      await App.make<QueueManager>().processor.failedJobs.log(
+        connection: 'database',
+        queue: 'a',
+        payload: jsonEncode({
+          'uuid': 'l1',
+          'displayName': r'App\Jobs\Signup',
+          'data': {'command': 'O:8:"stdClass":0:{}'},
+          'illuminate:log:context': {
+            'data': {'trace': 's:9:"t-visible";'},
+            'hidden': {'tenant_key': 's:12:"hidden-value";'},
+          },
+        }),
+        exception: 'StateError: boom',
+      );
+    });
+    final pending =
+        ((await client.get('/horizon/api/jobs/pending')).jsonMap['jobs']!
+                    as List<Object?>)
+                .single!
+            as Map;
+    for (final payload in [
+      pending['payload']! as String,
+      (await client.get('/horizon/api/jobs/failed/d1')).jsonMap['payload']!
+          as String,
+      (await client.get('/horizon/api/jobs/failed/l1')).jsonMap['payload']!
+          as String,
+    ]) {
+      expect(payload, isNot(contains('hidden-value')));
+      expect(payload, isNot(contains('tenant_key')));
+      expect(payload, isNot(contains('hunter2')));
+      expect(payload, contains('t-visible'), reason: 'visible context stays');
+      expect(jsonDecode(payload), isA<Map<String, Object?>>());
+    }
   });
 
   test('a failed job: detail from failed_jobs, retry and retry-all', () async {

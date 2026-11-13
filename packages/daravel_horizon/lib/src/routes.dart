@@ -507,7 +507,11 @@ abstract final class HorizonDashboard {
         skip = 0;
         need -= page.length;
         for (final job in page) {
-          jobs.add({...job.toJson(), 'connection': connection});
+          jobs.add({
+            ...job.toJson(),
+            'payload': _shown(job.payload),
+            'connection': connection,
+          });
         }
       }
     }
@@ -550,6 +554,41 @@ abstract final class HorizonDashboard {
         const <Object?>[],
   };
 
+  /// The keys under which a payload carries the dispatching Context:
+  /// Daravel's, and Laravel's for a job pushed by a Laravel application
+  /// on the same table.
+  static const List<String> _contextKeys = [
+    'context',
+    'illuminate:log:context',
+  ];
+
+  /// [payload] as the dashboard shows it: without the hidden Context
+  /// (`Context.addHidden`, which never reaches the logs either), and the
+  /// rest redacted as a log context is (`LOG_REDACT`). Laravel Horizon's
+  /// API returns the hidden Context with the payload; this one does not.
+  /// A payload that is not a JSON object is shown as stored.
+  static String _shown(String payload) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } on FormatException {
+      return payload;
+    }
+    if (decoded is! Map<String, Object?>) {
+      return payload;
+    }
+    final visible = <String, Object?>{
+      for (final MapEntry(:key, :value) in decoded.entries)
+        key: _contextKeys.contains(key) && value is Map<String, Object?>
+            ? {
+                for (final entry in value.entries)
+                  if (entry.key != 'hidden') entry.key: entry.value,
+              }
+            : value,
+    };
+    return jsonEncode(Container.current.make<Logger>().redact(visible));
+  }
+
   static Future<Object?> _failedJob(Request request) async {
     final uuid = request.param<String>('uuid');
     final recorded = (await _call('job', (s) => s.job(uuid)))?.toJson();
@@ -563,7 +602,7 @@ abstract final class HorizonDashboard {
         'id': '${failed.id}',
         'connection': failed.connection,
         'queue': failed.queue,
-        'payload': failed.payload,
+        'payload': _shown(failed.payload),
         'exception': failed.exception,
         'failed_at': failed.failedAt.toUtc().toIso8601String(),
       },
