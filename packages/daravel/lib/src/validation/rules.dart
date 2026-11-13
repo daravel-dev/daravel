@@ -1370,7 +1370,7 @@ String _withoutOuterSpace(String text) {
 /// single `^\s*…\s*$` regex in their place took time quadratic in the
 /// length of the value (from 1.22.0 until this was fixed): the spaces
 /// around are stripped first now.
-(BigInt, int)? _decimalOf(Object? value) {
+_Decimal? _decimalOf(Object? value) {
   if (value is! String && value is! num) {
     return null;
   }
@@ -1386,22 +1386,111 @@ String _withoutOuterSpace(String text) {
   if (whole.isEmpty && fraction.isEmpty) {
     return null;
   }
-  final digits = BigInt.parse('$whole$fraction');
-  final exponent = int.parse(match[4] ?? '0');
-  var scale = fraction.length - exponent;
-  var unscaled = match[1] == '-' ? -digits : digits;
-  if (scale < 0) {
-    unscaled *= BigInt.from(10).pow(-scale);
-    scale = 0;
-  }
-  return (unscaled, scale);
+  // The exponent has at most four digits (`_decimalPattern`).
+  return _Decimal(
+    negative: match[1] == '-',
+    digits: '$whole$fraction',
+    point: whole.length + int.parse(match[4] ?? '0'),
+  );
 }
 
-/// Both at the larger scale, so they compare as integers.
-(BigInt, BigInt) _aligned((BigInt, int) a, (BigInt, int) b) {
-  final scale = a.$2 > b.$2 ? a.$2 : b.$2;
-  BigInt at((BigInt, int) n) => n.$1 * BigInt.from(10).pow(scale - n.$2);
-  return (at(a), at(b));
+/// An exact decimal kept as its digits, never as one big integer: the
+/// value is `±0.[digits] × 10^[point]`, with no zero at either end of
+/// [digits] (empty for zero). Reading, comparing and dividing by a short
+/// factor are linear in the number of digits. Before, the value went
+/// through `BigInt.parse`, quadratic in its length: 256 000 digits held a
+/// request for a second, 1 000 000 digits for 35 to 46 s (from 1.22.0
+/// until this was fixed).
+final class _Decimal {
+  factory _Decimal({
+    required bool negative,
+    required String digits,
+    required int point,
+  }) {
+    var start = 0;
+    while (start < digits.length && digits.codeUnitAt(start) == 0x30) {
+      start++;
+    }
+    var end = digits.length;
+    while (end > start && digits.codeUnitAt(end - 1) == 0x30) {
+      end--;
+    }
+    if (start == end) {
+      return const _Decimal._(0, '', 0);
+    }
+    return _Decimal._(
+      negative ? -1 : 1,
+      digits.substring(start, end),
+      point - start,
+    );
+  }
+
+  const _Decimal._(this.sign, this.digits, this.point);
+
+  /// -1, 0 or 1.
+  final int sign;
+
+  /// The significant digits, without zeros at either end.
+  final String digits;
+
+  /// The value is `0.[digits] × 10^point`.
+  final int point;
+
+  /// The digits after the decimal point when the value is written out
+  /// (negative: it ends in that many zeros before the point).
+  int get scale => digits.length - point;
+
+  /// Orders by value: the sign, then the position of the point, then the
+  /// digits from the first; linear in their length.
+  int compareTo(_Decimal other) {
+    if (sign != other.sign) {
+      return sign.compareTo(other.sign);
+    }
+    if (sign == 0) {
+      return 0;
+    }
+    final magnitude = point != other.point
+        ? point.compareTo(other.point)
+        : digits.compareTo(other.digits);
+    return sign * magnitude;
+  }
+
+  /// Whether this is a whole multiple of [factor] (not zero).
+  ///
+  /// A value with more digits after the point than [factor] is not one:
+  /// its last digit is not a zero, so it is not a multiple of the power of
+  /// ten [factor]'s scale would need. Otherwise its digits are taken modulo
+  /// [factor]'s one at a time (the factor is the developer's, short), then
+  /// scaled to [factor]'s scale: linear in the length of the value.
+  bool isMultipleOf(_Decimal factor) {
+    if (sign == 0) {
+      return true;
+    }
+    if (scale > factor.scale) {
+      return false;
+    }
+    final divisor = BigInt.parse(factor.digits);
+    final shift = BigInt.from(factor.scale - scale);
+    final ten = BigInt.from(10);
+    if (divisor.bitLength < 48) {
+      // The usual case, in machine integers: remainder * 10 + 9 stays far
+      // below 2^63.
+      final d = divisor.toInt();
+      var remainder = 0;
+      for (var i = 0; i < digits.length; i++) {
+        remainder = (remainder * 10 + digits.codeUnitAt(i) - 0x30) % d;
+      }
+      return (BigInt.from(remainder) * ten.modPow(shift, divisor)) % divisor ==
+          BigInt.zero;
+    }
+    var remainder = BigInt.zero;
+    for (var i = 0; i < digits.length; i++) {
+      remainder =
+          (remainder * ten + BigInt.from(digits.codeUnitAt(i) - 0x30)) %
+          divisor;
+    }
+    return (remainder * ten.modPow(shift, divisor)) % divisor == BigInt.zero;
+  }
 }
 
 /// PHP's `gettype` equality (`isSameType`): an int and a float differ.
@@ -1454,13 +1543,11 @@ final class CompareRule extends Rule {
       if (compared != null || decimal == null) {
         return failure;
       }
-      final (a, b) = _aligned(decimal, literal);
-      return _holds(a.compareTo(b)) ? null : failure;
+      return _holds(decimal.compareTo(literal)) ? null : failure;
     }
     final other = _decimalOf(compared);
     if (decimal != null && other != null) {
-      final (a, b) = _aligned(decimal, other);
-      return _holds(a.compareTo(b)) ? null : failure;
+      return _holds(decimal.compareTo(other)) ? null : failure;
     }
     if (!_sameType(value, compared)) {
       return failure;
@@ -1536,11 +1623,10 @@ final class MultipleOfRule extends Rule {
     if (value == null || divisor == null) {
       return 'multiple_of';
     }
-    if (divisor.$1 == BigInt.zero) {
+    if (divisor.sign == 0) {
       return 'multiple_of';
     }
-    final (a, b) = _aligned(value, divisor);
-    return a.remainder(b) == BigInt.zero ? null : 'multiple_of';
+    return value.isMultipleOf(divisor) ? null : 'multiple_of';
   }
 }
 
