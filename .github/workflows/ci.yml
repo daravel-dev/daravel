@@ -148,6 +148,15 @@ jobs:
             (cd "$pkg" && dart test --reporter=expanded)
           done
 
+      # daravel_reverb_client names the web as a platform: its crypto and the
+      # library compiled to JavaScript, where integers are JavaScript numbers.
+      # The files that need dart:io are @TestOn('vm'). Chrome is on GitHub's
+      # Ubuntu runners; locally this takes about 45 s.
+      - name: Test daravel_reverb_client in a browser
+        if: runner.os == 'Linux' && matrix.sdk == 'stable'
+        working-directory: packages/daravel_reverb_client
+        run: dart test -p chrome --reporter=expanded
+
       - name: Verify pub.dev packaging (dry-run)
         if: runner.os == 'Linux' && matrix.sdk == 'stable'
         run: |
