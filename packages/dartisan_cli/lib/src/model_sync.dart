@@ -98,16 +98,29 @@ final class ModelSource {
   /// Its `guarded:` list (`['*']` when not declared).
   final List<String> guarded;
 
-  /// Whether [column] may be mass assigned, as `ModelDefinition.isFillable`.
+  /// Whether [column] may be mass assigned, as `ModelDefinition.isFillable`
+  /// decides (`test/model_sync_fillable_test.dart` keeps the two equal).
   bool isFillable(String column) {
     if (fillable.contains(column)) {
       return true;
     }
-    if (fillable.isNotEmpty) {
+    if (fillable.isNotEmpty || guarded.contains('*')) {
       return false;
     }
-    return !guarded.contains('*') && !guarded.contains(column);
+    if (column.contains('.') || column.startsWith('_')) {
+      return false;
+    }
+    if (guarded.isEmpty) {
+      return true;
+    }
+    if (!_plainIdentifier.hasMatch(column)) {
+      return false;
+    }
+    final lower = column.toLowerCase();
+    return !guarded.any((g) => g.toLowerCase() == lower);
   }
+
+  static final RegExp _plainIdentifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 }
 
 /// One entry of a model's `relations:` map: its [name], the relation class

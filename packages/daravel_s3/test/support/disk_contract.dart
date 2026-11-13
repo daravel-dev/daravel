@@ -22,6 +22,65 @@ void diskContract(Future<Disk> Function() create) {
     expect(await disk.size('bin/all.bytes'), 256);
   });
 
+  test('a path that names the disk root is no file: reads answer "not '
+      'found", writes and URLs are refused', () async {
+    await disk.put('sub/kept.txt', 'kept');
+    for (final path in ['', '.', 'sub/..']) {
+      expect(await disk.exists(path), isFalse, reason: '"$path"');
+      expect(await disk.missing(path), isTrue, reason: '"$path"');
+      expect(await disk.delete(path), isFalse, reason: '"$path"');
+      for (final read in <Future<Object?> Function()>[
+        () => disk.get(path),
+        () => disk.getBytes(path),
+        () => disk.readStream(path).toList(),
+        () => disk.size(path),
+        () => disk.lastModified(path),
+      ]) {
+        await expectLater(
+          read(),
+          throwsA(isA<StorageException>()),
+          reason: '"$path"',
+        );
+      }
+      for (final write in <Future<void> Function()>[
+        () => disk.put(path, 'x'),
+        () => disk.putStream(path, Stream.value(utf8.encode('x'))),
+        () => disk.append(path, 'x'),
+        () => disk.copy('sub/kept.txt', path),
+        () => disk.move('sub/kept.txt', path),
+      ]) {
+        await expectLater(
+          write(),
+          throwsA(isA<StorageException>()),
+          reason: '"$path"',
+        );
+      }
+      expect(() => disk.url(path), throwsA(isA<StorageException>()));
+    }
+    expect(await disk.get('sub/kept.txt'), 'kept', reason: 'untouched');
+  });
+
+  test('copy and move onto itself keep the file; a missing one is not '
+      'found', () async {
+    await disk.put('same/a.txt', 'nineteen bytes long');
+    await disk.copy('same/a.txt', 'same/a.txt');
+    expect(await disk.get('same/a.txt'), 'nineteen bytes long');
+    await disk.copy('same/a.txt', 'same/./a.txt');
+    expect(await disk.get('same/a.txt'), 'nineteen bytes long');
+    await disk.move('same/a.txt', 'same/a.txt');
+    expect(await disk.get('same/a.txt'), 'nineteen bytes long');
+    await disk.move('same/a.txt', 'same/x/../a.txt');
+    expect(await disk.get('same/a.txt'), 'nineteen bytes long');
+    await expectLater(
+      disk.copy('same/none.txt', 'same/none.txt'),
+      throwsA(isA<StorageException>()),
+    );
+    await expectLater(
+      disk.move('same/none.txt', 'same/none.txt'),
+      throwsA(isA<StorageException>()),
+    );
+  });
+
   test('put overwrites', () async {
     await disk.put('a.txt', 'one');
     await disk.put('a.txt', 'two');

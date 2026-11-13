@@ -110,7 +110,11 @@ final class BodyLimitsMiddleware implements Middleware {
     request.maxBodyBytes = limitFor(request);
     request.maxJsonDepth = jsonDepth;
     final declared = request.contentLength;
-    if (declared != null && declared > request.maxBodyBytes!) {
+    // Declared over the limit, or already read over it (on a route group,
+    // after something read the body before routing; chunked, it declares
+    // nothing).
+    if ((declared != null && declared > request.maxBodyBytes!) ||
+        request.bodyBytesRead > request.maxBodyBytes!) {
       return Future<Response>.value(
         // Laravel's ValidatePostSize message; the limit is not disclosed.
         laravelErrorResponse(<String, Object?>{

@@ -292,7 +292,9 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
   /// [value] fitted to [columnWidth] characters (code points): a longer
   /// one is cut, its last character replaced by `…` to show it. The
   /// record (`record`, a text column) keeps the whole value; the columns
-  /// are what lists, counts and tags are looked up by.
+  /// are what lists, counts and tags are looked up by. Two uuids longer
+  /// than the column that share their first 254 characters become one
+  /// row; a job's own uuid has 36.
   static String fit(String value) {
     if (value.length <= columnWidth) {
       return value; // Never more code points than UTF-16 units.

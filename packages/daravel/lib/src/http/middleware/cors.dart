@@ -70,6 +70,24 @@ final class CorsMiddleware implements Middleware {
       request.method == 'OPTIONS' &&
       request.headers.has('access-control-request-method');
 
+  /// The `Vary` of [response] with `Origin` among its fields: what the
+  /// handler varied on (`Accept-Encoding`, say) stays, as Laravel's
+  /// `HandleCors` keeps it (`fruitcake/php-cors` 1.4
+  /// `CorsService::varyHeader` appends). Unlike it, an `origin` in another
+  /// case is not added twice, and `*` (which varies on everything) is left
+  /// as it is.
+  static String _varyOrigin(Response response) {
+    final fields = [
+      for (final value in response.headers.all('vary'))
+        for (final field in value.split(','))
+          if (field.trim().isNotEmpty) field.trim(),
+    ];
+    if (fields.any((f) => f == '*' || f.toLowerCase() == 'origin')) {
+      return fields.join(', ');
+    }
+    return [...fields, 'Origin'].join(', ');
+  }
+
   @override
   Future<Response> handle(Request request, Next next) async {
     final origin = request.headers.first('origin');
@@ -81,7 +99,7 @@ final class CorsMiddleware implements Middleware {
         return Response.noContent().withHeader('vary', 'Origin');
       }
       final response = await next(request);
-      return response.withHeader('vary', 'Origin');
+      return response.withHeader('vary', _varyOrigin(response));
     }
     if (_isPreflight(request)) {
       return _decorate(
@@ -105,7 +123,7 @@ final class CorsMiddleware implements Middleware {
       'access-control-allow-origin': _allowAny && !config.supportsCredentials
           ? '*'
           : origin,
-      'vary': 'Origin',
+      'vary': _varyOrigin(response),
     };
     if (config.supportsCredentials) {
       headers['access-control-allow-credentials'] = 'true';

@@ -14,51 +14,53 @@ void main() {
   late TestClient json;
   late Application jsonApp;
 
-  Application build(String serialization) =>
-      Application.configure(basePath: base.path)
-          .withEnv({
-            'APP_ENV': 'testing',
-            'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-            'DB_DATABASE': ':memory:',
-            'SESSION_DRIVER': 'array',
-            'SESSION_SERIALIZATION': serialization,
-          })
-          .withLogLevel(LogLevel.critical)
-          .withSession()
-          .withRouting(
-            web: (router) {
-              router.group((r) {
-                Future<Object?> save(Request request) async {
-                  await request.validate({'title': 'required'});
-                  return {'ok': true};
-                }
+  Application build(
+    String serialization,
+  ) => Application.configure(basePath: base.path)
+      .withEnv({
+        'APP_ENV': 'testing',
+        'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        'DB_DATABASE': ':memory:',
+        'SESSION_DRIVER': 'array',
+        'SESSION_SERIALIZATION': serialization,
+      })
+      .withLogLevel(LogLevel.critical)
+      .withSession(dontFlash: const ['user.secret'])
+      .withRouting(
+        web: (router) {
+          router.group((r) {
+            Future<Object?> save(Request request) async {
+              await request.validate({'title': 'required'});
+              return {'ok': true};
+            }
 
-                r.post('/items', save);
-                r.put('/items', save);
-                r.get(
-                  '/raw',
-                  (request) => {
-                    'class': switch (request.session.get<Object>('errors')) {
-                      final PhpObject object => object.className,
-                      final other => '${other.runtimeType}',
-                    },
-                  },
-                );
-                r.get(
-                  '/shape',
-                  (request) => request.session.get<Object>('errors'),
-                );
-                r.get('/form', (request) {
-                  return {
-                    'errors': request.session.errors,
-                    'old': request.session.old<String>('name'),
-                    'password': request.session.old<String>('password'),
-                  };
-                });
-              }, middleware: const ['encrypt_cookies', 'session']);
-            },
-          )
-          .create();
+            r.post('/items', save);
+            r.put('/items', save);
+            r.get(
+              '/raw',
+              (request) => {
+                'class': switch (request.session.get<Object>('errors')) {
+                  final PhpObject object => object.className,
+                  final other => '${other.runtimeType}',
+                },
+              },
+            );
+            r.get('/shape', (request) => request.session.get<Object>('errors'));
+            r.get(
+              '/old-input',
+              (request) => {'old': request.session.get<Object>('_old_input')},
+            );
+            r.get('/form', (request) {
+              return {
+                'errors': request.session.errors,
+                'old': request.session.old<String>('name'),
+                'password': request.session.old<String>('password'),
+              };
+            });
+          }, middleware: const ['encrypt_cookies', 'session']);
+        },
+      )
+      .create();
 
   setUp(() async {
     base = Directory.systemTemp.createTempSync('daravel_redirect');
@@ -158,5 +160,68 @@ void main() {
       expect(failed.status, 422, reason: '$headers');
       expect(failed.jsonMap['errors'], contains('title'));
     }
+  });
+
+  test('uploaded files at any depth are not flashed: a redirect, not a '
+      '500, with either serialization', () async {
+    for (final (name, http) in [('php', client), ('json', json)]) {
+      final failed = await http.post(
+        '/items',
+        form: {
+          'note': 'kept',
+          'user[name]': 'Ana',
+          'user[secret]': 'hidden',
+          'password': 'never',
+        },
+        files: {
+          'files': [UploadedFile.fake.create('a.txt', kilobytes: 1)],
+          'user[avatar]': UploadedFile.fake.image('me.png'),
+        },
+        headers: browser,
+      );
+      expect(failed.status, 302, reason: name);
+      final cookie = failed.headers.all('set-cookie').first.split(';').first;
+      final old =
+          (await http.get(
+                '/old-input',
+                headers: {'cookie': cookie},
+              )).jsonMap['old']!
+              as Map<String, Object?>;
+      expect(old['note'], 'kept', reason: name);
+      expect(
+        old['user'],
+        {'name': 'Ana'},
+        reason:
+            '$name: no avatar, '
+            'no user.secret (dontFlash in dot notation)',
+      );
+      expect(old.containsKey('password'), isFalse, reason: name);
+      expect(old['files'], anyOf(isNull, isEmpty), reason: name);
+    }
+  });
+
+  test('flashableInput: files out at any depth; a list keeps the indices '
+      'of what is left, as PHP', () {
+    final file = UploadedFile.fake.create('a.txt');
+    expect(
+      flashableInput({
+        'a': 1,
+        'f': file,
+        'nested': {
+          'f': file,
+          'deep': {'f': file, 'x': 'y'},
+        },
+        'list': ['first', file, 'third'],
+        'plain': ['a', 'b'],
+      }),
+      {
+        'a': 1,
+        'nested': {
+          'deep': {'x': 'y'},
+        },
+        'list': {'0': 'first', '2': 'third'},
+        'plain': ['a', 'b'],
+      },
+    );
   });
 }

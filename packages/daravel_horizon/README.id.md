@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:cf4dd29e14a7 -->
+<!-- source: README.md sha256:5bce9fa59dc2 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -48,7 +48,14 @@ melayani API JSON dashboard di bawah `HORIZON_PATH` (`/horizon/api/...`)
 dengan nama rute Laravel Horizon: statistik, beban kerja, master, tag yang
 dimonitor, metrik job dan queue, job pending, completed, silenced, dan failed,
 retry dan retry-all, serta `/horizon/api/stream` (statistik dan beban kerja
-lewat server-sent events setiap detik). Di luar `APP_ENV=local` dan `testing`,
+lewat server-sent events setiap detik). Retry-all (tambahan Daravel: Laravel
+Horizon me-retry satu job sekali jalan) mendorong kembali paling banyak 1 000
+job gagal atau sebanyak yang muat dalam 10 detik per request, lalu menjawab
+berapa yang tersisa (`remaining`); dashboard memanggil lagi dengan `after` dan
+`up_to` yang diterimanya sampai tidak ada yang tersisa. Retry-all yang sedang
+berjalan membuat panggilan lain dijawab 409, dan job yang payload-nya tidak
+terbaca tetap di `failed_jobs`, tercantum di `skipped`. Di luar `APP_ENV=local`
+dan `testing`,
 API menjawab 403 sampai middleware melindunginya. Snapshot metrik diambil oleh
 Horizon yang sedang berjalan: `dartisan horizon:snapshot` hanya memintanya,
 jadi jadwalkan perintah itu setiap lima menit.

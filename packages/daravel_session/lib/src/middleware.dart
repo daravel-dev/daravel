@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -5,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:daravel/daravel.dart';
 
 import 'config.dart';
+import 'handlers.dart';
 import 'manager.dart';
 import 'session.dart';
 
@@ -13,7 +15,8 @@ import 'session.dart';
 /// (decrypted by [EncryptCookiesMiddleware] when that runs first), the
 /// attributes from the handler; the response gets the cookie back, the
 /// previous URL is recorded for `GET` page requests, and 2 requests in 100
-/// sweep expired sessions.
+/// sweep expired sessions: in the request for a one-query sweep, detached
+/// from it for a handler that [SweepsInRounds] (the `file` driver).
 final class StartSessionMiddleware implements RunsBeforeBindings {
   /// Starts the session of each request and saves it after the response.
   const StartSessionMiddleware({this.lottery});
@@ -75,14 +78,24 @@ final class StartSessionMiddleware implements RunsBeforeBindings {
     );
   }
 
+  /// Sweeps for a request that wins the lottery: a handler that
+  /// [SweepsInRounds] detached ([SessionGarbageCollector]), any other in
+  /// the request, so its query stays in the request's transaction.
   Future<void> _collectGarbage(
     SessionManager manager,
     SessionConfig config,
   ) async {
     final (hits, outOf) = config.lottery;
     final random = lottery ?? _shared;
-    if (random.nextInt(outOf) + 1 <= hits) {
-      await manager.handler.gc(config.lifetime);
+    if (random.nextInt(outOf) + 1 > hits) {
+      return;
+    }
+    final handler = manager.handler;
+    if (handler is SweepsInRounds) {
+      // Never fails: a sweep's error goes to the application's logger.
+      unawaited(manager.garbageCollector.trigger());
+    } else {
+      await handler.gc(config.lifetime);
     }
   }
 

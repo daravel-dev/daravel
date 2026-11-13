@@ -135,14 +135,32 @@ final class ReadThroughDisk implements Disk {
     }
   }
 
+  /// Whether [from] and [to] are one file: copying or moving it onto itself
+  /// does nothing, on either disk (moving it deleted it from the fallback).
+  Future<bool> _ontoItself(String from, String to) async {
+    if (normalizeFilePath(from) != normalizeFilePath(to)) {
+      return false;
+    }
+    if (!await exists(from)) {
+      throw StorageException('File not found at path: $from');
+    }
+    return true;
+  }
+
   @override
   Future<void> copy(String from, String to) async {
+    if (await _ontoItself(from, to)) {
+      return;
+    }
     await _ensureOnPrimary(from);
     await primary.copy(from, to);
   }
 
   @override
   Future<void> move(String from, String to) async {
+    if (await _ontoItself(from, to)) {
+      return;
+    }
     await _ensureOnPrimary(from);
     await primary.move(from, to);
     if (await fallback.exists(from)) {

@@ -71,6 +71,16 @@ driver on one machine): the `array` driver is one isolate's memory.
 `CreateSessionsTable` creates Laravel's table and does nothing when it exists
 already.
 
+As in Laravel, 2 requests in 100 sweep expired sessions. The `database`
+driver's sweep is one `DELETE` in that request, inside its transaction (so
+`refreshDatabase` rolls it back with the test). The `file` driver's sweep
+runs in the background instead, one at a time per isolate, in rounds of at
+most 2,000 files or 250 ms, each resuming where the last one stopped, so a
+directory of many sessions never holds the requests of the isolate; the
+shutdown waits for the round in progress. Expiry compares a file's
+modification time with `Clock.now()`, so `travel()` in tests ages the
+files.
+
 ### Redis and cache drivers
 
 `SESSION_DRIVER=redis` needs `daravel_redis` and `withRedis()` next to
@@ -190,7 +200,10 @@ back, 303 after an Inertia PUT, PATCH or DELETE, with `session.errors` and
 `session.old('name')` on the next request; passwords are never flashed. Clients
 expecting JSON keep the 422. Forms name their verb with `_method`, or the
 `X-HTTP-Method-Override` header does; `middleware.methodOverride = false` turns
-this off.
+this off. A form body is read for its `_method` only where the path has a
+`PUT`, `PATCH` or `DELETE` route, within the largest body limit and timeout of
+the routes it may reach; the route it reaches then checks its own `bodyLimit`
+against what was read.
 
 Put `auth:web` after the `web` group on protected routes. From
 `COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which

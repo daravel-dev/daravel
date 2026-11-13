@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:8a3fc2c8043e -->
+    r'''<!-- source: background.md sha256:0d491b74b721 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -92,7 +92,11 @@ Daravel tidak memakai reflection. Driver: `sync`, `database` (tabel `jobs` /
 `failed_jobs` dari Laravel), dan `memory`. Retry, backoff, timeout, unique
 job, job middleware, `queue:work`, `queue:failed`, `queue:retry`, dan
 `queue:restart` didukung. Dispatch di dalam transaksi secara default ditunda
-sampai commit.
+sampai commit. Driver `sync` menjalankan job di dalam dispatch-nya, di
+isolate yang men-dispatch: loop yang men-dispatch lewat driver ini tanpa I/O
+nyata (me-retry job yang langsung gagal lagi pada store di memori) dapat
+membuat isolate sibuk dengan microtask, sehingga timer di sekitar loop itu
+(`timeout`, batas waktu) baru menyala setelah loop selesai.
 
 ### Percobaan, timeout, dan `retry_after`
 
@@ -214,7 +218,12 @@ sampai commit.
   merespons menunggu `retry_after`. Seperti di Laravel, jaga
   `QUEUE_RETRY_AFTER` di atas `timeout` job yang paling lama: worker
   memperingatkan bila timeout sebuah job (atau `--timeout`) tidak di
-  bawahnya.
+  bawahnya. Di Redis, worker yang tetap kehilangan reservasinya (handler
+  yang memblokir isolate-nya melewati `retry_after`, sehingga perpanjangan
+  tidak sempat berjalan) tidak lagi menghapus atau me-release job yang
+  sudah diambil worker lain: pemanggilannya tidak berbuat apa-apa, dan
+  worker mencatat satu peringatan per job ("ran past retry_after").
+  Naikkan `retry_after` di atas job terlama bila Anda melihatnya.
 - `Queue.dispatch(job)` mem-push job meskipun tidak ada yang meng-await-nya
   (dalam microtask, setelah setter yang dirangkai padanya), seperti Laravel
   mem-push `PendingDispatch` saat keluar dari scope. Meng-await-nya memberi

@@ -108,7 +108,7 @@ if tonumber(ARGV[4]) > tonumber(ARGV[3]) then
   redis.call('ZADD', KEYS[2], ARGV[4], ARGV[1])
 else
   if ARGV[5] == 'stream' then
-    redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+    redis.call('HSET', KEYS[4], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
   else
     redis.call('RPUSH', KEYS[1], ARGV[1])
   end
@@ -174,7 +174,10 @@ redis.pcall('XGROUP', 'CREATE', KEYS[1], ARGV[4], '0', 'MKSTREAM')
 local due = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[1], 'LIMIT', 0, 100)
 for _, id in ipairs(due) do
   redis.call('ZREM', KEYS[2], id)
-  redis.call('XADD', KEYS[1], '*', 'id', id)
+  local added = redis.call('XADD', KEYS[1], '*', 'id', id)
+  if redis.call('EXISTS', ARGV[3] .. id) == 1 then
+    redis.call('HSET', ARGV[3] .. id, 'entry', added)
+  end
 end
 for _ = 1, 100 do
   local entry
@@ -219,7 +222,10 @@ return false''');
       return null;
     }
     final id = reply[0]! as String;
-    final raw = reply[1]! as String;
+    final attempts = reply[2]! as int;
+    // A hash without its payload (one a release made for a job already
+    // deleted, before 1.28.0) reads as false.
+    final raw = reply[1] is String ? reply[1]! as String : '';
     final JobPayload payload;
     try {
       payload = JobPayload.decode(raw);
@@ -227,7 +233,7 @@ return false''');
       // A payload that does not decode would stay reserved and be popped
       // again after every retry_after, for ever. It is removed here, and
       // the worker records it in failed_jobs, as with the database queue.
-      await _remove(queue, id);
+      await _remove(queue, id, attempts);
       throw CorruptPayloadException(
         id: id,
         queue: queue,
@@ -247,7 +253,7 @@ return false''');
       id: id,
       queue: queue,
       payload: payload,
-      attempts: reply[2]! as int,
+      attempts: attempts,
       raw: raw,
       reservedUntil: DateTime.fromMillisecondsSinceEpoch(
         now + retryAfter.inMilliseconds,
@@ -256,22 +262,33 @@ return false''');
     );
   }
 
+  /// Puts a job back, only for the worker that still holds its
+  /// reservation: the job's `attempts` (which every reservation raises)
+  /// must be the worker's (ARGV 6), and the reservation must still be
+  /// there (a `:reserved` member, or a pending stream entry: `XACK` says
+  /// 1, and the hash's `entry` field goes with it). Otherwise 0 and
+  /// nothing changes: no hash made for a job another worker deleted, no
+  /// second copy queued, no other worker's reservation taken away.
   static final RedisScript _release = RedisScript('''
+if redis.call('HGET', KEYS[5], 'attempts') ~= ARGV[6] then
+  return 0
+end
 if ARGV[4] == 'stream' then
   local entry = redis.call('HGET', KEYS[5], 'entry')
-  if entry then
-    redis.call('XACK', KEYS[1], ARGV[5], entry)
-    redis.call('XDEL', KEYS[1], entry)
+  if not entry or redis.call('XACK', KEYS[1], ARGV[5], entry) == 0 then
+    return 0
   end
-else
-  redis.call('ZREM', KEYS[3], ARGV[1])
+  redis.call('XDEL', KEYS[1], entry)
+  redis.call('HDEL', KEYS[5], 'entry')
+elseif redis.call('ZREM', KEYS[3], ARGV[1]) == 0 then
+  return 0
 end
 redis.call('HSET', KEYS[5], 'available_at', ARGV[2])
 if tonumber(ARGV[2]) > tonumber(ARGV[3]) then
   redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
 else
   if ARGV[4] == 'stream' then
-    redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+    redis.call('HSET', KEYS[5], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
   else
     redis.call('RPUSH', KEYS[1], ARGV[1])
   end
@@ -283,7 +300,7 @@ return 1''');
   @override
   Future<void> release(QueuedJob job, Duration delay) async {
     final now = _now;
-    await client.eval(
+    final done = await client.eval(
       _release,
       keys: [
         _list(job.queue),
@@ -292,7 +309,41 @@ return 1''');
         _notify(job.queue),
         '${_jobPrefix(job.queue)}${job.id}',
       ],
-      args: [job.id, now + delay.inMilliseconds, now, engine.name, _group],
+      args: [
+        job.id,
+        now + delay.inMilliseconds,
+        now,
+        engine.name,
+        _group,
+        '${job.attempts}',
+      ],
+    );
+    if (done != 1) {
+      _notOwner(job, 'release');
+    }
+  }
+
+  /// The jobs [_notOwner] warned about, newest last, so each is told once.
+  final List<String> _warned = <String>[];
+
+  /// Warns, once per job, that a worker acted on a job it no longer held:
+  /// it ran past `retry_after` and another worker took it. The guard
+  /// prevents the damage (a deleted or doubled job); the job still ran
+  /// twice, which a longer `retry_after` (above the longest job, as in
+  /// Laravel) prevents.
+  void _notOwner(QueuedJob job, String action) {
+    final key = '${job.queue}:${job.id}';
+    if (_warned.contains(key)) {
+      return;
+    }
+    _warned.add(key);
+    if (_warned.length > 1000) {
+      _warned.removeAt(0);
+    }
+    logger?.warning(
+      'Job ${job.id} on queue [${job.queue}] ran past retry_after: another '
+      'worker took it, so its $action did nothing. Raise retry_after above '
+      'the longest job.',
     );
   }
 
@@ -339,31 +390,55 @@ return redis.call('ZADD', KEYS[3], 'XX', 'CH', ARGV[1], ARGV[2])''');
         : null;
   }
 
-  static final RedisScript _streamDelete = RedisScript('''
-local entry = redis.call('HGET', KEYS[2], 'entry')
-if entry then
-  redis.call('XACK', KEYS[1], ARGV[1], entry)
-  redis.call('XDEL', KEYS[1], entry)
+  /// Deletes a job, only for the worker that still holds it (its
+  /// `attempts`, ARGV 2), in one step: wherever its id is, and the hash.
+  /// 0 when another worker holds it now.
+  ///
+  /// A reserved job (the common case) leaves the reserved set (list) or its
+  /// stream entry; a job that waits (one `daravel_horizon` quarantines
+  /// after a reclaim) leaves the delayed set, or the list (`LREM`, a scan of
+  /// the list, only for such a job), or its stream entry (`XDEL`, read or
+  /// not: every `XADD` records the entry in the hash). Before, a waiting
+  /// job's id stayed in the list or stream, counted by `size` until a pop
+  /// skipped it.
+  static final RedisScript _delete = RedisScript('''
+if redis.call('HGET', KEYS[2], 'attempts') ~= ARGV[2] then
+  return 0
 end
-return redis.call('DEL', KEYS[2])''');
+if redis.call('ZREM', KEYS[4], ARGV[1]) == 0 then
+  if ARGV[3] == 'stream' then
+    local entry = redis.call('HGET', KEYS[2], 'entry')
+    if entry then
+      redis.call('XACK', KEYS[1], ARGV[4], entry)
+      redis.call('XDEL', KEYS[1], entry)
+    end
+  elseif redis.call('ZREM', KEYS[3], ARGV[1]) == 0 then
+    redis.call('LREM', KEYS[1], 1, ARGV[1])
+  end
+end
+redis.call('DEL', KEYS[2])
+return 1''');
 
   @override
-  Future<void> delete(QueuedJob job) => _remove(job.queue, '${job.id}');
-
-  Future<void> _remove(String queue, String id) async {
-    if (_stream) {
-      await client.eval(
-        _streamDelete,
-        keys: [_list(queue), '${_jobPrefix(queue)}$id'],
-        args: [_group],
-      );
-      return;
+  Future<void> delete(QueuedJob job) async {
+    if (!await _remove(job.queue, '${job.id}', job.attempts)) {
+      _notOwner(job, 'delete');
     }
-    await (
-      client.command(['ZREM', _reserved(queue), id]),
-      client.del(['${_jobPrefix(queue)}$id']),
-    ).wait;
   }
+
+  /// Removes job [id] reserved with [attempts]; whether it was.
+  Future<bool> _remove(String queue, String id, int attempts) async =>
+      await client.eval(
+        _delete,
+        keys: [
+          _list(queue),
+          '${_jobPrefix(queue)}$id',
+          _reserved(queue),
+          _delayed(queue),
+        ],
+        args: [id, '$attempts', engine.name, _group],
+      ) ==
+      1;
 
   @override
   Future<int> size(String queue) async {
@@ -590,7 +665,7 @@ if ARGV[2] == 'stream' then
   redis.call('XACK', KEYS[1], ARGV[3], entry)
   redis.call('XDEL', KEYS[1], entry)
   redis.call('HDEL', KEYS[4], 'entry')
-  redis.call('XADD', KEYS[1], '*', 'id', ARGV[1])
+  redis.call('HSET', KEYS[4], 'entry', redis.call('XADD', KEYS[1], '*', 'id', ARGV[1]))
 else
   if redis.call('ZREM', KEYS[2], ARGV[1]) == 0 then
     return 0

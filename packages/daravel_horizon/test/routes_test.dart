@@ -214,11 +214,59 @@ void main() {
       'x1',
     );
     expect((await client.post('/horizon/api/jobs/retry/x1')).status, 404);
-    expect(
-      (await client.post('/horizon/api/jobs/retry-all')).jsonMap['retried'],
-      ['x2'],
-    );
+    final all = (await client.post('/horizon/api/jobs/retry-all')).jsonMap;
+    expect(all['retried'], 1);
+    expect(all['remaining'], 0);
+    expect(all['skipped_count'], 0);
     expect(await app.run(() => Queue.size('a')), 2);
+  });
+
+  test('retry-all: at most 1000 a request, continued with after and up_to; '
+      'an unreadable payload stays, reported', () async {
+    await boot();
+    await app.run(() async {
+      final failed = App.make<QueueManager>().processor.failedJobs;
+      for (var i = 0; i < 1500; i++) {
+        await failed.log(
+          connection: 'database',
+          queue: 'a',
+          payload: i == 700
+              ? '{"job":"mail","uuid":5}'
+              : JobPayload.forJob(const Mail(), uuid: 'r$i').encode(),
+          exception: 'StateError: boom',
+        );
+      }
+    });
+    final first = (await client.post('/horizon/api/jobs/retry-all')).jsonMap;
+    expect(first['retried'], 999, reason: '1000 handled, one unreadable');
+    expect(first['skipped_count'], 1);
+    expect((first['skipped']! as List).single, containsPair('id', 701));
+    expect(first['remaining'], 500);
+    final second = (await client.post(
+      '/horizon/api/jobs/retry-all'
+      '?after=${first['after']}&up_to=${first['up_to']}',
+    )).jsonMap;
+    expect(second['retried'], 500);
+    expect(second['remaining'], 0);
+    expect(await app.run(() => Queue.size('a')), 1499);
+    final left = await app.run(
+      () => App.make<QueueManager>().processor.failedJobs.all(),
+    );
+    expect([for (final job in left) job.id], [701]);
+  });
+
+  test('retry-all while another runs: 409', () async {
+    await boot();
+    final lock = app.container.make<QueueManager>().signalStore!.lock(
+      'queue:retry-all',
+      owner: 'someone-else',
+    );
+    expect(await lock.acquire(), isTrue);
+    final response = await client.post('/horizon/api/jobs/retry-all');
+    expect(response.status, 409);
+    expect(response.jsonMap['message'], contains('already being retried'));
+    await lock.release();
+    expect((await client.post('/horizon/api/jobs/retry-all')).status, 200);
   });
 
   test('stream: server-sent events that end when the server drains', () async {
