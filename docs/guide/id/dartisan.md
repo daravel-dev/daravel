@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:e89c7a19ab33 -->
+<!-- source: dartisan.md sha256:6558de8b2df3 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -26,7 +26,7 @@ sebuah command.
 | `adopt <laravel-path> [--check]` | Berbagi database dan kunci dengan aplikasi Laravel, lihat [Migrasi dari Laravel](migrating-from-laravel.md) |
 | `down [--secret] [--retry]`, `up` | Mode maintenance, lihat [Deployment](deployment.md#mode-maintenance) |
 | `stub:publish` | Menyalin template generator ke `stubs/` |
-| `lint [--json] [--enable=rule] [--disable=rule]` | Rule `daravel_lints` dan pengecekan registry; rule opt-in dari `diagnostics:` di `analysis_options.yaml` |
+| `lint [--json] [--enable=rule] [--disable=rule] [--fix [--dry-run] [--force]]` | Rule `daravel_lints` dan pengecekan registry; rule opt-in dari `diagnostics:` di `analysis_options.yaml`. `--fix` menerapkan fix yang ditawarkan rule (quick fix editor), memformat berkas yang diubahnya, dan membatalkan berkas yang rusak karena fix; `--dry-run` mencetak perubahannya; tanpa `--force` ia menolak berkas dengan perubahan yang belum di-commit, atau proyek di luar git |
 | `security:audit [--target] [--format=terminal\|json\|sarif] [--output] [--severity] [--only] [--json-path]` | Audit black-box server yang sedang berjalan untuk kesalahan deployment, lihat [Keamanan](security.md#mengaudit-server-yang-sedang-berjalan) |
 | `mcp:serve [--allow-write]`, `mcp:install` | Konteks proyek untuk agen AI coding lewat MCP, lihat [di bawah](#agen-ai-coding-mcp) |
 | `upgrade [--check] [--to] [--no-global] [--no-get]`, `self-update` | Memindahkan proyek dan CLI global ke sebuah rilis, lihat [di bawah](#upgrade) |

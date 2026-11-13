@@ -110,9 +110,11 @@ final class LintFixMerger {
 
 /// How code in [unit] can name a member of `package:daravel/daravel.dart`
 /// ([name], such as `Rules`): with the prefix it is imported under (`d.`),
-/// without one, through an import added by [addImport]; or `null` when a
+/// without one, through an import added by [addImport] (after the last
+/// import or export, before any `part`); or `null` when a
 /// `show` that leaves it out, or a `hide` that names it, keeps it hidden
-/// (a fix is then not offered).
+/// (a fix is then not offered), and in a `part of` file that does not
+/// see it yet (a part cannot import).
 ({String prefix, LintEdit? addImport})? daravelName(
   CompilationUnit unit,
   String name,
@@ -146,18 +148,27 @@ final class LintFixMerger {
   if (imports.isNotEmpty) {
     return null;
   }
-  final directives = unit.directives.whereType<UriBasedDirective>().toList();
-  final at = directives.isEmpty ? 0 : directives.last.end;
-  return (
-    prefix: '',
-    addImport: LintEdit(
-      at,
-      0,
-      directives.isEmpty
-          ? "import 'package:daravel/daravel.dart';\n\n"
-          : "\nimport 'package:daravel/daravel.dart';",
-    ),
-  );
+  // A part takes its imports from its library: no import can be added
+  // here, so no fix is offered.
+  if (unit.directives.any((d) => d is PartOfDirective)) {
+    return null;
+  }
+  // After the last import or export (or the library directive), never
+  // after a `part`: Dart wants every import before the parts. A file with
+  // none of them gets it first, before any part.
+  final before = [
+    for (final directive in unit.directives)
+      if (directive is ImportDirective ||
+          directive is ExportDirective ||
+          directive is LibraryDirective)
+        directive,
+  ];
+  const line = "import 'package:daravel/daravel.dart';";
+  if (before.isNotEmpty) {
+    return (prefix: '', addImport: LintEdit(before.last.end, 0, '\n$line'));
+  }
+  final first = unit.directives.firstOrNull;
+  return (prefix: '', addImport: LintEdit(first?.offset ?? 0, 0, '$line\n\n'));
 }
 
 /// When [expression] sits in a constant context, the edit that makes it

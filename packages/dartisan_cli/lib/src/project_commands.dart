@@ -1817,8 +1817,9 @@ String formatLintIssue(LintIssue issue) =>
 /// `diagnostics:` of the project's `analysis_options.yaml` ([lintConfig]),
 /// then `--enable`/`--disable` for this run.
 final class LintCommand extends Command<int> {
-  /// The `dartisan lint` command.
-  LintCommand() {
+  /// The `dartisan lint` command; [analyzer] replaces the `dart` that
+  /// `--fix` analyzes with (tests).
+  LintCommand({this.analyzer}) {
     argParser
       ..addFlag('json', negatable: false, help: 'Output JSON.')
       ..addMultiOption(
@@ -1832,8 +1833,31 @@ final class LintCommand extends Command<int> {
         'disable',
         help: 'Skip these rules for this run.',
         valueHelp: 'rule',
+      )
+      ..addFlag(
+        'fix',
+        negatable: false,
+        help:
+            'Apply the fixes the rules offer (the editor quick fixes), '
+            'format the files changed, and undo a file the fix broke.',
+      )
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'With --fix: print the changes, write nothing.',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help:
+            'With --fix: also change files with uncommitted changes, or '
+            'outside a git work tree (git checkout cannot undo that).',
       );
   }
+
+  /// The `dart` executable `--fix` formats and analyzes with; the SDK's
+  /// by default.
+  final String? analyzer;
 
   @override
   String get name => 'lint';
@@ -1865,6 +1889,15 @@ final class LintCommand extends Command<int> {
       root,
       warn: (warning) => stderr.writeln('Warning: $warning'),
     );
+    if (argResults!['fix'] as bool) {
+      final refused = await _fix(root, rules);
+      if (refused != null) {
+        return refused;
+      }
+    } else if (argResults!['dry-run'] as bool || argResults!['force'] as bool) {
+      stderr.writeln('--dry-run and --force go with --fix.');
+      return 64;
+    }
     final issues = lintProject(
       root,
       rules: rules,
@@ -1916,6 +1949,197 @@ final class LintCommand extends Command<int> {
     // Any finding fails the command, as `dart analyze --fatal-infos` does,
     // so CI can run `dartisan lint` as a gate.
     return issues.isEmpty ? 0 : 1;
+  }
+
+  /// `--fix`: applies the fixes, or with `--dry-run` prints them. Returns
+  /// an exit code when it refuses to write, otherwise `null` and the
+  /// command goes on to report what is left.
+  Future<int?> _fix(String root, List<LintRule> rules) async {
+    // With --json, stdout holds only the JSON of what is left.
+    // ignore: close_sinks (the process's stdout or stderr, not ours to close)
+    final IOSink out = argResults!['json'] as bool ? stderr : stdout;
+    final dryRun = argResults!['dry-run'] as bool;
+    for (final stale in removeStaleLintFixFiles(root, dryRun: dryRun)) {
+      out.writeln(
+        '${dryRun ? 'Would remove' : 'Removed'} $stale, left by a lint --fix '
+        'that did not finish.',
+      );
+    }
+    final changes = planLintFixes(root, rules);
+    final count = changes.fold(0, (n, c) => n + c.messages.length);
+    String summary(String verb) =>
+        '$verb $count finding${count == 1 ? '' : 's'} in ${changes.length} '
+        'file${changes.length == 1 ? '' : 's'}.';
+    if (changes.isEmpty) {
+      out.writeln('Nothing to fix.');
+      return null;
+    }
+    if (argResults!['dry-run'] as bool) {
+      for (final change in changes) {
+        out.write(lintFixDiff(change.path, change.before, change.after));
+      }
+      out
+        ..writeln(summary('Would fix'))
+        ..writeln();
+      return null;
+    }
+    final paths = [for (final c in changes) c.path];
+    if (!(argResults!['force'] as bool)) {
+      final dirty = await uncommittedFiles(root, paths);
+      if (dirty == null) {
+        stderr.writeln(
+          'lint --fix: not a git work tree, so git checkout could not undo '
+          'the fixes; commit first, or pass --force.',
+        );
+        return 1;
+      }
+      if (dirty.isNotEmpty) {
+        stderr
+          ..writeln(
+            'lint --fix: git checkout could not bring these files back; '
+            'commit or stash them first, or pass --force:',
+          )
+          ..writeln(
+            [for (final (path, why) in dirty) '  $path ($why)'].join('\n'),
+          );
+        return 1;
+      }
+    }
+    // Every file touched goes back to the text this process read when a
+    // step fails: a write (a file open elsewhere, no permission), or an
+    // analysis that did not run (no verdict means no fix).
+    final written = <LintFileFix>[];
+    int putBack(String why) {
+      final stuck = <String>[];
+      for (final change in written) {
+        try {
+          writeFileAtomically(p.join(root, change.path), change.before);
+        } on FileSystemException {
+          stuck.add(change.path);
+        }
+      }
+      stderr.writeln(
+        'lint --fix: $why; '
+        '${stuck.isEmpty ? 'every file is left as it was' : 'could not put back ${stuck.join(', ')} (git checkout will)'}.',
+      );
+      return 1;
+    }
+
+    late final Map<String, int> errorsAfter;
+    late final Set<String> broken;
+    try {
+      for (final change in changes) {
+        writeFileAtomically(p.join(root, change.path), change.after);
+        written.add(change);
+      }
+      // A format that cannot run leaves the files unformatted, which is
+      // said; they are still analyzed, so nothing broken is kept.
+      try {
+        final format = await Process.run(analyzer ?? dartExecutable(), [
+          'format',
+          ...paths,
+        ], workingDirectory: root);
+        final said = '${format.stdout}${format.stderr}'.trim();
+        if (format.exitCode > 1 && said.isEmpty) {
+          stderr.writeln(
+            'lint --fix: dart format did not run (exit ${format.exitCode}); '
+            'the fixed files are not formatted.',
+          );
+        }
+      } on ProcessException catch (error) {
+        stderr.writeln(
+          'lint --fix: dart format did not run (${error.message}); the '
+          'fixed files are not formatted.',
+        );
+      }
+      // A file is judged with the rest of its library (its parts, or the
+      // library it is part of): parts share the library's imports, so an
+      // import a fix adds can break a part that was not changed.
+      final groups = {
+        for (final change in changes)
+          change.path: libraryFiles(root, change.path),
+      };
+      int sum(Map<String, int> errors, String path) =>
+          groups[path]!.fold(0, (n, f) => n + (errors[f] ?? 0));
+      // One analysis in the common case: a file whose library has no errors
+      // after the fix is kept as it is. Only a file with errors there is
+      // put back (from the text this process read, not git) and analyzed
+      // again; it keeps the fix when its library had as many errors before.
+      final after = await analyzeErrors(
+        root,
+        {for (final group in groups.values) ...group}.toList(),
+        executable: analyzer,
+      );
+      if (after == null) {
+        return putBack('dart analyze did not run, so no fix could be checked');
+      }
+      errorsAfter = after;
+      final suspects = [
+        for (final change in changes)
+          if (sum(errorsAfter, change.path) > 0) change,
+      ];
+      final formatted = {
+        for (final change in suspects)
+          change.path: File(p.join(root, change.path)).readAsStringSync(),
+      };
+      for (final change in suspects) {
+        writeFileAtomically(p.join(root, change.path), change.before);
+      }
+      final errorsBefore = suspects.isEmpty
+          ? const <String, int>{}
+          : await analyzeErrors(
+              root,
+              {for (final c in suspects) ...groups[c.path]!}.toList(),
+              executable: analyzer,
+            );
+      if (errorsBefore == null) {
+        return putBack('dart analyze did not run, so no fix could be checked');
+      }
+      broken = {
+        for (final change in suspects)
+          if (sum(errorsAfter, change.path) > sum(errorsBefore, change.path))
+            change.path,
+      };
+      for (final change in suspects) {
+        if (!broken.contains(change.path)) {
+          writeFileAtomically(
+            p.join(root, change.path),
+            formatted[change.path]!,
+          );
+        }
+      }
+    } on FileSystemException catch (error) {
+      return putBack(
+        'could not write ${error.path ?? 'a file'} (${error.message}'
+        '${error.osError == null ? '' : ': ${error.osError!.message}'})',
+      );
+    }
+    var fixed = 0;
+    var files = 0;
+    var reverted = 0;
+    for (final change in changes) {
+      if (broken.contains(change.path)) {
+        reverted++;
+        stderr.writeln(
+          'lint --fix: ${change.path} did not compile after the fix; '
+          'left as it was.',
+        );
+        continue;
+      }
+      files++;
+      fixed += change.messages.length;
+      for (final message in change.messages) {
+        out.writeln('  fixed - $message');
+      }
+    }
+    out
+      ..writeln(
+        'Fixed $fixed finding${fixed == 1 ? '' : 's'} in $files '
+        'file${files == 1 ? '' : 's'}'
+        '${reverted == 0 ? '' : '; $reverted file${reverted == 1 ? '' : 's'} left as it was'}.',
+      )
+      ..writeln();
+    return null;
   }
 }
 
