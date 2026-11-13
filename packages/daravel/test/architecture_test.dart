@@ -269,6 +269,11 @@ const Map<String, (int, String)> _knownLongLived = {
   'foundation/application.dart': (1, 'coordinator.listen() at boot'),
   'foundation/embedded_workers.dart': (4, 'embedded workers, at boot'),
   'http/buffered_web_socket.dart': (1, 'per WebSocket connection'),
+  'http/websocket_guard.dart': (
+    3,
+    'per WebSocket connection: the TCP socket read, and what dart:io reads '
+        'and writes through the guard',
+  ),
   'http/client.dart': (1, 'per response body'),
   'http/graceful_server_socket.dart': (1, 'the server socket, at start'),
   'http/multipart.dart': (2, 'per request body'),
@@ -337,6 +342,10 @@ const Map<String, String> _knownFutureFields = {
   'http/buffered_web_socket.dart:_closed': 'per connection, one zone',
   'http/buffered_web_socket.dart:_gaveUp': 'completed with no error',
   'http/buffered_web_socket.dart:_drained': 'completed with no error',
+  'http/websocket_guard.dart:_written':
+      'per connection, one zone; its errors are absorbed',
+  'http/websocket_guard.dart:_closed':
+      'per connection, completed with no error',
   'http/kernel.dart:result': 'per request, one zone',
   'http/multipart.dart:_changed': 'per request body, one zone',
   'http/server_engine.dart:_done': 'completed with no error',
