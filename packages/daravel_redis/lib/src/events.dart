@@ -67,23 +67,32 @@ final class RedisEventStream {
     final tail = tails[key] ??= _Tail(client, key, () => tails.remove(key));
     late final StreamController<SseEvent> out;
     StreamSubscription<_Entry>? live;
-    var last = lastEventId;
+    // A header that is no stream id (`abc`, a part over 64 bits) is no
+    // header: live events only.
+    final from = lastEventId != null && _isId(lastEventId) ? lastEventId : null;
+    var last = from;
     var caughtUp = false;
     final waiting = <_Entry>[];
 
     void emit(_Entry entry) {
-      if (last != null && !_after(entry.id, last!)) {
-        return; // seen in the catch-up
+      try {
+        if (last != null && !_after(entry.id, last!)) {
+          return; // seen in the catch-up
+        }
+        last = entry.id;
+        final data = entry.fields['data'];
+        out.add(
+          SseEvent(
+            data == null ? null : _decode(data),
+            event: entry.fields['event'] ?? 'update',
+            id: entry.id,
+          ),
+        );
+      } on Object catch (error, stack) {
+        // Never out of the shared tail's listener: an error there was
+        // uncaught in the zone of whoever started the tail.
+        out.addError(error, stack);
       }
-      last = entry.id;
-      final data = entry.fields['data'];
-      out.add(
-        SseEvent(
-          data == null ? null : _decode(data),
-          event: entry.fields['event'] ?? 'update',
-          id: entry.id,
-        ),
-      );
     }
 
     out = StreamController<SseEvent>(
@@ -95,10 +104,9 @@ final class RedisEventStream {
         try {
           // Live events start after this point; the catch-up reaches it.
           await tail.started;
-          if (lastEventId != null && _isId(lastEventId)) {
+          if (from != null) {
             final missed =
-                (await client.command(['XRANGE', key, '($lastEventId', '+']))!
-                    as List;
+                (await client.command(['XRANGE', key, '($from', '+']))! as List;
             missed.map(_entry).forEach(emit);
           }
         } on Object catch (error, stack) {
@@ -125,13 +133,65 @@ final class RedisEventStream {
     }
   }
 
-  static bool _isId(String id) => RegExp(r'^\d+-\d+$').hasMatch(id);
+  /// Whether [id] is a stream id Redis could give: `<ms>-<seq>`, each part
+  /// decimal digits worth at most 2^64 - 1.
+  static bool isStreamId(String id) => _isId(id);
 
-  /// Whether stream id [a] comes after [b].
+  static bool _isId(String id) {
+    final dash = id.indexOf('-');
+    return dash > 0 &&
+        _isUint64(id.substring(0, dash)) &&
+        _isUint64(id.substring(dash + 1));
+  }
+
+  static const String _uint64Max = '18446744073709551615';
+
+  static bool _isUint64(String digits) {
+    if (digits.isEmpty) {
+      return false;
+    }
+    for (var i = 0; i < digits.length; i++) {
+      final c = digits.codeUnitAt(i);
+      if (c < 0x30 || c > 0x39) {
+        return false;
+      }
+    }
+    final value = _stripZeros(digits);
+    return value.length < _uint64Max.length ||
+        (value.length == _uint64Max.length && value.compareTo(_uint64Max) <= 0);
+  }
+
+  static String _stripZeros(String digits) {
+    var start = 0;
+    while (start < digits.length - 1 && digits.codeUnitAt(start) == 0x30) {
+      start++;
+    }
+    return digits.substring(start);
+  }
+
+  /// Compares two runs of decimal digits as unsigned numbers of any size.
+  static int _compareDigits(String a, String b) {
+    final x = _stripZeros(a);
+    final y = _stripZeros(b);
+    return x.length != y.length ? x.length.compareTo(y.length) : x.compareTo(y);
+  }
+
+  /// Whether stream id [a] comes after [b]: by milliseconds, then by
+  /// sequence, compared as unsigned decimals (a full 64-bit id included,
+  /// which `int` cannot hold). An id that is not one (see [isStreamId])
+  /// comes after nothing; nothing is thrown.
+  static bool streamIdAfter(String a, String b) => _after(a, b);
+
   static bool _after(String a, String b) {
-    final [aMs, aSeq] = a.split('-').map(int.parse).toList();
-    final [bMs, bSeq] = b.split('-').map(int.parse).toList();
-    return aMs > bMs || (aMs == bMs && aSeq > bSeq);
+    if (!_isId(a) || !_isId(b)) {
+      return false;
+    }
+    final aDash = a.indexOf('-');
+    final bDash = b.indexOf('-');
+    final ms = _compareDigits(a.substring(0, aDash), b.substring(0, bDash));
+    return ms > 0 ||
+        (ms == 0 &&
+            _compareDigits(a.substring(aDash + 1), b.substring(bDash + 1)) > 0);
   }
 
   static _Entry _entry(Object? raw) {
