@@ -103,6 +103,9 @@ final class Router {
   /// A WebSocket route; [compress] false turns permessage-deflate off, and
   /// a client with more than [maxBufferedBytes] waiting to be sent is
   /// closed with [slowClientCode] (see [Response.webSocket]).
+  /// [maxPayloadBytes] limits a whole message (all its fragments),
+  /// [assembleTimeout] how long one may take to arrive, [controlFrameBurst]
+  /// and [controlFramesPerSecond] the PING/PONG frames a client may send.
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
@@ -110,6 +113,10 @@ final class Router {
     int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
+    Duration assembleTimeout = Response.defaultWebSocketAssembleTimeout,
+    int controlFrameBurst = Response.defaultWebSocketControlFrameBurst,
+    int controlFramesPerSecond =
+        Response.defaultWebSocketControlFramesPerSecond,
   }) => match(const <String>['GET'], path, (request) {
     if (!isWebSocketUpgrade(request)) {
       return Response.json(
@@ -124,6 +131,9 @@ final class Router {
       maxPayloadBytes: maxPayloadBytes,
       maxBufferedBytes: maxBufferedBytes,
       slowClientCode: slowClientCode,
+      assembleTimeout: assembleTimeout,
+      controlFrameBurst: controlFrameBurst,
+      controlFramesPerSecond: controlFramesPerSecond,
     );
   })..markWebSocket();
 

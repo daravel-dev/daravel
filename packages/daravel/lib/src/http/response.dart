@@ -81,6 +81,10 @@ final class Response {
     this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     this.webSocketMaxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     this.webSocketSlowClientCode = 1008,
+    this.webSocketAssembleTimeout = defaultWebSocketAssembleTimeout,
+    this.webSocketControlFrameBurst = defaultWebSocketControlFrameBurst,
+    this.webSocketControlFramesPerSecond =
+        defaultWebSocketControlFramesPerSecond,
     this.exception,
   }) : headers = headers ?? Headers();
 
@@ -107,6 +111,21 @@ final class Response {
   /// in memory; past this the connection is closed instead
   /// ([webSocketSlowClientCode]) and the client reconnects.
   static const int defaultWebSocketMaxBufferedBytes = 4 << 20;
+
+  /// How long a WebSocket message may take from its first byte to its last
+  /// (all its fragments), unless its route says otherwise: 30 s, enough for
+  /// a message of 1 MiB over a slow mobile network. Longer is closed with
+  /// 1008.
+  static const Duration defaultWebSocketAssembleTimeout = Duration(seconds: 30);
+
+  /// The PING and PONG frames a WebSocket client may send at once, unless
+  /// its route says otherwise: 20 (then
+  /// [defaultWebSocketControlFramesPerSecond]). More is closed with 1008:
+  /// each PING is answered, and the answers count toward the send buffer.
+  static const int defaultWebSocketControlFrameBurst = 20;
+
+  /// The PING and PONG frames per second after the burst: 5.
+  static const int defaultWebSocketControlFramesPerSecond = 5;
 
   /// How far a server-sent event stream may fall behind its client before
   /// it ends with a `retry:` line ([Response.sse]): 1 MiB.
@@ -307,12 +326,19 @@ final class Response {
   /// compression state per connection, which matters with many of them.
   /// Once more than [maxBufferedBytes] wait to be sent (the client reads
   /// too slowly) the connection is closed with [slowClientCode].
+  /// A message above [maxPayloadBytes] (all its
+  /// fragments together) is closed with 1009, one that takes longer than
+  /// [assembleTimeout] to arrive, and PING/PONG frames past
+  /// [controlFrameBurst] and [controlFramesPerSecond], with 1008.
   factory Response.webSocket(
     WebSocketHandler handler, {
     bool compress = true,
     int maxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
+    Duration assembleTimeout = defaultWebSocketAssembleTimeout,
+    int controlFrameBurst = defaultWebSocketControlFrameBurst,
+    int controlFramesPerSecond = defaultWebSocketControlFramesPerSecond,
   }) => Response(
     status: 101,
     webSocket: handler,
@@ -320,6 +346,9 @@ final class Response {
     webSocketMaxPayloadBytes: maxPayloadBytes,
     webSocketMaxBufferedBytes: maxBufferedBytes,
     webSocketSlowClientCode: slowClientCode,
+    webSocketAssembleTimeout: assembleTimeout,
+    webSocketControlFrameBurst: controlFrameBurst,
+    webSocketControlFramesPerSecond: controlFramesPerSecond,
   );
 
   /// Streamed body with an explicit content type.
@@ -384,6 +413,18 @@ final class Response {
   /// route says otherwise (the Pusher server sends 4100, which Pusher
   /// clients answer by reconnecting after a backoff).
   final int webSocketSlowClientCode;
+
+  /// How long one message may take to arrive whole
+  /// ([defaultWebSocketAssembleTimeout]).
+  final Duration webSocketAssembleTimeout;
+
+  /// PING/PONG frames a client may send at once
+  /// ([defaultWebSocketControlFrameBurst]).
+  final int webSocketControlFrameBurst;
+
+  /// PING/PONG frames per second after the burst
+  /// ([defaultWebSocketControlFramesPerSecond]).
+  final int webSocketControlFramesPerSecond;
 
   /// Content length to advertise when the body was stripped (HEAD requests).
   final int? contentLengthOverride;
@@ -524,6 +565,9 @@ final class Response {
         webSocketMaxPayloadBytes: webSocketMaxPayloadBytes,
         webSocketMaxBufferedBytes: webSocketMaxBufferedBytes,
         webSocketSlowClientCode: webSocketSlowClientCode,
+        webSocketAssembleTimeout: webSocketAssembleTimeout,
+        webSocketControlFrameBurst: webSocketControlFrameBurst,
+        webSocketControlFramesPerSecond: webSocketControlFramesPerSecond,
         exception: exception ?? this.exception,
       );
 

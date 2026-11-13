@@ -14,6 +14,7 @@ import 'kernel.dart';
 import 'request.dart';
 import 'realtime.dart';
 import 'response.dart';
+import 'websocket_guard.dart';
 
 /// Options for [Application.serve].
 final class ServeOptions {
@@ -612,6 +613,11 @@ final class ServerEngine {
 
   final Set<WebSocket> _sockets = <WebSocket>{};
 
+  /// The guard of each upgraded socket ([_upgrade]), handed the
+  /// BufferedWebSocket over it in [_session], which is what closes the
+  /// connection once the application's frames flow.
+  final Expando<WebSocketGuard> _guards = Expando<WebSocketGuard>('guard');
+
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
@@ -636,16 +642,45 @@ final class ServerEngine {
       await kernel.terminate(request, refusal);
       return null;
     }
+    // The server reads the frames itself (WebSocketGuard): a message is
+    // limited as a whole, fragments are assembled before the WebSocket
+    // reads them, control frames are rate limited, and what waits to be
+    // written (PONGs included) is counted.
+    final guard = WebSocketGuard(
+      WebSocketGuardLimits(
+        maxMessageBytes: response.webSocketMaxPayloadBytes,
+        maxBufferedBytes: response.webSocketMaxBufferedBytes,
+        assembleTimeout: response.webSocketAssembleTimeout,
+        controlFrameBurst: response.webSocketControlFrameBurst,
+        controlFramesPerSecond: response.webSocketControlFramesPerSecond,
+      ),
+      onViolation: (code, reason) => logger.warning(
+        'WebSocket closed ($code): $reason',
+        <String, Object?>{'request_id': id},
+      ),
+      onSlowClient: () {
+        app.container.tryMake<SlowClients>()?.record(SlowClients.webSocket);
+        logger.warning(
+          'WebSocket closed: the client read too slowly '
+          '(more than ${response.webSocketMaxBufferedBytes} bytes waiting '
+          'to be written)',
+          <String, Object?>{'request_id': id},
+        );
+      },
+    );
     try {
-      return await WebSocketTransformer.upgrade(
-        httpRequest,
+      final socket = await WebSocketTransformer.upgrade(
+        guard.wrap(httpRequest),
         compression: response.webSocketCompression
             ? CompressionOptions.compressionDefault
             : CompressionOptions.compressionOff,
-        // A frame above it fails the connection as it arrives, instead of
-        // being buffered whole first.
+        // With the guard's assembly, the limit of a whole message (and of
+        // what a compressed one inflates to).
         maxPayloadLength: response.webSocketMaxPayloadBytes,
       );
+      guard.attach(socket);
+      _guards[socket] = guard;
+      return socket;
     } catch (error) {
       logger.warning('WebSocket upgrade failed for request $id: $error');
       return null;
@@ -677,6 +712,7 @@ final class ServerEngine {
         );
       },
     );
+    _guards[upgraded]?.attach(socket);
     _sockets.add(socket);
     logger.info(
       '${request.method} ${request.path} 101 (WebSocket)',

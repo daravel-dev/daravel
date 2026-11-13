@@ -863,6 +863,15 @@ void main() {
     await a.close();
     await b.close();
   });
+
+  test('a message above max_message_size closes the connection with 1009, '
+      'as Reverb does', () async {
+    final client = await connect();
+    // 10 000 bytes is the default limit.
+    client.socket.add(jsonEncode({'event': 'client-big', 'data': 'x' * 12000}));
+    await client.socket.done.timeout(const Duration(seconds: 5));
+    expect(client.socket.closeCode, 1009);
+  }, tags: 'security');
 }
 
 /// A Pusher client speaking protocol 7, as pusher-js does.
