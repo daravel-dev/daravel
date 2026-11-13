@@ -169,6 +169,8 @@ final class TrustProxiesMiddleware implements Middleware {
     }
     // As Symfony's getPort(): X-Forwarded-Port first, then the port of
     // X-Forwarded-Host. Only digits up to 65535; anything else is ignored.
+    // Port 0 is no port there (`'0'` is falsy in PHP): the scheme's default
+    // is taken, not the port of a host.
     if (headers.contains(ForwardedHeader.forwardedPort)) {
       final value = request.headers
           .first('x-forwarded-port')
@@ -176,7 +178,9 @@ final class TrustProxiesMiddleware implements Middleware {
           .first
           .trim();
       final forwarded = value == null ? null : _port(value);
-      if (forwarded != null) {
+      if (forwarded == 0) {
+        port = (scheme ?? request.scheme) == 'https' ? 443 : 80;
+      } else if (forwarded != null) {
         port = forwarded;
       }
     }

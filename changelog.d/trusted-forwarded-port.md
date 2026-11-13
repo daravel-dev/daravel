@@ -1,6 +1,6 @@
 ### Added
 
-- `Request.port`: the port the client used, as Symfony's `Request::getPort()` reads it. From a trusted proxy's `X-Forwarded-Port`, else the port of its `X-Forwarded-Host`, else the port of `Host`, else the default of the scheme.
+- `Request.port`: the port the client used, as Symfony's `Request::getPort()` reads it. From a trusted proxy's `X-Forwarded-Port`, else the port of its `X-Forwarded-Host`, else the port of `Host`, else the default of the scheme. A trusted `X-Forwarded-Port: 0` gives the scheme's default, as there.
 
 ### Fixed
 

@@ -156,6 +156,45 @@ void main() {
     },
   );
 
+  // Symfony 7.4 and 8.0 Request::getPort(): the trusted X-Forwarded-Port
+  // becomes '0.0.0.0:0', its port '0' is falsy in PHP, and the scheme's
+  // default is returned; the port of Host is not read. ('00' is not falsy
+  // there and gives 0, a port no URL can carry; it is taken as 0 here.)
+  test('X-Forwarded-Port 0: the default of the scheme, not the port of Host '
+      'or of X-Forwarded-Host', () async {
+    final engine = await serve(trustedProxies: trusted);
+    for (final value in ['0', '00']) {
+      expect(
+        await request(engine, [
+          'Host: app.test:8080',
+          'X-Forwarded-Port: $value',
+        ]),
+        {
+          'scheme': 'http',
+          'host': 'app.test',
+          'port': 80,
+          'url': 'http://app.test/p',
+        },
+        reason: value,
+      );
+      expect(
+        await request(engine, [
+          'Host: internal:8000',
+          'X-Forwarded-Proto: https',
+          'X-Forwarded-Host: example.com:8443',
+          'X-Forwarded-Port: $value',
+        ]),
+        {
+          'scheme': 'https',
+          'host': 'example.com',
+          'port': 443,
+          'url': 'https://example.com/p',
+        },
+        reason: value,
+      );
+    }
+  });
+
   test('an X-Forwarded-Port that is no port is ignored', () async {
     final engine = await serve(trustedProxies: trusted);
     for (final value in ['abc', '70000', '-1', '8o', '']) {
