@@ -44,6 +44,29 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.3
+
+A security patch: fixes only. Upgrade every application served by `dartisan serve` or the AOT server, above all those behind a proxy or load balancer and those with domain routes.
+
+### Security
+
+- A request's URI, `scheme`, `host`, `url` and `isSecure` came from `dart:io`'s `HttpRequest.requestedUri`, which reads `X-Forwarded-Proto` and `X-Forwarded-Host` from any client, also without `TrustProxiesMiddleware` and from a peer it does not trust. Domain routes, the host of signed URLs on domain routes, `Response.back`, the session's previous URL, the HSTS header and `UpstreamProxy` followed them. They now come from the request line, the `Host` header and the listener; forwarded values count only when `TrustProxiesMiddleware` trusts the peer, as in Laravel (Symfony's `Request::getHost()` and `isSecure()` read them only from a trusted proxy). Since 1.0.0.
+- The request URI was built by joining the `Host` header with the request target, so characters such as `/`, `?`, `#` or `@` in `Host` changed the path or host the application saw. A `Host` (or absolute-form authority, or trusted `X-Forwarded-Host`) that is not a host and an optional port is now refused (400; a forwarded value is ignored), as Symfony refuses it, and the path and query always come from the request line. Since 1.0.0.
+- Slashes were trimmed from request paths with a regular expression whose time grew with the square of a run of slashes inside the path, so one request held an isolate for seconds; this affected the 404 and 405 responses, `Request.url`, the paginator's path and `DaravelUri.path`. They are now trimmed in one pass, with the same results. `Str.plural` and `Str.singular` no longer take quadratic time on a long run of letters followed by another character. Since 1.0.0.
+- The token of an `Authorization: Bearer` header was read with a regular expression whose time grew with the square of a run of white space inside the token, and the token guard (`TokenGuard`) and the JWT guard (`JwtGuard`) read it on every request before looking anything up, so a request without a valid token held an isolate for seconds to minutes. It is now read in one pass, with the same results. A host longer than 253 characters, which no DNS name is, is now refused (400; a forwarded value is ignored): domain routes with two parameters in one label took time quadratic in its length. Since 1.0.0.
+- Before upgrading, take public URLs from `APP_URL` (as `route()`, signed URLs, mail and storage already do), have the edge proxy drop `X-Forwarded-Proto` and `X-Forwarded-Host` from clients and refuse a malformed `Host`, and limit the length of the request URL and of each header line there (for example 8 KiB).
+
+### Added
+
+- `Request.isFromTrustedProxy` (Laravel's `isFromTrustedProxy()`), which the fix needs: whether `TrustProxiesMiddleware` applied a trusted proxy's forwarding headers. The server logs one warning when a request carries `X-Forwarded-Proto` or `X-Forwarded-Host` that no trusted proxy applied; it is said once per isolate and carries no header value. `dartisan doctor`, in production with an `https` `APP_URL`, notes that the server speaks plain HTTP and that requests see `https` and the public host only from a proxy `TrustProxiesMiddleware` trusts.
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+- Without `TrustProxiesMiddleware`, an application behind a proxy that sends `X-Forwarded-Proto`/`X-Forwarded-Host` used to see the client's scheme and host from those headers; it now sees `http` and the `Host` the proxy connects with (which may be an internal host and port), and `isSecure` is false, until it trusts the proxy: `middleware.use([TrustProxiesMiddleware(proxies: ['10.0.0.0/8']), ...])` (the starter has this line as a comment, and the deployment guide shows it). URLs built from `APP_URL` are not affected.
+- A request whose `Host` is not a host and an optional port (letters, digits, `-`, `_` and dots, an IPv4 address or a bracketed IPv6 address; a raw IDN included) is answered 400 before it reaches the application, and so is one whose host is longer than 253 characters.
+
 ## 1.27.2
 
 A security patch: fixes only. Upgrade every application that validates lists with `distinct`, authorizes broadcast channels (`routes/channels.dart`) or reads `sum()` or `avg()` on PostgreSQL or MySQL.
