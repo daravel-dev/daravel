@@ -246,9 +246,62 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
       try {
         await _write(batch);
       } on Object catch (error) {
-        _dropped(HorizonStoreDrop.error, batch.length, error);
+        if (batch.length == 1) {
+          _dropped(HorizonStoreDrop.error, 1, error);
+        } else {
+          await _writeOneByOne(batch);
+        }
       }
     }
+  }
+
+  /// After [batch] failed as a whole (its transaction rolled back): each
+  /// record alone, so one the database refuses costs only itself. After
+  /// [_failuresInARow] failures in a row the store itself is failing
+  /// (unreachable, out of space), not a record, and the rest is dropped
+  /// rather than tried one by one.
+  Future<void> _writeOneByOne(List<RecordedJob> batch) async {
+    var inARow = 0;
+    var lost = 0;
+    Object? last;
+    for (var i = 0; i < batch.length; i++) {
+      if (inARow >= _failuresInARow) {
+        lost += batch.length - i;
+        break;
+      }
+      try {
+        await _write([batch[i]]);
+        inARow = 0;
+      } on Object catch (error) {
+        inARow++;
+        lost++;
+        last = error;
+      }
+    }
+    if (lost > 0) {
+      _dropped(HorizonStoreDrop.error, lost, last);
+    }
+  }
+
+  static const int _failuresInARow = 3;
+
+  /// The widest value the `string` columns of these tables hold, in
+  /// characters (`varchar(255)`).
+  static const int columnWidth = 255;
+
+  /// [value] fitted to [columnWidth] characters (code points): a longer
+  /// one is cut, its last character replaced by `…` to show it. The
+  /// record (`record`, a text column) keeps the whole value; the columns
+  /// are what lists, counts and tags are looked up by.
+  static String fit(String value) {
+    if (value.length <= columnWidth) {
+      return value; // Never more code points than UTF-16 units.
+    }
+    final runes = value.runes;
+    if (runes.length <= columnWidth) {
+      return value;
+    }
+    return '${String.fromCharCodes(runes.take(columnWidth - 1))}…';
   }
 
   /// Writes [batch]: one row per job, the newest record of each uuid
@@ -272,10 +325,10 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
       await _table('horizon_job_counts').insertOrIgnore([
         for (final job in counted.values)
           {
-            'uuid': job.uuid,
+            'uuid': fit(job.uuid),
             'status': job.status,
-            'name': job.name,
-            'queue': job.queue,
+            'name': fit(job.name),
+            'queue': fit(job.queue),
             'at': job.at,
             'duration_ms': job.durationMs,
           },
@@ -288,9 +341,9 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
       final rows = [
         for (final job in newest.values)
           {
-            'uuid': job.uuid,
-            'name': job.name,
-            'queue': job.queue,
+            'uuid': fit(job.uuid),
+            'name': fit(job.name),
+            'queue': fit(job.queue),
             'status': job.status,
             'at': job.at,
             'duration_ms': job.durationMs,
@@ -304,11 +357,11 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
       );
       final tagged = [
         for (final job in newest.values)
-          for (final tag in job.tags)
+          for (final tag in job.tags.map(fit))
             if (monitored.contains(tag))
               {
                 'tag': tag,
-                'job_uuid': job.uuid,
+                'job_uuid': fit(job.uuid),
                 'at': job.at,
                 'record': jsonEncode(job.toJson()),
               },
@@ -497,7 +550,7 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
 
   @override
   Future<RecordedJob?> job(String uuid) async {
-    final row = await _table('horizon_jobs').where('uuid', uuid).first();
+    final row = await _table('horizon_jobs').where('uuid', fit(uuid)).first();
     return row == null ? null : _job(row);
   }
 
@@ -508,7 +561,7 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
     // One statement; AVG skips NULL: the average of the jobs that have a
     // run time.
     final row = await _table('horizon_job_counts')
-        .where('queue', queue)
+        .where('queue', fit(queue))
         .where('at', '>=', _now - 60000)
         .selectRaw('COUNT(*) AS jobs, AVG(duration_ms) AS avg_ms')
         .first();
@@ -553,13 +606,13 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
   @override
   Future<void> monitor(String tag) => Zone.root.run(() async {
     // Two dashboards may monitor the same tag at once.
-    await _table('horizon_monitored_tags').insertOrIgnore({'tag': tag});
+    await _table('horizon_monitored_tags').insertOrIgnore({'tag': fit(tag)});
   });
 
   @override
   Future<void> unmonitor(String tag) => Zone.root.run(() async {
-    await _table('horizon_monitored_tags').where('tag', tag).delete();
-    await _table('horizon_job_tags').where('tag', tag).delete();
+    await _table('horizon_monitored_tags').where('tag', fit(tag)).delete();
+    await _table('horizon_job_tags').where('tag', fit(tag)).delete();
   });
 
   @override
@@ -579,7 +632,7 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
   Future<List<RecordedJob>> tagged(String tag, {int limit = 50}) async => [
     for (final row
         in await _table('horizon_job_tags')
-            .where('tag', tag)
+            .where('tag', fit(tag))
             .orderBy('at', 'desc')
             .orderBy('id', 'desc')
             .limit(limit)

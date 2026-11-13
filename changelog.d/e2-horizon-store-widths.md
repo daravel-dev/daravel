@@ -1,0 +1,3 @@
+### Fixed
+
+- Horizon's `database` store: a job name, queue, tag or uuid longer than its 255-character column is cut to fit (`DatabaseHorizonStore.fit`, the last character replaced by `…`); the job's record keeps the whole value, and looking a job up by it (`job`, `tagged`, `monitor`, `unmonitor`, `rates`) still finds it. Before, PostgreSQL and MySQL (strict mode, when the job's row was updated) refused such a value and the whole batch, up to 100 other jobs' records, was dropped. A batch the database refuses is now written again one record at a time, so a record it still refuses costs only itself; after three refused in a row the rest of that batch is dropped as before (the store itself failing), each counted in `horizon_store_dropped_total{reason="error"}`.
