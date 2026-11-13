@@ -104,9 +104,11 @@ keep the isolate busy with microtasks, so a timer around that loop (a
   the work is done, an idempotency key in a unique column) or keep one
   dispatch at a time (`ShouldBeUnique`). SQLite with several workers makes
   busy errors, and so these retries, more likely.
-- A job that fails for good is removed from `jobs` first and then written
-  to `failed_jobs`, as in Laravel. When that write fails (the table missing,
-  the database refusing), the job is gone without a record: the worker logs
+- A job that fails for good is written to `failed_jobs` first and then
+  removed from its queue, in one transaction when the queue and
+  `failed_jobs` are tables on the same connection; Laravel removes it first.
+  When that write fails (the table missing, the database refusing), the job
+  stays in its queue and runs again after `retry_after`, and the worker logs
   the error at `error` level (at most one entry a minute, with the number
   left out), so alert on those entries.
 - `tries` counts every reservation, including a release by middleware
@@ -115,7 +117,11 @@ keep the isolate busy with microtasks, so a timer around that loop (a
   running, as in Laravel, and so does a job reserved after its `retryUntil`;
   a job released until a lock frees up needs `tries` (or `retryUntil`) that
   cover the wait. `int? get maxExceptions` fails a job after that many
-  exceptions, however many tries are left.
+  exceptions, however many tries are left. On the database queue `tries: 0`
+  (unlimited) ends at 255 attempts, the most Laravel's `attempts` column
+  (`TINYINT UNSIGNED`) holds: a job reserved that often fails with
+  `MaxAttemptsExceededException` without running, and the jobs behind it
+  keep running (Laravel's increment fails there on MySQL).
 - Dart cannot stop a running future, so a handler past its `timeout` keeps
   running. Its `ctx.cancelled` is set, and it runs with `ctx.cancellation` as
   `CancellationToken.current`: a `DB.transaction` it is still in rolls back
@@ -123,6 +129,9 @@ keep the isolate busy with microtasks, so a timer around that loop (a
   `WithoutOverlapping` keeps its lock until `expiresAfter`. A worker whose job
   timed out and was released stops with exit code 1 (`queue:work` ends the
   process), so the process manager starts a fresh one.
+- A `timeout` is cooperative: it marks the job and cancels what checks
+  `ctx.cancelled` or the cancellation token, but it does not stop
+  CPU-bound synchronous work.
 - A handler doing long synchronous work (rendering a PDF, encoding a large
   JSON) blocks its isolate: its own timeout cannot fire until it returns.
   Under `daravel_horizon` the master judges a worker that runs a job by that
@@ -206,11 +215,13 @@ keep the isolate busy with microtasks, so a timer around that loop (a
   once; the job of a worker that stops responding waits `retry_after`. As in
   Laravel, keep `QUEUE_RETRY_AFTER` above the longest job `timeout`: the
   worker warns when a job's timeout (or `--timeout`) is not below it.
-  On Redis, a worker that lost its reservation anyway (a handler that blocked
-  its isolate past `retry_after`, so the extension could not run) no longer
-  deletes or releases the job another worker has taken since: the call does
-  nothing, and the worker logs one warning per job ("ran past
-  retry_after"). Raise `retry_after` above the longest job when you see it.
+  On Redis and the database queue, a worker that lost its reservation
+  anyway (a handler that blocked its isolate past `retry_after`, so the
+  extension could not run) no longer deletes or releases the job another
+  worker has taken since: the call does nothing, and the worker logs one
+  warning per job ("ran past retry_after"). Raise `retry_after` above the
+  longest job when you see it. Laravel's database queue checks only that
+  the row exists.
 - `Queue.dispatch(job)` pushes the job even when nothing awaits it (in a
   microtask, after the setters chained on it), as Laravel pushes a
   `PendingDispatch` when it goes out of scope. Awaiting it gives the job id

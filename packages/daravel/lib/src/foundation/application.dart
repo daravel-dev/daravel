@@ -997,6 +997,8 @@ final class Application {
                 'names.',
                 {'job_id': id, 'handler': handler},
               ),
+              isKnownJob: jobs.has,
+              logger: logger,
             ),
           );
     for (final MapEntry(key: name, value: factory)

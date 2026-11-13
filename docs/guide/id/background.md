@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:0d491b74b721 -->
+<!-- source: background.md sha256:3d7a6735a420 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -105,11 +105,13 @@ membuat isolate sibuk dengan microtask, sehingga timer di sekitar loop itu
   sudah selesai, kunci idempotensi di kolom unik) atau batasi satu dispatch
   pada satu waktu (`ShouldBeUnique`). SQLite dengan beberapa worker membuat
   galat busy, dan karena itu pengulangan ini, lebih mungkin terjadi.
-- Job yang gagal untuk selamanya dihapus dari `jobs` lebih dulu, lalu ditulis
-  ke `failed_jobs`, seperti di Laravel. Bila penulisan itu gagal (tabelnya
-  tidak ada, database menolak), job hilang tanpa catatan: worker mencatat
-  galatnya di level `error` (paling banyak satu entri per menit, dengan jumlah
-  yang terlewat), jadi pasang alert pada entri itu.
+- Job yang gagal untuk selamanya ditulis ke `failed_jobs` lebih dulu, lalu
+  dihapus dari antreannya, dalam satu transaksi bila antrean dan
+  `failed_jobs` adalah tabel pada koneksi yang sama; Laravel menghapusnya
+  lebih dulu. Bila penulisan itu gagal (tabelnya tidak ada, database
+  menolak), job tetap di antreannya dan berjalan lagi setelah `retry_after`,
+  dan worker mencatat galatnya di level `error` (paling banyak satu entri
+  per menit, dengan jumlah yang terlewat), jadi pasang alert pada entri itu.
 - `tries` menghitung setiap reservasi, termasuk release oleh middleware
   (`WithoutOverlapping`, `RateLimitedJob`) atau `ctx.release()`. Job yang
   direservasi lagi setelah percobaan terakhirnya gagal dengan
@@ -117,7 +119,15 @@ membuat isolate sibuk dengan microtask, sehingga timer di sekitar loop itu
   pula job yang direservasi setelah `retryUntil`-nya lewat; job yang
   di-release sampai sebuah lock bebas membutuhkan `tries` (atau `retryUntil`)
   yang mencakup waktu tunggu itu. `int? get maxExceptions` menggagalkan job
-  setelah exception sebanyak itu, berapa pun sisa percobaannya.
+  setelah exception sebanyak itu, berapa pun sisa percobaannya. Di antrean
+  database, `tries: 0` (tanpa batas) berakhir pada 255 percobaan, nilai
+  terbesar yang dapat ditampung kolom `attempts` Laravel (`TINYINT
+  UNSIGNED`): job yang direservasi sesering itu gagal dengan
+  `MaxAttemptsExceededException` tanpa dijalankan, dan job di belakangnya
+  tetap berjalan (increment Laravel gagal di titik itu pada MySQL).
+- `timeout` bersifat kooperatif: ia menandai job dan membatalkan apa pun
+  yang memeriksa `ctx.cancelled` atau token pembatalan, tetapi tidak
+  menghentikan kerja sinkron yang berat CPU.
 - Dart tidak bisa menghentikan future yang sedang berjalan, sehingga handler
   yang melewati `timeout`-nya tetap berjalan. `ctx.cancelled`-nya di-set, dan
   handler itu berjalan dengan `ctx.cancellation` sebagai
@@ -213,12 +223,13 @@ membuat isolate sibuk dengan microtask, sehingga timer di sekitar loop itu
   merespons menunggu `retry_after`. Seperti di Laravel, jaga
   `QUEUE_RETRY_AFTER` di atas `timeout` job yang paling lama: worker
   memperingatkan bila timeout sebuah job (atau `--timeout`) tidak di
-  bawahnya. Di Redis, worker yang tetap kehilangan reservasinya (handler
-  yang memblokir isolate-nya melewati `retry_after`, sehingga perpanjangan
-  tidak sempat berjalan) tidak lagi menghapus atau me-release job yang
-  sudah diambil worker lain: pemanggilannya tidak berbuat apa-apa, dan
-  worker mencatat satu peringatan per job ("ran past retry_after").
-  Naikkan `retry_after` di atas job terlama bila Anda melihatnya.
+  bawahnya. Di Redis dan antrean database, worker yang tetap kehilangan
+  reservasinya (handler yang memblokir isolate-nya melewati `retry_after`,
+  sehingga perpanjangan tidak sempat berjalan) tidak lagi menghapus atau
+  me-release job yang sudah diambil worker lain: pemanggilannya tidak
+  berbuat apa-apa, dan worker mencatat satu peringatan per job ("ran past
+  retry_after"). Naikkan `retry_after` di atas job terlama bila Anda
+  melihatnya. Antrean database Laravel hanya memeriksa bahwa barisnya ada.
 - `Queue.dispatch(job)` mem-push job meskipun tidak ada yang meng-await-nya
   (dalam microtask, setelah setter yang dirangkai padanya), seperti Laravel
   mem-push `PendingDispatch` saat keluar dari scope. Meng-await-nya memberi

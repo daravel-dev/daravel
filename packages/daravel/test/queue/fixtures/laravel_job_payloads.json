@@ -1,0 +1,10 @@
+{
+    "laravel": "13.40.0",
+    "payloads": [
+        "{\"uuid\":\"9652d209-c20f-40bd-a6e4-98f8081d6fdf\",\"displayName\":\"SendReport\",\"job\":\"Illuminate\\\\Queue\\\\CallQueuedHandler@call\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"countCrashesAsExceptions\":false,\"backoff\":null,\"timeout\":null,\"retryUntil\":null,\"deleteWhenMissingModels\":false,\"data\":{\"commandName\":\"SendReport\",\"command\":\"O:10:\\\"SendReport\\\":2:{s:7:\\\"command\\\";s:11:\\\"report:send\\\";s:2:\\\"id\\\";i:7;}\",\"batchId\":null},\"createdAt\":1794569490,\"delay\":null}",
+        "{\"uuid\":\"79dbaf29-594e-4296-8347-de48ecd07a0f\",\"displayName\":\"LegacyHandler\",\"job\":\"LegacyHandler\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"backoff\":null,\"timeout\":null,\"data\":{\"command\":\"legacy\",\"id\":3},\"createdAt\":1794569490,\"delay\":null}",
+        "{\"uuid\":\"4b32e6c1-39b8-49ca-8070-f640c2fb1b21\",\"displayName\":\"App\\\\Jobs\\\\LegacyNamespaced\",\"job\":\"App\\\\Jobs\\\\LegacyNamespaced@handle\",\"maxTries\":null,\"maxExceptions\":null,\"failOnTimeout\":false,\"backoff\":null,\"timeout\":null,\"data\":{\"id\":4},\"createdAt\":1794569490,\"delay\":null}",
+        "{\"job\":\"raw\",\"data\":{\"command\":\"raw string\"}}",
+        "not json at all"
+    ]
+}

@@ -435,11 +435,13 @@ final class JobProcessor {
         timeout: timeout ?? payload.timeout,
       ),
     );
-    if (_alreadyExceeded(payload, queued.attempts, maxTries)) {
+    if (queued.attemptsExhausted ||
+        _alreadyExceeded(payload, queued.attempts, maxTries)) {
       // Laravel's markJobAsFailedIfAlreadyExceedsMaxAttempts: a job
       // reserved again after its last try (released by middleware such as
       // WithoutOverlapping, or abandoned past its timeout) fails without
-      // running, instead of being released for ever.
+      // running, instead of being released for ever. So does one whose
+      // driver cannot count another attempt (the database queue at 255).
       if (debounce != null && await debounce.get<String>(debounced) == owner) {
         await debounce.forget(debounced);
       }
@@ -844,6 +846,51 @@ final class JobProcessor {
     }
   }
 
+  /// Records [queued] in `failed_jobs`, then removes it from the queue:
+  /// in one transaction when both tables are on the same connection, so
+  /// neither happens without the other; otherwise in that order, so a
+  /// record that fails leaves the job in the queue instead of losing it,
+  /// and a removal that fails after the record is logged (the job may run
+  /// again). Stricter than Laravel, whose `Job::fail` deletes first and
+  /// records from the `JobFailed` event.
+  Future<Object?> _recordThenFinish(
+    QueueDriver driver,
+    QueuedJob queued,
+    Object error,
+    StackTrace stackTrace,
+  ) async {
+    Future<Object?> record() => failedJobs.log(
+      connection: driver.name,
+      queue: queued.queue,
+      payload: queued.raw,
+      exception: '$error\n$stackTrace',
+    );
+    final failed = failedJobs;
+    if (driver is DatabaseQueue &&
+        failed is DatabaseFailedJobProvider &&
+        identical(driver.db, failed.db) &&
+        driver.connection == failed.connection) {
+      return driver.db.transaction(() async {
+        final id = await record();
+        await _finish(driver, queued, queued.payload);
+        return id;
+      }, connection: driver.connection);
+    }
+    final id = await record();
+    try {
+      await _finish(driver, queued, queued.payload);
+    } on Object catch (removeError, removeTrace) {
+      logger?.error(
+        'Job ${queued.id} is in failed_jobs but could not be removed from '
+        'queue [${queued.queue}]; it may run again',
+        error: removeError,
+        stackTrace: removeTrace,
+        context: <String, Object?>{'job_id': queued.id, 'queue': queued.queue},
+      );
+    }
+    return id;
+  }
+
   Future<void> _fail(
     QueueDriver driver,
     QueuedJob queued,
@@ -851,13 +898,7 @@ final class JobProcessor {
     StackTrace stackTrace, {
     required Job? job,
   }) async {
-    await _finish(driver, queued, queued.payload);
-    final failedId = await failedJobs.log(
-      connection: driver.name,
-      queue: queued.queue,
-      payload: queued.raw,
-      exception: '$error\n$stackTrace',
-    );
+    final failedId = await _recordThenFinish(driver, queued, error, stackTrace);
     logger?.error(
       'Job ${queued.payload.displayName} failed',
       error: error,
