@@ -47,13 +47,17 @@ abstract interface class SweepsInRounds implements SessionHandler {}
 final class FileSessionHandler implements SweepsInRounds {
   /// Sessions as files in [directory]. Each [gc] call examines at most
   /// [gcBatch] files or runs for at most [gcBudget], then stops; the next
-  /// call resumes where it stopped.
+  /// call resumes where it stopped. [gcBatch] must be at least 1.
   FileSessionHandler(
     this.directory, {
     required this.lifetime,
     this.gcBatch = 2000,
     this.gcBudget = const Duration(milliseconds: 250),
-  });
+  }) {
+    if (gcBatch < 1) {
+      throw ArgumentError.value(gcBatch, 'gcBatch', 'must be at least 1');
+    }
+  }
 
   /// The directory of the session files.
   final String directory;
@@ -74,17 +78,23 @@ final class FileSessionHandler implements SweepsInRounds {
 
   File _file(String id) => File(p.join(directory, id));
 
+  /// The session, or null when its file is missing, expired, or deleted
+  /// while being read (a sweep in another isolate or process, or Laravel's).
   @override
   Future<String?> read(String id) async {
     final file = _file(id);
-    if (!file.existsSync()) {
-      return null;
+    try {
+      final modified = await file.lastModified();
+      if (Clock.now().difference(modified) > lifetime) {
+        return null;
+      }
+      return await file.readAsString();
+    } on FileSystemException catch (error) {
+      if (await _goneOrGoing(file, error)) {
+        return null;
+      }
+      rethrow;
     }
-    final modified = file.lastModifiedSync();
-    if (Clock.now().difference(modified) > lifetime) {
-      return null;
-    }
-    return file.readAsString();
   }
 
   @override
@@ -94,12 +104,39 @@ final class FileSessionHandler implements SweepsInRounds {
     await file.writeAsString(payload, flush: true);
   }
 
+  /// Deletes the session's file; one that is gone already, or being deleted
+  /// by a sweep elsewhere, is done (as Laravel's `Filesystem::delete`).
   @override
   Future<void> destroy(String id) async {
     final file = _file(id);
-    if (file.existsSync()) {
-      file.deleteSync();
+    try {
+      await file.delete();
+    } on FileSystemException catch (error) {
+      if (!await _goneOrGoing(file, error)) {
+        rethrow;
+      }
     }
+  }
+
+  /// Whether [error] on [file] means the file is gone or going: not found,
+  /// or refused while another isolate or process deletes it (Windows
+  /// refuses access to a file whose deletion is pending), which shows as
+  /// the file disappearing within a few milliseconds. Access refused on a
+  /// file that stays is an error.
+  static Future<bool> _goneOrGoing(File file, FileSystemException error) async {
+    if (error is PathNotFoundException) {
+      return true;
+    }
+    if (error is! PathAccessException) {
+      return false;
+    }
+    for (var i = 0; i < 20; i++) {
+      if (!await file.exists()) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    return false;
   }
 
   /// One bounded round: skips the [gcPosition] entries examined before,
@@ -107,7 +144,11 @@ final class FileSessionHandler implements SweepsInRounds {
   /// [gcBudget] allows), all asynchronously, so a directory of many files
   /// never holds the event loop. A round that reaches the end of the
   /// listing starts the next one from the beginning; files deleted meanwhile
-  /// by another process or isolate are skipped.
+  /// by another process or isolate are skipped. Files that others delete
+  /// ahead of the resume position move the listing up, so some expired
+  /// files are reached only on the next pass. Names starting with `.`
+  /// (`.gitignore`, `.gitkeep`) are never deleted, as Laravel's
+  /// `ignoreDotFiles(true)`.
   @override
   Future<void> gc(Duration lifetime) async {
     final dir = Directory(directory);
@@ -134,7 +175,7 @@ final class FileSessionHandler implements SweepsInRounds {
         break;
       }
       examined++;
-      if (entry is! File) {
+      if (entry is! File || p.basename(entry.path).startsWith('.')) {
         continue;
       }
       try {
