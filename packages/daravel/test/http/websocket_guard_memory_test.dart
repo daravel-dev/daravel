@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
@@ -57,83 +58,118 @@ void main() {
 
   Future<RawWsClient> connect(String path) => RawWsClient.connect(port, path);
 
+  /// That the server's memory does not grow with what an [attack] sends:
+  /// a first round warms the server up (its resident memory grows with
+  /// the code and heap the first rounds bring, more on some systems than
+  /// on others), then the attack runs at [scale] 1 and at 4, and what the
+  /// second adds over the first stays small. A server that kept what the
+  /// attack sends would grow about three times as much again.
+  Future<void> expectBounded(
+    String name,
+    Future<void> Function(int scale) attack,
+  ) async {
+    await attack(1);
+    Future<int> grows(int scale) async {
+      final before = await rss();
+      await attack(scale);
+      return await rss() - before;
+    }
+
+    final once = await grows(1);
+    final four = await grows(4);
+    // Printed always, for the numbers on every system CI runs.
+    print(
+      '$name: warm, then grew ${once >> 20} MiB at 1x and ${four >> 20} MiB '
+      'at 4x',
+    );
+    // Memory given back after the warm-up round shows as negative growth.
+    expect(
+      four - max(once, 0),
+      lessThan(8 << 20),
+      reason: 'grows with the attack',
+    );
+    expect(once, lessThan(96 << 20));
+    expect(four, lessThan(96 << 20));
+  }
+
   test('fragments without end: closed at the limit, the server does not grow '
       'with what follows', () async {
-    final before = await rss();
-    final client = await connect('/echo');
-    final piece = Uint8List(8192);
-    client.send(0x1, piece, fin: false);
-    // Up to 32 MB of fragments; the limit is 64 KiB.
-    for (var i = 0; i < 4000 && !client.ended; i++) {
-      client.send(0x0, piece, fin: false);
-      if (i % 50 == 0) {
-        await Future<void>.delayed(Duration.zero);
+    await expectBounded('fragments without end', (scale) async {
+      final client = await connect('/echo');
+      final piece = Uint8List(8192);
+      client.send(0x1, piece, fin: false);
+      // 16 MB of fragments per scale; the limit is 64 KiB.
+      for (var i = 0; i < 2000 * scale && !client.ended; i++) {
+        client.send(0x0, piece, fin: false);
+        if (i % 50 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
       }
-    }
-    expect(await client.closeFrame(), 1009);
-    final grew = await rss() - before;
-    printOnFailure('server grew by ${grew >> 20} MiB');
-    expect(grew, lessThan(32 << 20));
+      expect(await client.closeFrame(), 1009);
+      client.socket.destroy();
+    });
   });
 
   test('a client that pings and never reads: destroyed at the queue limit, '
       'the server bounded', () async {
-    final before = await rss();
-    final client = await connect('/flood');
-    client.pauseReading();
     final ping = RawWsClient.frame(0x9, Uint8List(125));
     final burst = BytesBuilder();
     for (var i = 0; i < 4000; i++) {
       burst.add(ping);
     }
     final bytes = burst.takeBytes();
-    // Up to 26 MB of pings, their pongs as much again.
-    for (var i = 0; i < 50; i++) {
-      try {
-        client.socket.add(bytes);
-        await client.socket.flush().timeout(const Duration(seconds: 2));
-      } on Object {
-        break;
+    bool slow(int count) =>
+        logs.where((l) => l.contains('the client read too slowly')).length >=
+        count;
+    var rounds = 0;
+    await expectBounded('pings, never read', (scale) async {
+      rounds++;
+      final client = await connect('/flood');
+      client.pauseReading();
+      // About 6.5 MB of pings per scale, their pongs as much again.
+      for (var i = 0; i < 12 * scale; i++) {
+        try {
+          client.socket.add(bytes);
+          await client.socket.flush().timeout(const Duration(seconds: 2));
+        } on Object {
+          break;
+        }
       }
-    }
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    bool slow() => logs.any((l) => l.contains('the client read too slowly'));
-    while (!slow() && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-    final grew = await rss() - before;
-    printOnFailure('server grew by ${grew >> 20} MiB; log: $logs');
-    expect(slow(), isTrue);
-    expect(grew, lessThan(32 << 20));
-    client.socket.destroy();
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!slow(rounds) && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(slow(rounds), isTrue, reason: 'log: $logs');
+      client.socket.destroy();
+    });
   });
 
   test('a handler that does not read: the client is held back by TCP, the '
       'server does not grow', () async {
-    final before = await rss();
-    final client = await connect('/silent');
     final message = RawWsClient.frame(0x2, Uint8List(1024));
     final burst = BytesBuilder();
     for (var i = 0; i < 1024; i++) {
       burst.add(message);
     }
     final bytes = burst.takeBytes();
-    // Up to 64 MB, until TCP stops taking them.
-    var sent = 0;
-    for (var i = 0; i < 64; i++) {
-      client.socket.add(bytes);
-      try {
-        await client.socket.flush().timeout(const Duration(milliseconds: 300));
-        sent++;
-      } on TimeoutException {
-        break;
+    await expectBounded('a handler that does not read', (scale) async {
+      final client = await connect('/silent');
+      // Up to 16 MB per scale, until TCP stops taking them.
+      var sent = 0;
+      for (var i = 0; i < 16 * scale; i++) {
+        client.socket.add(bytes);
+        try {
+          await client.socket.flush().timeout(
+            const Duration(milliseconds: 300),
+          );
+          sent++;
+        } on TimeoutException {
+          break;
+        }
       }
-    }
-    final grew = await rss() - before;
-    printOnFailure('sent $sent MiB; server grew by ${grew >> 20} MiB');
-    expect(sent, lessThan(64), reason: 'TCP pushed back');
-    expect(grew, lessThan(32 << 20));
-    client.socket.destroy();
+      expect(sent, lessThan(16 * scale), reason: 'TCP pushed back');
+      client.socket.destroy();
+    });
   });
 
   test(
