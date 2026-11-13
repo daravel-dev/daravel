@@ -159,6 +159,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `session()->flash('status', 'Saved') / reflash / keep / now` | `session.flash('status', 'Saved') / reflash / keep / now` |  |
 | `session()->regenerate() / invalidate()` | `await session.regenerate() / invalidate()` | **async** |
 | `csrf_token()` | `session.token` |  |
+| `$exceptions->dontFlash(['card.number'])` | `withSession(dontFlash: ['card.number'])` | Added to current_password, password and password_confirmation; dot notation as Arr::forget. Uploaded files are never flashed, at any depth (RedirectResponse::removeFilesFromInput); a list that loses one keeps the other indices, as a PHP array. |
 | `Auth::guard('web')->attempt($credentials) / login($user) / logout()` | `guard.attempt(credentials) / login(user) / logout()` | **async**; auth.session<User>('web', provider). The login_web_<sha1> key and, from Laravel 12, password_hash_web, so a login holds on both sides, with remember-me cookies. |
 | `EncryptCookies middleware` | `EncryptCookiesMiddleware` | Crypt payload with CookieValuePrefix (hmac_sha1(name.'v2', key).'|'), so cookies are shared with the Laravel app. |
 | `VerifyCsrfToken ($except, X-CSRF-TOKEN, X-XSRF-TOKEN)` | `VerifyCsrfTokenMiddleware(except: [...])` | 419 CSRF token mismatch.; the XSRF-TOKEN cookie is set on every response. |
