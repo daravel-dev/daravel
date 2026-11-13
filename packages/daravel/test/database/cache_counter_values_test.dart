@@ -47,6 +47,16 @@ void cacheCounterValueTests(DatabaseOpener open) {
         'laravel': 'i:5;',
         'text': '{"v":"abc"}',
         'null': '{"v":null}',
+        // Not whole decimal numbers that fit (none may surface as anything
+        // but a StateError, nor be read as another number).
+        'nan': '{"v":"NaN"}',
+        'infinity': '{"v":"Infinity"}',
+        'huge': '{"v":"1e309"}',
+        'hex': '{"v":"0x10"}',
+        'fraction': '{"v":"3.7"}',
+        'exponent': '{"v":"1e3"}',
+        'overflow': '{"v":"99999999999999999999"}',
+        'double': '{"v":3.7}',
       };
       for (final MapEntry(:key, :value) in values.entries) {
         await db.table(cache).insert({
@@ -61,7 +71,9 @@ void cacheCounterValueTests(DatabaseOpener open) {
       await store.put('number', 4);
       expect(await store.increment('number', 2), 6);
       await store.put('digits', '7');
-      expect(await store.increment('digits'), 8, reason: 'numeric, as PHP');
+      expect(await store.increment('digits'), 8, reason: 'decimal digits');
+      await store.put('whole', 3.0);
+      expect(await store.increment('whole'), 4, reason: 'a whole double');
       expect(await store.increment('fresh'), 1);
     },
   );
@@ -110,6 +122,47 @@ void cacheCounterValueTests(DatabaseOpener open) {
       expect(result.degraded, isTrue);
     }
     expect(errors, hasLength(3), reason: 'not a conversion: every time');
+  });
+
+  test('a key too long for the column is reported every time; a counter '
+      'that was repaired and broke again is reported again', () async {
+    final errors = <Object>[];
+    final limiter = CacheRateLimitStore(() => store, onError: errors.add);
+    final dialect = (await db.executor()).dialect;
+    final long = 'k' * 300;
+    for (var i = 0; i < 3; i++) {
+      await limiter.attempt(long, 5, const Duration(minutes: 1));
+    }
+    if (dialect == SqlDialect.sqlite) {
+      expect(errors, isEmpty, reason: 'SQLite stores any length');
+    } else {
+      expect(errors, hasLength(3), reason: 'too long: not a counter value');
+    }
+
+    errors.clear();
+    Future<void> breakCounter() => db.table(cache).insert({
+      'key': 'rate_limiter:login:window',
+      'value': '{"v":"not digits"}',
+      'expiration': DatabaseStore.foreverExpiration,
+    });
+    await breakCounter();
+    await limiter.attempt('login', 5, const Duration(minutes: 1));
+    await limiter.attempt('login', 5, const Duration(minutes: 1));
+    await db.table(cache).where('key', 'rate_limiter:login:window').delete();
+    await limiter.attempt('login', 5, const Duration(minutes: 1));
+    await db.table(cache).where('key', 'rate_limiter:login:window').delete();
+    await breakCounter();
+    await limiter.attempt('login', 5, const Duration(minutes: 1));
+    await limiter.clear('login');
+    await breakCounter();
+    await limiter.attempt('login', 5, const Duration(minutes: 1));
+    if (dialect != SqlDialect.sqlite) {
+      expect(
+        errors,
+        hasLength(3),
+        reason: 'once per breakage: after a count that worked, after clear',
+      );
+    }
   });
 }
 

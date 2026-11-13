@@ -90,9 +90,12 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     Future<RateLimitResult> Function() count,
   ) async {
     try {
-      return await count();
+      final result = await count();
+      // Counting again: a later unreadable value is reported again.
+      _unreadable.remove(key);
+      return result;
     } on Exception catch (error) {
-      if (!await _isUnreadableCounter(error) || _unreadable.add(key)) {
+      if (!await _isUnreadableCounter(error, key) || _unreadable.add(key)) {
         if (_unreadable.length > 1000) {
           _unreadable.remove(_unreadable.first);
         }
@@ -110,12 +113,15 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     }
   }
 
-  /// Whether [error] is the database store refusing a counter value as a
-  /// number (a data exception), not the database failing.
-  Future<bool> _isUnreadableCounter(Exception error) async {
+  /// Whether [error] is the database store refusing the counter of [key] as
+  /// a number (a data exception), not the database failing. A window key
+  /// longer than the `key` column (255 characters) makes a data exception
+  /// too ("too long"), reported every time: it is not the counter's value.
+  Future<bool> _isUnreadableCounter(Exception error, String key) async {
     final store = _resolved;
     return error is QueryException &&
         store is DatabaseStore &&
+        _windowKey(key).runes.length <= 255 &&
         await store.db.isDataException(error, connection: store.connection);
   }
 
@@ -261,6 +267,7 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
 
   @override
   Future<void> clear(String key) async {
+    _unreadable.remove(key);
     await store.forget('$prefix$key');
     await store.forget('$prefix$key:timer');
     await store.forget(_windowKey(key));

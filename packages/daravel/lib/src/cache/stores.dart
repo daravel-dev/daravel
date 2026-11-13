@@ -1217,9 +1217,36 @@ final class FileStore
     }
   }
 
+  /// Deletes every lock file, and frees the [isolateLocks] layer of each
+  /// (the lock file holds the name), so a holder in this process is not
+  /// left with a coordinator lock nobody else can take until its time to
+  /// live. A flush in another process frees that process's layer only;
+  /// this one's expire with their time to live.
   @override
   Future<void> flushLocks() async {
     final dir = Directory(_locksDirectory);
+    final first = isolateLocks;
+    if (first != null && await dir.exists()) {
+      try {
+        await for (final entry in dir.list()) {
+          if (entry is! File || !entry.path.endsWith('.lock')) {
+            continue;
+          }
+          try {
+            final decoded = jsonDecode(await entry.readAsString());
+            if (decoded is Map<String, Object?> && decoded['n'] is String) {
+              await first.forceReleaseLock(decoded['n']! as String);
+            }
+          } on FormatException {
+            // Not a lock this version wrote: its file goes below.
+          } on FileSystemException {
+            // Gone meanwhile.
+          }
+        }
+      } on FileSystemException {
+        // The directory went meanwhile (another flush).
+      }
+    }
     for (var attempt = 1; await dir.exists(); attempt++) {
       try {
         await dir.delete(recursive: true);
@@ -1377,32 +1404,36 @@ final class FileStore
   /// holds too, and written whole by a rename: another process never sees
   /// a half-written lock file, and never takes a lock between this one's
   /// check and write.
-  Future<bool> _acquireFileLock(
-    String name,
-    String owner,
-    Duration ttl,
-  ) => _lockExclusive(name, () async {
-    final file = File(_lockPath(name));
-    final current = await _readLock(file);
-    if (current != null && current.owner != owner && current.expiresAt > _now) {
-      return false;
-    }
-    final payload = jsonEncode({'o': owner, 'e': _now + ttl.inMilliseconds});
-    for (var attempt = 1; ; attempt++) {
-      final temp = File('${file.path}.${_tempSuffix()}.tmp');
-      try {
-        await file.parent.create(recursive: true);
-        await temp.writeAsString(payload);
-        await _replace(temp, file);
-        return true;
-      } on FileSystemException {
-        await _delete(temp);
-        if (attempt >= _attempts) {
-          rethrow;
+  Future<bool> _acquireFileLock(String name, String owner, Duration ttl) =>
+      _lockExclusive(name, () async {
+        final file = File(_lockPath(name));
+        final current = await _readLock(file);
+        if (current != null &&
+            current.owner != owner &&
+            current.expiresAt > _now) {
+          return false;
         }
-      }
-    }
-  });
+        final payload = jsonEncode({
+          'o': owner,
+          'e': _now + ttl.inMilliseconds,
+          // The name, so flushLocks can free the coordinator layer too.
+          'n': name,
+        });
+        for (var attempt = 1; ; attempt++) {
+          final temp = File('${file.path}.${_tempSuffix()}.tmp');
+          try {
+            await file.parent.create(recursive: true);
+            await temp.writeAsString(payload);
+            await _replace(temp, file);
+            return true;
+          } on FileSystemException {
+            await _delete(temp);
+            if (attempt >= _attempts) {
+              rethrow;
+            }
+          }
+        }
+      });
 
   /// The lock in [file], or null when there is none. A file that is empty
   /// or not a lock counts as held (by nobody) for [lockGrace] after its
@@ -1714,14 +1745,26 @@ final class DatabaseStore
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);
 
-  /// A stored value as a counter (PHP's `is_numeric`: a number, or a string
-  /// that is one), or null. A value this store did not write (Laravel's
-  /// `serialize()` text, which reads as null) is not one.
+  /// A stored value as a counter: a whole number, or a string of decimal
+  /// digits, that fits in an int; otherwise null. Narrower than PHP's
+  /// `is_numeric` (which takes `3.7` and `1e3`): a counter is whole. A value
+  /// this store did not write (Laravel's `serialize()` text, which reads as
+  /// null) is not one.
   static int? _counter(Object? value) => switch (value) {
-    final num number => number.toInt(),
-    final String text => num.tryParse(text.trim())?.toInt(),
+    final int number => number,
+    // A whole number that fits; not NaN, an infinity or 3.7.
+    final double number
+        when number.isFinite &&
+            number == number.truncateToDouble() &&
+            number.abs() < 9.2e18 =>
+      number.toInt(),
+    // Decimal digits only: not `0x10`, `1e3`, `3.7` or `NaN`, and null
+    // when they do not fit in an int.
+    final String text when _digits.hasMatch(text) => int.tryParse(text.trim()),
     _ => null,
   };
+
+  static final RegExp _digits = RegExp(r'^\s*[+-]?\d+\s*$');
 
   /// One upsert per hit: the row holds the hits as plain digits and the end
   /// of the window as its expiration. A blocked hit turns `max` into `-max`

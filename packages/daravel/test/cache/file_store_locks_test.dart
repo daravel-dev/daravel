@@ -202,6 +202,18 @@ void main() {
       expect(await isolates.lockOwner('shared'), isNull);
       expect(await one.lockOwner('shared'), isNull);
     });
+
+    test('flushLocks frees both layers: another isolate of this process '
+        'takes the lock at once', () async {
+      const ttl = Duration(minutes: 5);
+      expect(await one.acquireLock('shared', 'x', ttl), isTrue);
+      expect(await one.acquireLock('other', 'x', ttl), isTrue);
+      await one.flushLocks();
+      expect(await isolates.lockOwner('shared'), isNull);
+      expect(await isolates.lockOwner('other'), isNull);
+      expect(await two.acquireLock('shared', 'y', ttl), isTrue);
+      expect(await two.lockOwner('shared'), 'y');
+    });
   });
 }
 
