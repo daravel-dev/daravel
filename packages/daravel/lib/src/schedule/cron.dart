@@ -31,6 +31,22 @@ final class CronExpression {
         'Cron expression [$expression] must have 5 fields; got ${fields.length}.',
       );
     }
+    // `?` ("no specific value") is a whole day-of-month or day-of-week
+    // field, never both, as Laravel's cron-expression (3.x) accepts it.
+    for (final (index, field) in fields.indexed) {
+      if (field.contains('?') && (field != '?' || (index != 2 && index != 4))) {
+        throw CronFormatException(
+          'Cron expression [$expression]: `?` may only be the whole '
+          'day-of-month or day-of-week field.',
+        );
+      }
+    }
+    if (fields[2] == '?' && fields[4] == '?') {
+      throw CronFormatException(
+        'Cron expression [$expression]: `?` may be the day-of-month or the '
+        'day-of-week field, not both.',
+      );
+    }
     return CronExpression._(
       normalized,
       _field(fields[0], 0, 59, const {}),
@@ -39,10 +55,14 @@ final class CronExpression {
       _field(fields[3], 1, 12, _monthNames),
       _field(fields[4], 0, 7, _dayNames).map((d) => d == 7 ? 0 : d).toSet(),
       // Vixie cron, and Laravel's cron-expression: when both day fields
-      // are restricted a day matches either of them, not both.
-      eitherDay: !fields[2].startsWith('*') && !fields[4].startsWith('*'),
+      // are restricted a day matches either of them, not both. `?` leaves
+      // its field unrestricted, as `*` does.
+      eitherDay: _restricted(fields[2]) && _restricted(fields[4]),
     );
   }
+
+  static bool _restricted(String field) =>
+      !field.startsWith('*') && field != '?';
 
   /// Whether [time]'s day satisfies the day-of-month and day-of-week
   /// fields: both when one of them is `*`, either when both are set.
