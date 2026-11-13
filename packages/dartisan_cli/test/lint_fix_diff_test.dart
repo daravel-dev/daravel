@@ -71,6 +71,20 @@ void main() {
     expect(lintFixDiff('a.dart', 'x', 'x'), '--- a.dart\n+++ a.dart\n');
   });
 
+  test('machine output fields are unescaped', () {
+    expect(machineFields(r'ERROR|T|C|C:\\Users\\a.dart|3|1|7|a \| b'), [
+      'ERROR',
+      'T',
+      'C',
+      r'C:\Users\a.dart',
+      '3',
+      '1',
+      '7',
+      'a | b',
+    ]);
+    expect(machineFields('plain'), ['plain']);
+  });
+
   test('two fixes far apart in a long file stay cheap', () {
     // A table of N × M cells took 3.9 GB and 16 s for 20 000 lines.
     final before = [for (var i = 0; i < 20000; i++) 'line $i'];

@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:daravel_lints/daravel_lints.dart';
 import 'package:path/path.dart' as p;
 
@@ -245,6 +247,66 @@ Future<List<(String, String)>?> uncommittedFiles(
   ];
 }
 
+/// The files of the library [path] (project-relative, in the project at
+/// [root]) belongs to: the library file and its `part`s, found from
+/// either side (`part 'x.dart';`, `part of 'lib.dart';`). A file outside
+/// any such library is its own library. `part of` a library name (no URI)
+/// cannot be followed and leaves the file on its own.
+Set<String> libraryFiles(String root, String path) {
+  String? read(String relative) {
+    final file = File(p.join(root, relative));
+    return file.existsSync() ? file.readAsStringSync() : null;
+  }
+
+  String resolve(String from, String uri) =>
+      p.normalize(p.join(p.dirname(from), uri)).replaceAll(r'\', '/');
+
+  CompilationUnit? parse(String relative) => switch (read(relative)) {
+    final String source => parseString(
+      content: source,
+      throwIfDiagnostics: false,
+    ).unit,
+    null => null,
+  };
+
+  var library = path;
+  final ownUnit = parse(path);
+  for (final directive in ownUnit?.directives ?? const <Directive>[]) {
+    if (directive is PartOfDirective && directive.uri?.stringValue != null) {
+      library = resolve(path, directive.uri!.stringValue!);
+    }
+  }
+  final libraryUnit = library == path ? ownUnit : parse(library);
+  return {
+    path,
+    library,
+    for (final directive in libraryUnit?.directives ?? const <Directive>[])
+      if (directive is PartDirective && directive.uri.stringValue != null)
+        resolve(library, directive.uri.stringValue!),
+  };
+}
+
+/// The fields of one line of `dart analyze --format=machine`, unescaped:
+/// the format writes a `|` inside a field as `\|` and a `\` as `\\`
+/// (Windows paths come out as `C:\\Users\\...`).
+List<String> machineFields(String line) {
+  final fields = <String>[];
+  final field = StringBuffer();
+  for (var i = 0; i < line.length; i++) {
+    final c = line[i];
+    if (c == r'\' && i + 1 < line.length) {
+      field.write(line[++i]);
+    } else if (c == '|') {
+      fields.add(field.toString());
+      field.clear();
+    } else {
+      field.write(c);
+    }
+  }
+  fields.add(field.toString());
+  return fields;
+}
+
 /// The number of errors `dart analyze` reports in each of [paths]
 /// (project-relative) of the project at [root], or `null` when it did not
 /// analyze them (it could not start, or ended without a result: an exit
@@ -269,7 +331,7 @@ Future<Map<String, int>?> analyzeErrors(
   var findings = 0;
   // SEVERITY|TYPE|CODE|FILE|LINE|COLUMN|LENGTH|MESSAGE
   for (final line in '${result.stdout}\n${result.stderr}'.split('\n')) {
-    final fields = line.split('|');
+    final fields = machineFields(line);
     if (fields.length < 8 ||
         !const {'ERROR', 'WARNING', 'INFO'}.contains(fields[0])) {
       continue;

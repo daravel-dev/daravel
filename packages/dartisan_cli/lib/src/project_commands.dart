@@ -2032,18 +2032,31 @@ final class LintCommand extends Command<int> {
         'format',
         ...paths,
       ], workingDirectory: root);
-      // One analysis in the common case: a file without errors after the
-      // fix is kept as it is. Only a file with errors is put back (from
-      // the text this process read, not git) and analyzed again; it keeps
-      // the fix when it had as many errors before.
-      final after = await analyzeErrors(root, paths, executable: analyzer);
+      // A file is judged with the rest of its library (its parts, or the
+      // library it is part of): parts share the library's imports, so an
+      // import a fix adds can break a part that was not changed.
+      final groups = {
+        for (final change in changes)
+          change.path: libraryFiles(root, change.path),
+      };
+      int sum(Map<String, int> errors, String path) =>
+          groups[path]!.fold(0, (n, f) => n + (errors[f] ?? 0));
+      // One analysis in the common case: a file whose library has no errors
+      // after the fix is kept as it is. Only a file with errors there is
+      // put back (from the text this process read, not git) and analyzed
+      // again; it keeps the fix when its library had as many errors before.
+      final after = await analyzeErrors(
+        root,
+        {for (final group in groups.values) ...group}.toList(),
+        executable: analyzer,
+      );
       if (after == null) {
         return putBack('dart analyze did not run, so no fix could be checked');
       }
       errorsAfter = after;
       final suspects = [
         for (final change in changes)
-          if ((errorsAfter[change.path] ?? 0) > 0) change,
+          if (sum(errorsAfter, change.path) > 0) change,
       ];
       final formatted = {
         for (final change in suspects)
@@ -2054,15 +2067,17 @@ final class LintCommand extends Command<int> {
       }
       final errorsBefore = suspects.isEmpty
           ? const <String, int>{}
-          : await analyzeErrors(root, [
-              for (final c in suspects) c.path,
-            ], executable: analyzer);
+          : await analyzeErrors(
+              root,
+              {for (final c in suspects) ...groups[c.path]!}.toList(),
+              executable: analyzer,
+            );
       if (errorsBefore == null) {
         return putBack('dart analyze did not run, so no fix could be checked');
       }
       broken = {
         for (final change in suspects)
-          if (errorsAfter[change.path]! > (errorsBefore[change.path] ?? 0))
+          if (sum(errorsAfter, change.path) > sum(errorsBefore, change.path))
             change.path,
       };
       for (final change in suspects) {

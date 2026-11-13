@@ -486,6 +486,44 @@ Future<void> store(Form form) => form.validate({'email': 'required'});
       expect(file.readAsStringSync(), controller);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test(
+      'a fix that breaks an unchanged part of its library is undone',
+      () async {
+        // The library imports its own Request, which only the part uses. The
+        // fix adds package:daravel (which exports a Request too) to the
+        // library, and the part, sharing its imports, no longer compiles.
+        final dir = p.join(root.path, 'lib', 'app');
+        File(p.join(dir, 'request.dart'))
+            .writeAsStringSync('class Request {}\n');
+        const library = '''
+import 'request.dart';
+
+part 'forms_part.dart';
+
+Future<void> store(dynamic form) => form.validate({'email': 'required'});
+''';
+        final forms = File(p.join(dir, 'forms.dart'))
+          ..writeAsStringSync(library);
+        File(p.join(dir, 'forms_part.dart')).writeAsStringSync(
+          "part of 'forms.dart';\n\nRequest make() => Request();\n",
+        );
+        file.deleteSync();
+        await commitAll();
+        expect(libraryFiles(root.path, 'lib/app/forms_part.dart'), {
+          'lib/app/forms_part.dart',
+          'lib/app/forms.dart',
+        });
+        final (_, output) = await lint(['--fix']);
+        expect(
+          errors.toString(),
+          contains('lib/app/forms.dart did not compile'),
+        );
+        expect(output, contains('1 file left as it was'));
+        expect(forms.readAsStringSync(), library);
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
     test('a file git ignores is refused like an uncommitted one', () async {
       File(p.join(root.path, '.gitignore'))
           .writeAsStringSync('lib/app/controller.dart\n');

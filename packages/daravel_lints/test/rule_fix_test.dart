@@ -84,6 +84,40 @@ Future<void> f(Request request) => request.validate({'a': 'required'});
     expect(fix(shown).fixed, contains("{'a': Rules.required()}"));
   });
 
+  test('an added import goes before the parts; a part gets no fix', () {
+    const library = '''
+import 'dart:async';
+
+part 'a_part.dart';
+
+Future<void> f(dynamic request) => request.validate({'a': 'required'});
+''';
+    expect(
+      fix(library).fixed,
+      startsWith(
+        "import 'dart:async';\nimport 'package:daravel/daravel.dart';\n\n"
+        "part 'a_part.dart';",
+      ),
+    );
+    const partsOnly = '''
+part 'a_part.dart';
+
+Future<void> f(dynamic request) => request.validate({'a': 'required'});
+''';
+    expect(
+      fix(partsOnly).fixed,
+      startsWith(
+        "import 'package:daravel/daravel.dart';\n\npart 'a_part.dart';",
+      ),
+    );
+    const part = '''
+part of 'library.dart';
+
+Future<void> f(dynamic request) => request.validate({'a': 'required'});
+''';
+    expect(fix(part).fixes, [null], reason: 'a part cannot import');
+  });
+
   test('not offered where Rules is hidden by the import', () {
     for (final combinator in ['show Request', 'hide Rules']) {
       final source =
