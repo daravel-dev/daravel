@@ -11,6 +11,7 @@ import 'context.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/loggable.dart';
 
 /// RFC 5424 levels (ordered by severity).
 enum LogLevel {
@@ -320,7 +321,7 @@ final class ConsoleHandler implements LogHandler {
     if (showChannel) {
       buffer.write('${record.channel}: ');
     }
-    buffer.write(record.message);
+    buffer.write(_escapeControls(record.message));
     if (record.context.isNotEmpty) {
       buffer
         ..write(' ')
@@ -329,7 +330,7 @@ final class ConsoleHandler implements LogHandler {
     if (record.error != null) {
       buffer
         ..write('\n  error: ')
-        ..write(record.error);
+        ..write(_escapeControls('${record.error}'));
     }
     if (record.stackTrace != null) {
       buffer
@@ -342,6 +343,28 @@ final class ConsoleHandler implements LogHandler {
 
   @override
   Future<void> close() => _std ? _flushStd() : Future<void>.value();
+
+  /// [text] with its control characters written as escapes (`\r`, `\n`,
+  /// `\x1b`, ...; tab kept): a message or error that carries a line break
+  /// (a route parameter, a header, a client's input) cannot forge a log
+  /// line, and an ESC cannot drive the terminal. Monolog's `LineFormatter`,
+  /// Laravel's default, likewise keeps an entry on one line. The stack
+  /// trace stays on lines of its own.
+  static String _escapeControls(String text) {
+    if (!_controls.hasMatch(text)) {
+      return text;
+    }
+    return text.replaceAllMapped(
+      _controls,
+      (m) => switch (m[0]!) {
+        '\n' => r'\n',
+        '\r' => r'\r',
+        final c => '\\x${c.codeUnitAt(0).toRadixString(16).padLeft(2, '0')}',
+      },
+    );
+  }
+
+  static final RegExp _controls = RegExp('[\\x00-\\x08\\x0a-\\x1f\\x7f]');
 }
 
 /// One JSON object per line (containers, log shippers).
@@ -612,14 +635,23 @@ final class LoggingConfig implements ConfigSection {
   );
 
   /// Context keys whose values are replaced by `[REDACTED]` (substring,
-  /// case-insensitive) — BLUEPRINT_V2 §7.6.5.
+  /// whatever the case and `-`/`_`) — BLUEPRINT_V2 §7.6.5.
   static const List<String> defaultRedactedKeys = <String>[
     'password',
+    'passwd',
+    'pwd',
     'token',
     'authorization',
+    'bearer',
     'cookie',
     'secret',
     'api_key',
+    'apikey',
+    'jwt',
+    'session_id',
+    'private_key',
+    'credentials',
+    'dsn',
   ];
 
   /// Default channel (`stack`, `console`, `json`, `daily`, `null`).
@@ -671,7 +703,7 @@ final class Logger {
   }) : _handlers = handlers == null
            ? <LogHandler>[ConsoleHandler(out: out, err: err)]
            : List<LogHandler>.of(handlers),
-       _redact = redact.map((k) => k.toLowerCase()).toList();
+       _redact = redact.map(_normalizeKey).toList();
 
   /// Builds the default channel and every named channel from [config].
   factory Logger.fromConfig(
@@ -869,24 +901,48 @@ final class Logger {
     }
   }
 
-  /// Replaces values of sensitive keys (recursively) with `[REDACTED]`.
-  Map<String, Object?> redact(Map<String, Object?> context) => {
-    for (final entry in context.entries)
-      entry.key: _isSensitive(entry.key)
+  /// Replaces values of sensitive keys (recursively) with `[REDACTED]`:
+  /// in every map whatever its key type (keys written with `toString`), in
+  /// every list, set and other iterable, and in a [Loggable] such as
+  /// `Headers`. Keys match whatever their case and `-` or `_`
+  /// (`X-Api-Key` matches `api_key`). Nesting past 32 levels is cut.
+  Map<String, Object?> redact(Map<String, Object?> context) =>
+      _redactMap(context, 0);
+
+  Map<String, Object?> _redactMap(Map<Object?, Object?> map, int depth) => {
+    for (final MapEntry(:key, :value) in map.entries)
+      '$key': _isSensitive('$key')
           ? '[REDACTED]'
-          : _redactValue(entry.value),
+          : _redactValue(value, depth + 1),
   };
 
-  Object? _redactValue(Object? value) => switch (value) {
-    Map<String, Object?>() => redact(value),
-    List<Object?>() => [for (final v in value) _redactValue(v)],
-    _ => value,
-  };
+  Object? _redactValue(Object? value, int depth) {
+    if (depth > _maxDepth) {
+      return '[DEPTH]';
+    }
+    return switch (value) {
+      Loggable() => _redactValue(value.toLogValue(), depth + 1),
+      Map<Object?, Object?>() => _redactMap(value, depth),
+      // Bytes stay as they are (not a structure that holds keys).
+      Uint8List() => value,
+      Iterable<Object?>() => [
+        for (final v in value) _redactValue(v, depth + 1),
+      ],
+      _ => value,
+    };
+  }
+
+  static const int _maxDepth = 32;
 
   bool _isSensitive(String key) {
-    final lower = key.toLowerCase();
-    return _redact.any(lower.contains);
+    final normalized = _normalizeKey(key);
+    return _redact.any(normalized.contains);
   }
+
+  /// Lower case without `-` and `_`, so `X-API-KEY`, `api_key` and `apiKey`
+  /// are one name.
+  static String _normalizeKey(String key) =>
+      key.toLowerCase().replaceAll('-', '').replaceAll('_', '');
 
   /// Flushes and closes every handler of this logger and its channels.
   Future<void> close() async {

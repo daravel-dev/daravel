@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/deployment.md`.
 const String pageIdDeployment =
-    r'''<!-- source: deployment.md sha256:f1c4d7674f67 -->
+    r'''<!-- source: deployment.md sha256:eaf13a3db803 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -559,7 +559,13 @@ berada di storage yang dipakai bersama, atau jalankan `down` di setiap server.
   worker menjalankan pengecekan readiness paling banyak satu kali pada saat
   yang sama dan menjawab probe
   dalam satu detik berikutnya dari hasil itu, sehingga probe yang sering
-  hanya memakan satu kali pengecekan per detik, bukan satu per probe.
+  hanya memakan satu kali pengecekan per detik, bukan satu per probe. Tanpa
+  `APP_DEBUG`, body `/up/ready` tidak memuat apa yang dikatakan pengecekan
+  yang gagal (host, connection string): itu masuk ke log.
 - Jalankan `queue:work` dan `schedule:work` sebagai proses terpisah.
-- Log: `LOG_STACK=json` untuk log terstruktur; secret di-redaksi.
+- Log: `LOG_STACK=json` untuk log terstruktur; secret di-redaksi: nilai di
+  bawah key `LOG_REDACT` (apa pun huruf besar/kecil dan `-`/`_`-nya, seperti
+  `X-Api-Key`) di setiap map, list, dan set pada context, serta di `Headers`.
+  Console menulis karakter kontrol dalam pesan sebagai escape, sehingga satu
+  entri log tetap satu baris.
 ''';
