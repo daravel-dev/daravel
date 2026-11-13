@@ -68,11 +68,15 @@ void main() {
     String name,
     Future<void> Function(int scale) attack,
   ) async {
+    final start = await rss();
+    var peak = start;
     await attack(1);
     Future<int> grows(int scale) async {
       final before = await rss();
       await attack(scale);
-      return await rss() - before;
+      final after = await rss();
+      peak = max(peak, max(before, after));
+      return after - before;
     }
 
     final once = await grows(1);
@@ -80,8 +84,17 @@ void main() {
     // Printed always, for the numbers on every system CI runs.
     print(
       '$name: warm, then grew ${once >> 20} MiB at 1x and ${four >> 20} MiB '
-      'at 4x',
+      'at 4x (from ${start >> 20} MiB, peak ${peak >> 20} MiB)',
     );
+    if (Platform.isMacOS) {
+      // The resident memory of a macOS runner is no measure here: within
+      // one process it moved 765 -> 806 -> 835 MiB over the PING rounds and
+      // then 866 -> 406 MiB at once, where Windows and Linux stay within
+      // 0-6 MiB (and the code before the bound grows 42-51 MiB). On macOS
+      // only a coarse fence holds; the functional checks run everywhere.
+      expect(peak - start, lessThan(512 << 20));
+      return;
+    }
     // Memory given back after the warm-up round shows as negative growth.
     expect(
       four - max(once, 0),
