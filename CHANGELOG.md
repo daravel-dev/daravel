@@ -19,6 +19,35 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.5
+
+A security patch: fixes only, and three WebSocket route options that come with one of them. Upgrade every application that serves WebSockets (`router.ws`, `Response.webSocket`, the Pusher server for Laravel Echo), every application that uses `EncryptCookiesMiddleware`, every application with models that list `guarded` columns, and every application with `RedisEventStream` (`daravel_redis`).
+
+### Security
+
+- A WebSocket client could make a worker hold more memory than the route's limits allow. The server now reads WebSocket frames itself before handing them on: a message is limited as a whole, all its fragments together (`maxPayloadBytes`, closed with `1009`); a message must arrive within `assembleTimeout` (30 s, `1008`); PING and PONG frames are rate limited per connection (`controlFrameBurst` 20, then `controlFramesPerSecond` 5; `1008`); what waits to be written, control frames included, counts toward `maxBufferedBytes`; and a control frame between fragments is handled apart from the message. A connection closed for a violation is read only a little further, and a connection whose client went away while the server was writing ends. Messages in one frame pass unchanged; permessage-deflate, `pingInterval` and the slow-client close codes behave as before. Since 1.14.0 for fragmented messages (before it, no message limit applied), since 1.6.0 for control frames.
+- `Encrypter` refuses a payload whose `mac` or `tag` is not a string with a `DecryptException`, as Laravel's `Encrypter::validPayload` does. Before, such a payload raised a type error (a `500`), and because `EncryptCookiesMiddleware` decrypts every cookie, one cookie of that shape set for the application's domain (for instance by another application on a shared parent domain) made each of that browser's requests to `web` routes fail until the cookie was removed; in `X-XSRF-TOKEN` it gave a `500` instead of a `419`. Since 1.0.0.
+- A model that lists `guarded` columns (and no `fillable`) could have them mass assigned through a key spelled differently: with surrounding spaces (`'role '`, trimmed by the query grammar), in another letter case (`'ROLE'`, on SQLite and MySQL), qualified by the table (`'users.role'`, on MySQL) or as a JSON path into a guarded JSON column (`'meta->role'`), through `fill`, `create`, `update`, `firstOrCreate`, `updateOrCreate`, `newInstance` and a relation's `create`. `ModelDefinition.isFillable` now decides as Laravel's `GuardsAttributes::isFillable`: with guarded columns, only a plain identifier (`^[A-Za-z_][A-Za-z0-9_]*$`) that is not guarded in any letter case is fillable, and a key with a `.` or starting with `_` never is. Since 1.0.0.
+- Before upgrading, limit WebSocket connections and handshakes per client IP at the proxy in front of the application (nginx `limit_conn` and `limit_req` on the upgrade location); a proxy does not limit WebSocket frames. For the cookie, limit who can write cookies to the parent domain. For mass assignment, list `fillable` instead of `guarded` (a `fillable` list matches keys exactly and was not affected).
+
+### Fixed
+
+- A WebSocket session ended only when the server stopped if its handler neither wrote nor closed, or returned without listening to the socket, even after the client closed or dropped the connection: each such connection kept its scope and its slot in the server's count of open WebSockets. The server now closes the socket when the client goes away, and, when nothing has listened 5 s after a handler returned, listens itself and drops what the client sends; a handler that listens later takes the reading over. A handler that waits on `socket.done` without listening still never learns that the client left; the guide says to listen. Since 1.6.0.
+- A malformed `Last-Event-ID` header (one that is no stream id, such as `abc` or a part over 64 bits) is treated by `RedisEventStream.listen` and `since(request)` as no header; before, that connection received no events and every event logged an error. Stream ids are compared without `int.parse` (`RedisEventStream.isStreamId`, `streamIdAfter`; a full 64-bit id from Redis included), and an event's error goes to its own listener. Since 1.12.0.
+
+### Added
+
+- `router.ws` and `Response.webSocket` take `assembleTimeout` (`Response.defaultWebSocketAssembleTimeout`, 30 s), `controlFrameBurst` (`Response.defaultWebSocketControlFrameBurst`, 20) and `controlFramesPerSecond` (`Response.defaultWebSocketControlFramesPerSecond`, 5); `Response.webSocketAssembleTimeout`, `Response.webSocketControlFrameBurst` and `Response.webSocketControlFramesPerSecond` read them. They come with the WebSocket fix above.
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+- The Pusher server closes a message above `REVERB_APP_MAX_MESSAGE_SIZE` with `1009`, as Reverb does; it allowed 1 KiB more before.
+- A client that sends PING frames faster than 20 at once and then 5 a second is closed with `1008`. Browsers never send PINGs; raise `controlFrameBurst` and `controlFramesPerSecond` on routes whose clients ping often.
+- Incoming WebSocket messages cost a few percent more (2 to 10 % for 1 KB messages, 4 to 6 % for 64 KB, in a local benchmark); sending is not affected.
+- Mass assignment on a model with `guarded` columns and no `fillable` accepts fewer keys: a key that is not a plain identifier (a JSON path such as `'settings->theme'`, a key with spaces or other characters) is now discarded, or refused with `MassAssignmentException` under `Model.preventSilentlyDiscardingAttributes`, as Laravel refuses a key that is not a column of the table. With `guarded: []`, keys with a `.` or a leading `_` are discarded, as in Laravel. Set such attributes with `setAttr` or `forceFill`, or list them in `fillable`.
+
 ## 1.27.4
 
 A security patch: fixes only. Upgrade every application that sends markdown mail or mail to addresses given as strings, and every application that validates input with `gt`, `gte`, `lt`, `lte`, `decimal` or `multiple_of`.
