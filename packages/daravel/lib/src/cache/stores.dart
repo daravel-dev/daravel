@@ -731,10 +731,25 @@ final class ProcessStore
 final class FileStore
     implements TouchableCacheStore, LockFlushingCacheStore, PrunableCacheStore {
   /// A store of one file per key in [directory].
-  FileStore(this.directory, {this.pruneInterval = const Duration(hours: 1)});
+  FileStore(
+    this.directory, {
+    this.pruneInterval = const Duration(hours: 1),
+    this.isolateLocks,
+  });
 
   /// The directory holding the files.
   final String directory;
+
+  /// Where a lock is held between the isolates of this process (the
+  /// `process` store, through the coordinator), before its lock file is
+  /// taken for other processes: the OS lock that guards a lock file is the
+  /// process's on POSIX (`fcntl`), so two isolates of one process could
+  /// both pass it. A lock is held only when both layers took it, with the
+  /// same owner and time to live; when the lock file refuses or fails, the
+  /// first layer is released again. Without it (a [FileStore] made by
+  /// hand) only the lock file guards, which on POSIX does not keep apart
+  /// two isolates of one process.
+  final CacheStore? isolateLocks;
 
   /// How often a write starts a background [pruneExpired] (measured with
   /// `Clock`); null: never, prune with `cache:prune-expired` instead.
@@ -1317,11 +1332,52 @@ final class FileStore
         DateTime.now().difference(stat.modified) > age;
   }
 
-  /// Taken under the lock's OS mutex, which `releaseLock` holds too, and
-  /// written whole by a rename: another process never sees a half-written
-  /// lock file, and never takes a lock between this one's check and write.
+  /// Takes [isolateLocks] first, then the lock file; held only when both
+  /// took it. When the lock file refuses (another process holds it) or
+  /// fails, the first layer is released again, so it never stays held by
+  /// itself until its time to live. Taking a lock again with the same
+  /// [owner] extends both layers.
   @override
-  Future<bool> acquireLock(
+  Future<bool> acquireLock(String name, String owner, Duration ttl) async {
+    final first = isolateLocks;
+    if (first != null && !await first.acquireLock(name, owner, ttl)) {
+      return false;
+    }
+    final bool taken;
+    try {
+      taken = await _acquireFileLock(name, owner, ttl);
+    } on Object {
+      await _releaseFirst(first, name, owner);
+      rethrow;
+    }
+    if (!taken) {
+      await _releaseFirst(first, name, owner);
+    }
+    return taken;
+  }
+
+  /// Releases the [isolateLocks] layer after the lock file refused or
+  /// failed; an error doing so is left to its time to live.
+  static Future<void> _releaseFirst(
+    CacheStore? first,
+    String name,
+    String owner,
+  ) async {
+    if (first == null) {
+      return;
+    }
+    try {
+      await first.releaseLock(name, owner);
+    } on Object {
+      // Expires with its time to live.
+    }
+  }
+
+  /// The lock file: taken under the lock's OS mutex, which the release
+  /// holds too, and written whole by a rename: another process never sees
+  /// a half-written lock file, and never takes a lock between this one's
+  /// check and write.
+  Future<bool> _acquireFileLock(
     String name,
     String owner,
     Duration ttl,
@@ -1376,10 +1432,18 @@ final class FileStore
     return (owner: '', expiresAt: _now + lockGrace.inMilliseconds);
   }
 
+  /// Releases the lock file, then [isolateLocks]; whether the lock file was
+  /// [owner]'s (the layer other processes see).
+  @override
+  Future<bool> releaseLock(String name, String owner) async {
+    final released = await _releaseFileLock(name, owner);
+    await isolateLocks?.releaseLock(name, owner);
+    return released;
+  }
+
   /// Compare-and-delete under the lock's mutex: an expired lock that
   /// another owner took meanwhile is not deleted by the previous one.
-  @override
-  Future<bool> releaseLock(String name, String owner) =>
+  Future<bool> _releaseFileLock(String name, String owner) =>
       _lockExclusive(name, () async {
         final file = File(_lockPath(name));
         final current = await _readLock(file);
@@ -1391,8 +1455,10 @@ final class FileStore
       });
 
   @override
-  Future<void> forceReleaseLock(String name) =>
-      _lockExclusive(name, () => _delete(File(_lockPath(name))));
+  Future<void> forceReleaseLock(String name) async {
+    await _lockExclusive(name, () => _delete(File(_lockPath(name))));
+    await isolateLocks?.forceReleaseLock(name);
+  }
 
   @override
   Future<String?> lockOwner(String name) async {
@@ -1620,8 +1686,16 @@ final class DatabaseStore
           return by;
         }
       } else {
-        final current = _decode(row['value']);
-        final next = (current is num ? current.toInt() : 0) + by;
+        final current = _counter(_decode(row['value']));
+        if (current == null) {
+          // As Laravel's DatabaseStore, which answers false: the value is
+          // left alone, here with an error, since the result is an int.
+          throw StateError(
+            'Cache value of [$key] is not a number this store wrote; '
+            'increment and decrement leave it unchanged.',
+          );
+        }
+        final next = current + by;
         final swapped = await db
             .table(table, connection: connection)
             .where('key', key)
@@ -1639,6 +1713,15 @@ final class DatabaseStore
 
   @override
   Future<int> decrement(String key, [int by = 1]) => increment(key, -by);
+
+  /// A stored value as a counter (PHP's `is_numeric`: a number, or a string
+  /// that is one), or null. A value this store did not write (Laravel's
+  /// `serialize()` text, which reads as null) is not one.
+  static int? _counter(Object? value) => switch (value) {
+    final num number => number.toInt(),
+    final String text => num.tryParse(text.trim())?.toInt(),
+    _ => null,
+  };
 
   /// One upsert per hit: the row holds the hits as plain digits and the end
   /// of the window as its expiration. A blocked hit turns `max` into `-max`

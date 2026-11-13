@@ -67,13 +67,24 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     String key,
     int maxAttempts,
     Duration decay,
-  ) => _guard(maxAttempts, decay, () => _attempt(key, maxAttempts, decay));
+  ) => _guard(key, maxAttempts, decay, () => _attempt(key, maxAttempts, decay));
+
+  /// Keys whose counter the database could not read as a number (a value
+  /// another writer stored under the key): reported once each ([_guard]).
+  /// Bounded, oldest first.
+  final Set<String> _unreadable = <String>{};
 
   /// Runs [count], failing open (or closed, with [failClosed]) when the
   /// cache store throws: a database or Redis blip must not turn every
   /// throttled route into a 500. The result is then
   /// [RateLimitResult.degraded], so a [Limit.failClosed] limit refuses it.
+  ///
+  /// A counter the database cannot convert to a number (PostgreSQL's
+  /// `22P02`, MySQL's `1292`: something else is stored under the key) takes
+  /// the same path, but [onError] hears of it once per key, not on every
+  /// request.
   Future<RateLimitResult> _guard(
+    String key,
     int maxAttempts,
     Duration decay,
     Future<RateLimitResult> Function() count,
@@ -81,7 +92,12 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     try {
       return await count();
     } on Exception catch (error) {
-      onError?.call(error);
+      if (!await _isUnreadableCounter(error) || _unreadable.add(key)) {
+        if (_unreadable.length > 1000) {
+          _unreadable.remove(_unreadable.first);
+        }
+        onError?.call(error);
+      }
       return failClosed
           ? RateLimitResult.refusedUncounted(maxAttempts)
           : RateLimitResult(
@@ -92,6 +108,15 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
               degraded: true,
             );
     }
+  }
+
+  /// Whether [error] is the database store refusing a counter value as a
+  /// number (a data exception), not the database failing.
+  Future<bool> _isUnreadableCounter(Exception error) async {
+    final store = _resolved;
+    return error is QueryException &&
+        store is DatabaseStore &&
+        await store.db.isDataException(error, connection: store.connection);
   }
 
   Future<RateLimitResult> _attempt(
@@ -162,6 +187,7 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     int maxAttempts,
     Duration decay,
   ) => _guard(
+    key,
     maxAttempts,
     decay,
     () => _attemptWith(algorithm, key, maxAttempts, decay),

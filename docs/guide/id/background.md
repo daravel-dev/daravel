@@ -1,4 +1,4 @@
-<!-- source: background.md sha256:0d491b74b721 -->
+<!-- source: background.md sha256:52930e1b09ae -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -20,6 +20,15 @@ Store: `memory` (per isolate, LRU), `process` (dibagi semua isolate server
 melalui coordinator), `file`, dan `database` (tabel `cache` dari Laravel).
 `Cache.remember`, `flexible` (stale-while-revalidate), `increment`, `pull`,
 dan `lock` (atomic lock, gagal tertutup) mengikuti Laravel.
+Lock pada store `file` berlaku antar-proses yang berbagi direktorinya
+(berkas lock) dan antar-isolate di setiap proses (coordinator), diambil dan
+dilepas di keduanya sekaligus; biayanya beberapa milidetik per acquire dan
+release (sekitar 2,5 ms di Linux, 5,5 ms di Windows). `increment` pada store
+`database` tidak menyentuh nilai yang bukan angka dan melempar galat,
+sedangkan Laravel menjawab `false`; store `memory` dan `file` menghitungnya
+sebagai 0, seperti store array dan file Laravel. Nilai cache tidak dibagi
+antara Laravel dan Daravel (masing-masing punya serialisasi sendiri): beri
+masing-masing `CACHE_PREFIX` sendiri pada tabel bersama.
 Di store `process`, lock yang diberikan coordinator setelah jawabannya
 timeout langsung dilepas alih-alih tertahan sampai TTL-nya habis, dan
 `lock.block` menganggap percobaan itu tidak berhasil lalu mencoba lagi.
