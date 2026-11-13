@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.5
+
+- A malformed `Last-Event-ID` header is treated by `RedisEventStream.listen` and `since(request)` as no header; before, that connection received no events and every event logged an error. Stream ids are compared without `int.parse` (`RedisEventStream.isStreamId`, `streamIdAfter`), and an event's error goes to its own listener (since 1.12.0). See the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.27.4
 
 - Version aligned with Daravel 1.27.4; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

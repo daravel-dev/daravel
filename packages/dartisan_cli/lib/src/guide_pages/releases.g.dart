@@ -15,6 +15,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.27.5` | Security fixes: WebSocket messages limited as a whole and control frames rate limited per connection; Encrypter checks payload field types; RedisEventStream reads Last-Event-ID safely; mass assignment matches guarded columns as Laravel does |
 | `1.27.4` | Security fixes: markdown mail and mail addresses read in one pass; numeric validation rules in linear time |
 | `1.27.3` | Security fixes: the request URL from the request line, a valid Host and the listener; forwarded headers only from trusted proxies; slashes and the bearer token read in one pass; a host at most 253 characters |
 | `1.27.2` | Security fixes: broadcast channel names and linear-time channel patterns, distinct in linear time; sum and avg on PostgreSQL and MySQL; sequential publishing |

@@ -5,6 +5,7 @@ import 'dart:isolate';
 
 import '../foundation/config.dart';
 import '../foundation/env.dart';
+import '../foundation/exceptions.dart';
 import '../http/middleware.dart';
 import '../http/request.dart';
 import '../http/response.dart';
@@ -30,7 +31,8 @@ const List<double> defaultBuckets = <double>[
 String _escapeLabel(String value) => value
     .replaceAll(r'\', r'\\')
     .replaceAll('"', r'\"')
-    .replaceAll('\n', r'\n');
+    .replaceAll('\n', r'\n')
+    .replaceAll('\r', r'\r');
 
 String _labelKey(Map<String, String> labels) {
   if (labels.isEmpty) {
@@ -617,16 +619,27 @@ final class MetricsConfig implements ConfigSection {
     this.maxSeries = MetricsRegistry.defaultMaxSeries,
   });
 
-  /// The settings in `METRICS_*`.
-  factory MetricsConfig.fromEnv(Env env) => MetricsConfig(
-    enabled: env.boolean('METRICS_ENABLED', false),
-    path: env.string('METRICS_PATH', '/metrics'),
-    token: env.maybeString('METRICS_TOKEN'),
-    maxSeries: env.integer(
-      'METRICS_MAX_SERIES',
-      MetricsRegistry.defaultMaxSeries,
-    ),
-  );
+  /// The settings in `METRICS_*`. A `METRICS_TOKEN` that is set but empty
+  /// (or only spaces) stops the boot: it reads as "protected" while a bare
+  /// `Authorization: Bearer ` would match it.
+  factory MetricsConfig.fromEnv(Env env) {
+    final token = env.maybeString('METRICS_TOKEN');
+    if (token != null && token.trim().isEmpty) {
+      throw const ConfigException(
+        'METRICS_TOKEN is set but empty: give it a value, or remove it to '
+        'serve /metrics without a token.',
+      );
+    }
+    return MetricsConfig(
+      enabled: env.boolean('METRICS_ENABLED', false),
+      path: env.string('METRICS_PATH', '/metrics'),
+      token: token,
+      maxSeries: env.integer(
+        'METRICS_MAX_SERIES',
+        MetricsRegistry.defaultMaxSeries,
+      ),
+    );
+  }
 
   /// Series per metric and worker before new label sets are counted in
   /// [overflowSeries] (`METRICS_MAX_SERIES`, `0`: no limit).

@@ -533,6 +533,14 @@ on each.
 - Health endpoints: `/up` (liveness) and `/up/ready` (readiness). Each
   worker runs the readiness checks once at a time and answers the probes of
   the next second from that result, so frequent probes cost one run per
-  second, not one per probe.
+  second, not one per probe. Without `APP_DEBUG` the `/up/ready` body leaves
+  out what a failing check said (a host, a connection string): it goes to
+  the log.
 - Run `queue:work` and `schedule:work` as separate processes.
-- Logs: `LOG_STACK=json` for structured logs; secrets are redacted.
+- Logs: `LOG_STACK=json` for structured logs; secrets are redacted: values
+  under `LOG_REDACT` keys (whatever their case and `-`/`_`, as `X-Api-Key`)
+  in every map, list and set of the context, and in `Headers`; a value
+  that cannot be read is marked, and logging never throws or hangs on one.
+  Control characters (also DEL, C1 and the Unicode line separators) are
+  written as escapes, in the console and in JSON lines, so one log entry
+  stays one line.

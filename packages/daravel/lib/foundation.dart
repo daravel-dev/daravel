@@ -7,6 +7,7 @@ library;
 
 export 'src/foundation/drain.dart';
 export 'src/foundation/locale.dart';
+export 'src/foundation/loggable.dart';
 export 'src/foundation/application.dart';
 export 'src/foundation/cancellation.dart';
 export 'src/foundation/config.dart';
