@@ -1632,10 +1632,24 @@ final class DigitsRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     final text = '${c.value}';
-    return RegExp(r'^\d+$').hasMatch(text) && text.length == length
-        ? null
-        : 'digits';
+    return text.length == length && _onlyDigits(text) ? null : 'digits';
   }
+}
+
+/// Whether [text] is one or more ASCII digits (`^\d+$`), read one code
+/// unit at a time: the regular expression kept a backtracking entry per
+/// digit and threw a `StackOverflowError` from about 4 200 000.
+bool _onlyDigits(String text) {
+  if (text.isEmpty) {
+    return false;
+  }
+  for (var i = 0; i < text.length; i++) {
+    final c = text.codeUnitAt(i);
+    if (c < 0x30 || c > 0x39) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// `digits_between`: see [Rules.digitsBetween].
@@ -1655,10 +1669,7 @@ final class DigitsBetweenRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     final text = '${c.value}';
-    final ok =
-        RegExp(r'^\d+$').hasMatch(text) &&
-        text.length >= min &&
-        text.length <= max;
+    final ok = text.length >= min && text.length <= max && _onlyDigits(text);
     return ok ? null : 'digits_between';
   }
 }
@@ -2343,7 +2354,15 @@ final class DigitCountRule extends Rule {
     final ok = name == 'min_digits'
         ? text.length >= limit
         : text.length <= limit;
-    return ok && !text.contains(RegExp('[^0-9]')) ? null : name;
+    // No `[^0-9]` anywhere, as before (an empty value has none), with a
+    // code unit loop: the regular expression scanned at 0.2 µs per
+    // character, 10 s on 50 000 000.
+    var digits = true;
+    for (var i = 0; i < text.length && digits; i++) {
+      final unit = text.codeUnitAt(i);
+      digits = unit >= 0x30 && unit <= 0x39;
+    }
+    return ok && digits ? null : name;
   }
 }
 

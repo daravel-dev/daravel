@@ -12,21 +12,85 @@ import 'dart:typed_data';
 /// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`). An integer
 /// beyond 64 bits is a float, as in PHP (`'99999999999999999999'` is
 /// `1e20`).
+///
+/// Read by hand in one pass, without a regular expression: Dart's engine
+/// keeps a backtracking entry for each repeat of `\d+`, so the pattern
+/// used before (`^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?
+/// \d+)?)[ \t\n\r\v\f]*$`) took 250 ms on a million digits and threw a
+/// `StackOverflowError` from about 4 200 000 (`distinct` and `in_array`
+/// read every value through here).
 num? phpNumeric(String value) {
-  final match = _numeric.firstMatch(value);
-  if (match == null) {
+  final text = _phpNumericText(value);
+  if (text == null) {
     return null;
   }
-  final text = match[1]!;
-  return text.contains(RegExp('[.eE]'))
+  var floating = false;
+  for (var i = 0; i < text.length && !floating; i++) {
+    final c = text.codeUnitAt(i);
+    floating = c == 0x2E || c == 0x45 || c == 0x65; // . E e
+  }
+  return floating
       ? double.parse(text.endsWith('.') ? '${text}0' : text)
       : int.tryParse(text) ?? double.parse(text);
 }
 
-final RegExp _numeric = RegExp(
-  r'^[ \t\n\r\v\f]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
-  r'[ \t\n\r\v\f]*$',
-);
+/// The number in [value] without the white space PHP allows around it
+/// (space, `\t`, `\n`, `\r`, `\v`, `\f`), when the rest is
+/// `[+-]?(digits[.digits?] | .digits)([eE][+-]?digits)?`; `null` otherwise.
+String? _phpNumericText(String value) {
+  bool space(int c) => c == 0x20 || (c >= 0x09 && c <= 0x0D);
+  bool digit(int c) => c >= 0x30 && c <= 0x39;
+  final length = value.length;
+  var i = 0;
+  while (i < length && space(value.codeUnitAt(i))) {
+    i++;
+  }
+  final start = i;
+  if (i < length &&
+      (value.codeUnitAt(i) == 0x2B || value.codeUnitAt(i) == 0x2D)) {
+    i++;
+  }
+  final whole = i;
+  while (i < length && digit(value.codeUnitAt(i))) {
+    i++;
+  }
+  final wholeDigits = i - whole;
+  var fractionDigits = 0;
+  if (i < length && value.codeUnitAt(i) == 0x2E) {
+    i++;
+    final fraction = i;
+    while (i < length && digit(value.codeUnitAt(i))) {
+      i++;
+    }
+    fractionDigits = i - fraction;
+  }
+  if (wholeDigits == 0 && fractionDigits == 0) {
+    return null;
+  }
+  if (i < length &&
+      (value.codeUnitAt(i) == 0x45 || value.codeUnitAt(i) == 0x65)) {
+    var j = i + 1;
+    if (j < length &&
+        (value.codeUnitAt(j) == 0x2B || value.codeUnitAt(j) == 0x2D)) {
+      j++;
+    }
+    final exponent = j;
+    while (j < length && digit(value.codeUnitAt(j))) {
+      j++;
+    }
+    // An `e` without digits is not part of the number, so the string is
+    // not numeric (what follows the number may only be white space).
+    if (j == exponent) {
+      return null;
+    }
+    i = j;
+  }
+  final end = i;
+  while (i < length && space(value.codeUnitAt(i))) {
+    i++;
+  }
+  return i == length ? value.substring(start, end) : null;
+}
 
 /// PHP 8's `==` between two numbers: two ints exactly, anything else as
 /// floats (`9007199254740993 == 9007199254740992.0` is true).

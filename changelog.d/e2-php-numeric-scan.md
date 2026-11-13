@@ -1,0 +1,3 @@
+### Fixed
+
+- `distinct` and `in_array` (through `phpNumeric`), and `digits`, `digits_between`, `min_digits` and `max_digits`, read their value one code unit at a time instead of with a regular expression. Dart's regular expressions keep a backtracking entry for each repeat of `\d+`, so a value of about 4 200 000 digits or more threw a `StackOverflowError`, which the client saw as a 500 and the log as an unhandled exception; `min_digits` and `max_digits` also took 10 s on 50 000 000 characters. The results are the same as before (checked against the old expressions on random input). Reachable only with bodies above the 1 MiB JSON and form limits that new projects set (`BodyLimitsMiddleware`).
