@@ -52,6 +52,7 @@ final class ModelDefinition<T extends Model> {
     this.primaryKey = 'id',
     this.keyType = .autoInt,
     this.idType,
+    String? routeKey,
     this.connection,
     this.fillable = const <String>[],
     this.guarded = const <String>['*'],
@@ -78,6 +79,7 @@ final class ModelDefinition<T extends Model> {
     this.snakeAttributes,
     String? morphClass,
   }) : morphClass = morphClass ?? 'App\\Models\\$T',
+       routeKeyName = routeKey ?? primaryKey,
        _relationFactories = relations,
        scopes = {
          for (final entry in scopes.entries)
@@ -126,6 +128,13 @@ final class ModelDefinition<T extends Model> {
 
   /// The primary key column (`$primaryKey`, `id`).
   final String primaryKey;
+
+  /// The column a route reads a model by (`getRouteKeyName()`, the
+  /// `#[RouteKey('slug')]` of Laravel 13): set with `routeKey:`, the
+  /// [primaryKey] otherwise. Route model binding looks `{post}` up by it,
+  /// and `router.url` writes a model passed for `{post}` as its value
+  /// ([Model.routeKey]). A binding field (`{post:slug}`) wins over both.
+  final String routeKeyName;
 
   /// How primary keys are made: auto-increment, UUID or ULID.
   final KeyType keyType;

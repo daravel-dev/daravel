@@ -248,6 +248,12 @@ abstract base class Model implements JsonSerializable, Responsable {
   /// Primary key value.
   Object? get key => _attributes[modelDefinition.primaryKey];
 
+  /// The value a route reads this model by (`getRouteKey()`): the
+  /// attribute [ModelDefinition.routeKeyName] names, the primary key by
+  /// default; `null` for a model not saved yet. `router.url` writes it for
+  /// a model passed as a route parameter.
+  Object? get routeKey => getAttr<Object?>(modelDefinition.routeKeyName);
+
   /// The model's table.
   String get table => modelDefinition.table;
 

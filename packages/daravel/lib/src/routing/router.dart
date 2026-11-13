@@ -450,7 +450,9 @@ final class Router {
     ModelDefinition<Model> definition,
     Object? parent,
   ) async {
-    final column = route?.bindingFields[param] ?? definition.primaryKey;
+    // `{post:slug}`, else the model's route key (`getRouteKeyName()`, the
+    // primary key unless `routeKey:` names another column).
+    final column = route?.bindingFields[param] ?? definition.routeKeyName;
     final Object? key = _keyValue(definition, column, value);
     if (key == null) {
       return null;
@@ -472,6 +474,15 @@ final class Router {
     // Qualified: a BelongsToMany joins a pivot that has an `id` too.
     return query.where('${definition.table}.$column', key).first();
   }
+
+  /// The value [model] fills route parameter [param] of [route] with: the
+  /// route's binding field (`{post:slug}`) when it has one, otherwise the
+  /// model's route key (`getRouteKey()`).
+  static Object? _routeValue(RouteEntry route, String param, Model model) =>
+      switch (route.bindingFields[param]) {
+        final String field => model.getAttr<Object?>(field),
+        null => model.routeKey,
+      };
 
   /// A word in an integer key can only miss, and PostgreSQL would refuse it.
   Object? _keyValue(
@@ -651,8 +662,15 @@ final class Router {
         segments.add(segment);
         continue;
       }
-      final value = params[paramName] ?? route.defaultValues[paramName];
-      if (value == null) {
+      final given = params[paramName];
+      // A model is written as its route key (`route('posts.show', $post)`),
+      // or as the binding field of the route (`{post:slug}`); one without
+      // that value (not saved yet, or empty) is a missing parameter, as in
+      // Laravel.
+      final Object? value = given is Model
+          ? _routeValue(route, paramName, given)
+          : given ?? route.defaultValues[paramName];
+      if (value == null || (given is Model && '$value'.isEmpty)) {
         if (RadixTree.isOptional(segment)) {
           continue;
         }
@@ -670,8 +688,9 @@ final class Router {
     var path = '/${segments.join('/')}';
     final queryString = Uri(
       queryParameters: <String, String>{
-        for (final entry in query.entries)
-          if (entry.value != null) entry.key: '${entry.value}',
+        for (final MapEntry(:key, :value) in query.entries)
+          if ((value is Model ? value.routeKey : value) case final Object v)
+            key: '$v',
       },
     ).query;
     if (queryString.isNotEmpty) {
