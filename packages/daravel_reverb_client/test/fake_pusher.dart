@@ -31,6 +31,14 @@ final class FakePusher {
   /// Sent with `pusher:connection_established`.
   int activityTimeout = 120;
 
+  /// When set, sent as the `activity_timeout` JSON text as it is (`0`,
+  /// `1e400`), in place of [activityTimeout].
+  String? activityTimeoutJson;
+
+  /// How long a subscription waits for its
+  /// `pusher_internal:subscription_succeeded`.
+  Duration confirmDelay = Duration.zero;
+
   /// The members a presence subscription starts with (`user_id` →
   /// `user_info`).
   Map<String, Map<String, Object?>> presence = {};
@@ -128,18 +136,24 @@ final class FakePusher {
       ..add(
         jsonEncode({
           'event': 'pusher:connection_established',
-          'data': jsonEncode({
-            'socket_id': socketId,
-            'activity_timeout': activityTimeout,
-          }),
+          'data': activityTimeoutJson == null
+              ? jsonEncode({
+                  'socket_id': socketId,
+                  'activity_timeout': activityTimeout,
+                })
+              : '{"socket_id":"$socketId",'
+                    '"activity_timeout":$activityTimeoutJson}',
         }),
       )
-      ..listen((Object? message) {
+      ..listen((Object? message) async {
         final frame = jsonDecode(message! as String) as Map<String, Object?>;
         received.add(frame);
         if (frame['event'] == 'pusher:subscribe') {
           final data = frame['data']! as Map<String, Object?>;
           final channel = data['channel']! as String;
+          if (confirmDelay > Duration.zero) {
+            await Future<void>.delayed(confirmDelay);
+          }
           socket.add(
             jsonEncode({
               'event': 'pusher_internal:subscription_succeeded',

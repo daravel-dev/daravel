@@ -144,8 +144,11 @@ final class Echo {
   /// Every change of [connectionState].
   Stream<EchoConnectionState> get onConnectionStateChange => _states.stream;
 
-  /// `pusher:error` frames (`{code, message}`), and failed authorizations
-  /// (`{channel, status}`).
+  /// `pusher:error` frames (`{code, message}`), failed authorizations
+  /// (`{channel, status}`), errors of the WebSocket
+  /// (`{type: 'WebSocketError', error}`, as pusher-js emits them) and
+  /// events of an encrypted channel that could not be opened
+  /// (`{type: 'DecryptionError', channel, event}`; the event is dropped).
   Stream<Map<String, Object?>> get onError => _errors.stream;
 
   /// Opens the connection (done by the constructor unless `autoConnect`
@@ -209,9 +212,22 @@ final class Echo {
   }
 
   /// Leaves the channel called [name] exactly.
+  ///
+  /// While its subscription is on its way, the channel is only marked
+  /// cancelled, and left (`pusher:unsubscribe`) once the server confirms
+  /// it, as pusher-js does: an unsubscribe sent earlier could reach a
+  /// server still subscribing, and the subscription would stay there.
   void leaveChannel(String name) {
-    final channel = _channels.remove(name);
-    if (channel != null && channel.subscribed) {
+    final channel = _channels[name];
+    if (channel == null) {
+      return;
+    }
+    if (channel._pending) {
+      channel._cancelled = true;
+      return;
+    }
+    _channels.remove(name);
+    if (channel.subscribed) {
       _send({
         'event': 'pusher:unsubscribe',
         'data': {'channel': name},
@@ -226,8 +242,11 @@ final class Echo {
     }
   }
 
-  /// The channels joined, by name.
-  Map<String, EchoChannel> get channels => Map.unmodifiable(_channels);
+  /// The channels joined, by name (not those left while subscribing).
+  Map<String, EchoChannel> get channels => Map.unmodifiable({
+    for (final MapEntry(:key, :value) in _channels.entries)
+      if (!value._cancelled) key: value,
+  });
 
   /// The Pusher name of [event] as Laravel Echo writes it: [namespace]
   /// prefixed, dots as backslashes; a leading `.` or `\` takes it as it is.
@@ -244,6 +263,9 @@ final class Echo {
   EchoChannel _channel(String name, EchoChannel Function() create) {
     final existing = _channels[name];
     if (existing != null) {
+      // Joined again while a cancelled subscription is on its way: it
+      // stands (pusher-js reinstateSubscription).
+      existing._cancelled = false;
       return existing;
     }
     final channel = create();
@@ -259,12 +281,56 @@ final class Echo {
       return;
     }
     _state = state;
-    if (!_states.isClosed) {
-      _states.add(state);
+    _emit(() {
+      if (!_states.isClosed) {
+        _states.add(state);
+      }
+    });
+  }
+
+  void _error(Map<String, Object?> error) => _emit(() {
+    if (!_errors.isClosed) {
+      _errors.add(error);
+    }
+  });
+
+  final List<void Function()> _queued = [];
+  bool _emitting = false;
+
+  /// Runs [add], one event at a time. The controllers are synchronous, so
+  /// a listener that changes the connection (calling [connect] on
+  /// `unavailable`) would add while a controller is still firing, which
+  /// throws; such an event waits and follows in order.
+  void _emit(void Function() add) {
+    if (_emitting) {
+      _queued.add(add);
+      return;
+    }
+    _emitting = true;
+    try {
+      add();
+      while (_queued.isNotEmpty) {
+        _queued.removeAt(0)();
+      }
+    } finally {
+      _emitting = false;
     }
   }
 
   void _open() {
+    // A reconnect may be waiting ([connect] while unavailable), and a
+    // previous socket may still be open: one connection at a time, or
+    // every event would arrive twice.
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    final previous = _socket;
+    final previousSubscription = _subscription;
+    _socket = null;
+    _subscription = null;
+    if (previous != null) {
+      unawaited(previousSubscription?.cancel());
+      unawaited(previous.sink.close(1000));
+    }
     _setState(EchoConnectionState.connecting);
     final WebSocketChannel socket;
     try {
@@ -274,10 +340,24 @@ final class Echo {
       return;
     }
     _socket = socket;
+    // Each callback checks that its socket is still the current one: a
+    // socket replaced or closed here must not touch the new connection.
     _subscription = socket.stream.listen(
-      (message) => _onMessage(message),
-      onDone: () => _lost(socket.closeCode),
-      onError: (Object _) {},
+      (message) {
+        if (identical(_socket, socket)) {
+          _onMessage(message);
+        }
+      },
+      onDone: () {
+        if (identical(_socket, socket)) {
+          _lost(socket.closeCode);
+        }
+      },
+      onError: (Object error) {
+        if (identical(_socket, socket)) {
+          _error({'type': 'WebSocketError', 'error': '$error'});
+        }
+      },
       cancelOnError: false,
     );
     socket.ready.catchError((Object _) {});
@@ -289,7 +369,9 @@ final class Echo {
     _subscription = null;
     _socketId = null;
     for (final channel in _channels.values) {
-      channel._subscribed = false;
+      channel
+        .._subscribed = false
+        .._pending = false;
     }
     if (_closing) {
       return;
@@ -300,15 +382,19 @@ final class Echo {
       _setState(EchoConnectionState.disconnected);
       return;
     }
-    _setState(EchoConnectionState.unavailable);
     final delay = code != null && code >= 4200 && code < 4300
         ? Duration.zero
         : _backoff();
+    // The timer before the state: a listener of `unavailable` may call
+    // [connect], which must find this timer to cancel it, or the timer
+    // would later replace the connection that call opened.
     _reconnectTimer = Timer(delay, () {
-      if (!_closing) {
+      _reconnectTimer = null;
+      if (!_closing && _state == EchoConnectionState.unavailable) {
         _open();
       }
     });
+    _setState(EchoConnectionState.unavailable);
   }
 
   /// The next reconnect delay: exponential, capped, with jitter (half to
@@ -366,15 +452,15 @@ final class Echo {
     final channelName = decoded['channel'];
     switch (event) {
       case 'pusher:connection_established':
-        _socketId = data['socket_id'] as String?;
-        final seconds = data['activity_timeout'];
-        final server = seconds is num
-            ? Duration(milliseconds: (seconds * 1000).round())
-            : _clientActivity;
-        _activity = server < _clientActivity ? server : _clientActivity;
+        final socketId = data['socket_id'];
+        _socketId = socketId is String ? socketId : null;
+        _activity = _activityFrom(data['activity_timeout'], _clientActivity);
         _attempts = 0;
         _setState(EchoConnectionState.connected);
         _resetActivity();
+        // Channels left while subscribing on the lost connection are gone
+        // (pusher-js subscribeAll).
+        _channels.removeWhere((_, channel) => channel._cancelled);
         for (final channel in [..._channels.values]) {
           unawaited(channel._subscribe());
         }
@@ -384,12 +470,25 @@ final class Echo {
         _pongTimer?.cancel();
         _pongTimer = null;
       case 'pusher:error':
-        _errors.add(data);
+        _error(data);
       default:
         if (channelName is String && event is String) {
           _channels[channelName]?._receive(event, decoded['data']);
         }
     }
+  }
+
+  /// The ping interval: the server's `activity_timeout` (seconds) when it
+  /// is shorter than [client], at least one second; a value that is not a
+  /// finite positive number is ignored (zero would ping without a pause,
+  /// and `1e400` is infinite).
+  static Duration _activityFrom(Object? seconds, Duration client) {
+    if (seconds is! num || !seconds.isFinite || seconds <= 0) {
+      return client;
+    }
+    final most = client.inMilliseconds;
+    final ms = min(max((seconds * 1000).round(), min(1000, most)), most);
+    return Duration(milliseconds: ms);
   }
 
   static Map<String, Object?> _data(Object? raw) {
@@ -419,6 +518,13 @@ base class EchoChannel {
   final List<void Function()> _onSubscribed = [];
   final List<void Function(Object error)> _onError = [];
   bool _subscribed = false;
+
+  /// A subscription is on its way (authorizing, or sent and not yet
+  /// confirmed).
+  bool _pending = false;
+
+  /// Left while [_pending]: unsubscribed once confirmed.
+  bool _cancelled = false;
 
   /// Whether the server confirmed the subscription.
   bool get subscribed => _subscribed;
@@ -474,11 +580,17 @@ base class EchoChannel {
     if (socketId == null) {
       return;
     }
+    _pending = true;
     final Map<String, Object?> authorization;
     try {
       authorization = await _authorization();
     } on Object catch (error) {
-      _echo._errors.add({
+      _pending = false;
+      if (_cancelled) {
+        _echo.leaveChannel(name);
+        return;
+      }
+      _echo._error({
         'channel': name,
         'status': error is EchoAuthException ? error.status : 0,
       });
@@ -491,6 +603,12 @@ base class EchoChannel {
     if (_echo.socketId != socketId || !_echo._channels.containsKey(name)) {
       return;
     }
+    // Left while authorizing: nothing was sent, so nothing to undo.
+    if (_cancelled) {
+      _pending = false;
+      _echo.leaveChannel(name);
+      return;
+    }
     _echo._send({
       'event': 'pusher:subscribe',
       'data': {'channel': name, ...authorization},
@@ -500,13 +618,24 @@ base class EchoChannel {
   void _receive(String event, Object? raw) {
     switch (event) {
       case 'pusher_internal:subscription_succeeded':
+        _pending = false;
         _subscribed = true;
+        if (_cancelled) {
+          // Left while subscribing: leave now, and tell no listener.
+          _echo.leaveChannel(name);
+          return;
+        }
         _succeeded(Echo._data(raw));
         for (final callback in [..._onSubscribed]) {
           callback();
         }
         return;
       case 'pusher:subscription_error':
+        _pending = false;
+        if (_cancelled) {
+          _echo.leaveChannel(name);
+          return;
+        }
         for (final callback in _onError) {
           callback(Echo._data(raw));
         }
@@ -515,7 +644,7 @@ base class EchoChannel {
     if (_internal(event, raw)) {
       return;
     }
-    final data = _decode(raw);
+    final data = _decode(event, raw);
     if (data == null) {
       return;
     }
@@ -531,7 +660,7 @@ base class EchoChannel {
 
   bool _internal(String event, Object? raw) => false;
 
-  Map<String, Object?>? _decode(Object? raw) => Echo._data(raw);
+  Map<String, Object?>? _decode(String event, Object? raw) => Echo._data(raw);
 }
 
 /// A private channel: authorized, and able to whisper (`client-` events)
@@ -604,21 +733,39 @@ final class EchoEncryptedChannel extends EchoPrivateChannel {
   EchoPrivateChannel whisper(String event, Map<String, Object?> data) =>
       throw UnsupportedError('Encrypted channels do not support whispers.');
 
+  /// Opens an event, or drops it (null) and reports it on [Echo.onError]
+  /// when it is not a `{ciphertext, nonce}` this channel's key opens, as
+  /// pusher-js logs and drops it. A malformed frame used to throw out of
+  /// the socket's listener. (Our server relays no client events on
+  /// encrypted channels, as Pusher; such a frame comes from a broadcast or
+  /// another server.)
   @override
-  Map<String, Object?>? _decode(Object? raw) {
+  Map<String, Object?>? _decode(String event, Object? raw) {
     final key = _key;
     final envelope = Echo._data(raw);
     final ciphertext = envelope['ciphertext'];
     final nonce = envelope['nonce'];
-    if (key == null || ciphertext is! String || nonce is! String) {
-      return null;
+    Map<String, Object?>? opened;
+    if (key != null && ciphertext is String && nonce is String) {
+      try {
+        final plain = Secretbox.open(
+          base64.decode(ciphertext),
+          base64.decode(nonce),
+          key,
+        );
+        opened = plain == null ? null : Echo._data(utf8.decode(plain));
+      } on FormatException {
+        opened = null;
+      }
     }
-    final opened = Secretbox.open(
-      base64.decode(ciphertext),
-      base64.decode(nonce),
-      key,
-    );
-    return opened == null ? null : Echo._data(utf8.decode(opened));
+    if (opened == null) {
+      _echo._error({
+        'type': 'DecryptionError',
+        'channel': name,
+        'event': event,
+      });
+    }
+    return opened;
   }
 }
 
