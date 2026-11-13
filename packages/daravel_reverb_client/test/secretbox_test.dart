@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:daravel_reverb_client/src/secretbox.dart';
 import 'package:test/test.dart';
+
+import 'secretbox_vectors.dart';
 
 Uint8List hex(String h) => Uint8List.fromList([
   for (var i = 0; i < h.length; i += 2)
@@ -15,21 +16,23 @@ String toHex(List<int> bytes) =>
 
 /// The hand-written XSalsa20-Poly1305 against independent references: it
 /// must be NaCl's `crypto_secretbox`, or encrypted channels do not open.
+///
+/// No `dart:io` here: the same vectors run on the VM and in a browser
+/// (`dart test -p chrome test/secretbox_test.dart`), where integers are
+/// JavaScript numbers. secretbox_vectors_test.dart checks the vectors
+/// against the fixture files.
 void main() {
-  final fixtures = '${Directory.current.path}/test/fixtures';
-
   test("NaCl's secretbox test vector (libsodium 1.0.20 "
       'test/default/secretbox.c and .exp)', () {
-    final vector = jsonDecode(
-      File('$fixtures/secretbox_nacl.json').readAsStringSync(),
-    ) as Map<String, Object?>;
-    final key = hex(vector['key']! as String);
-    final nonce = hex(vector['nonce']! as String);
-    final message = hex(vector['message']! as String);
-    final box = vector['box']! as String;
+    final key = hex(naclVector.key);
+    final nonce = hex(naclVector.nonce);
+    final message = hex(naclVector.message);
     expect(message, hasLength(131));
-    expect(toHex(Secretbox.seal(message, nonce, key)), box);
-    expect(toHex(Secretbox.open(hex(box), nonce, key)!), toHex(message));
+    expect(toHex(Secretbox.seal(message, nonce, key)), naclVector.box);
+    expect(
+      toHex(Secretbox.open(hex(naclVector.box), nonce, key)!),
+      toHex(message),
+    );
   });
 
   test('Poly1305: RFC 8439 §2.5.2', () {
@@ -49,30 +52,23 @@ void main() {
 
   test("PHP's sodium_crypto_secretbox (PHP 8.2.33, libsodium 1.0.18, in the "
       'interop harness image): 14 lengths from 0 to 200', () {
-    final lines = File('$fixtures/secretbox_php_sodium.jsonl')
-        .readAsLinesSync()
-        .where((line) => line.startsWith('{'));
-    var checked = 0;
-    for (final line in lines) {
-      final row = jsonDecode(line) as Map<String, Object?>;
-      final key = hex(row['key']! as String);
-      final nonce = hex(row['nonce']! as String);
-      final message = hex(row['message']! as String);
-      final box = row['box']! as String;
-      expect(message, hasLength(row['len']));
+    for (final row in phpVectors) {
+      final key = hex(row.key);
+      final nonce = hex(row.nonce);
+      final message = hex(row.message);
+      expect(message, hasLength(row.len));
       expect(
         toHex(Secretbox.seal(message, nonce, key)),
-        box,
-        reason: 'length ${row['len']}',
+        row.box,
+        reason: 'length ${row.len}',
       );
       expect(
-        toHex(Secretbox.open(hex(box), nonce, key)!),
+        toHex(Secretbox.open(hex(row.box), nonce, key)!),
         toHex(message),
-        reason: 'length ${row['len']}',
+        reason: 'length ${row.len}',
       );
-      checked++;
     }
-    expect(checked, 14);
+    expect(phpVectors, hasLength(14));
   });
 
   test('one flipped bit anywhere in the box does not open', () {

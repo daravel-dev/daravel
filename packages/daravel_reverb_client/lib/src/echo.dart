@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'auth.dart';
+import 'auth_support.dart';
 import 'secretbox.dart';
 
 /// The client's version, sent in the connection URL (`version=`).
@@ -173,6 +174,10 @@ final class Echo {
     _subscription = null;
     await socket?.sink.close(1000);
     _socketId = null;
+    // The authorizer's HTTP client; made again if [connect] follows.
+    if (auth case final ClosableEchoAuth closable) {
+      closable.close();
+    }
     _setState(EchoConnectionState.disconnected);
   }
 
@@ -674,7 +679,11 @@ base class EchoPrivateChannel extends EchoChannel {
     if (authorizer == null) {
       throw StateError('$name needs Echo.reverb(auth: ...).');
     }
-    final answer = await authorizer.authorize(_echo.socketId!, name);
+    final answer = checkedAuthorization(
+      name,
+      await authorizer.authorize(_echo.socketId!, name),
+      0,
+    );
     return {
       'auth': answer['auth'],
       if (answer['channel_data'] != null)
@@ -720,12 +729,16 @@ final class EchoEncryptedChannel extends EchoPrivateChannel {
     if (authorizer == null) {
       throw StateError('$name needs Echo.reverb(auth: ...).');
     }
-    final answer = await authorizer.authorize(_echo.socketId!, name);
-    final secret = answer['shared_secret'];
-    if (secret is! String) {
-      throw EchoAuthException(name, 200, 'no shared_secret');
-    }
-    _key = base64.decode(secret);
+    // Checked again for an authorizer of the application's own; the
+    // built-in ones checked it with the HTTP status.
+    final answer = checkedAuthorization(
+      name,
+      await authorizer.authorize(_echo.socketId!, name),
+      0,
+    );
+    // A key that is not 32 bytes is refused there, before subscribing: it
+    // used to subscribe, and every event failed to open.
+    _key = base64.decode(answer['shared_secret']! as String);
     return {'auth': answer['auth']};
   }
 

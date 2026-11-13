@@ -48,8 +48,13 @@ abstract final class Secretbox {
     ]);
   }
 
-  /// Poly1305 (RFC 8439 §2.5) of [message] with a one-time 32-byte [key].
+  /// Poly1305 (RFC 8439 §2.5) of [message] with a one-time 32-byte [key];
+  /// another length is an [ArgumentError] (it was a [RangeError] from deep
+  /// inside, or a wrong tag).
   static Uint8List poly1305(List<int> message, List<int> key) {
+    if (key.length != 32) {
+      throw ArgumentError.value(key.length, 'key', 'Poly1305 needs 32 bytes');
+    }
     BigInt le(List<int> bytes) {
       var n = BigInt.zero;
       for (var i = bytes.length - 1; i >= 0; i--) {
