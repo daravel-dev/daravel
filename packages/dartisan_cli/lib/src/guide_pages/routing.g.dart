@@ -305,6 +305,15 @@ Without either, a nested path does not check ownership.
 `withTrashed()` also finds soft deleted models, and `missing((request) => ...)`
 replaces the 404.
 
+A custom column is compared with the value from the URL as the column's type,
+which Daravel reads from the database once per table (`Schema.getColumns`).
+For an integer column the value must be an integer as PostgreSQL reads one
+(spaces around it, a sign and leading zeros are fine, so `007` finds 7), and
+a decimal column takes a plain decimal. Anything else is a 404, on every
+database. Laravel answers those with a 500 on PostgreSQL, and on MySQL it
+binds the row the value coerces to (`abc` as 0). A uuid, date or boolean
+column given a value of another shape is a 404 too.
+
 ## Laravel equivalents
 
 More of Laravel that this works with, and the API to look up on pub.dev.

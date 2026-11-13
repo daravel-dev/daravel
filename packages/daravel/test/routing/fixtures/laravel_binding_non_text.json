@@ -1,0 +1,213 @@
+{
+    "source": "Laravel 13.40.0, PHP 8.3.35, PostgreSQL and MySQL: implicit route model binding (SubstituteBindings, a type-hinted handler parameter) on table rk_items (id, number integer) holding the rows number = 0 and number = 7; \"binding field\" is /by-number/{item:number}, \"route key\" a model whose getRouteKeyName() is number. status is the HTTP status, number the bound row, sqlstate the QueryException behind a 500.",
+    "runs": {
+        "pgsql": {
+            "binding field": [
+                {
+                    "value": "7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "abc",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "7abc",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "007",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": " 7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "7.0",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "1e1",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "-0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "9999999999999999999",
+                    "status": 500,
+                    "sqlstate": "22003"
+                }
+            ],
+            "route key": [
+                {
+                    "value": "7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "abc",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "7abc",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "007",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": " 7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "7.0",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "1e1",
+                    "status": 500,
+                    "sqlstate": "22P02"
+                },
+                {
+                    "value": "-0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "9999999999999999999",
+                    "status": 500,
+                    "sqlstate": "22003"
+                }
+            ]
+        },
+        "mysql": {
+            "binding field": [
+                {
+                    "value": "7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "abc",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "7abc",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "007",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": " 7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "7.0",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "1e1",
+                    "status": 404
+                },
+                {
+                    "value": "-0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "9999999999999999999",
+                    "status": 404
+                }
+            ],
+            "route key": [
+                {
+                    "value": "7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "abc",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "7abc",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "007",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": " 7",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "7.0",
+                    "status": 200,
+                    "number": 7
+                },
+                {
+                    "value": "1e1",
+                    "status": 404
+                },
+                {
+                    "value": "-0",
+                    "status": 200,
+                    "number": 0
+                },
+                {
+                    "value": "9999999999999999999",
+                    "status": 404
+                }
+            ]
+        }
+    }
+}
