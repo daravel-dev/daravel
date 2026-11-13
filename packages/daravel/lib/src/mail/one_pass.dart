@@ -287,6 +287,143 @@ String replaceLinks(
   return (value.substring(start, nameEnd), value.substring(lt + 1, gt));
 }
 
+/// The groups of `RegExp(r'([\w-]+)="([^"]*)"').allMatches(source)`, in
+/// order: the attributes of a component tag.
+///
+/// From any start inside a run of `[\w-]` the name reaches the end of the
+/// run, and only there can `="` follow, so the run matches from its first
+/// character or not at all; the value ends at the first `"` after it.
+List<(String, String)> attributePairs(String source) {
+  final pairs = <(String, String)>[];
+  var at = 0;
+  while (at < source.length) {
+    if (!_isNameChar(source.codeUnitAt(at))) {
+      at++;
+      continue;
+    }
+    var end = at;
+    while (end < source.length && _isNameChar(source.codeUnitAt(end))) {
+      end++;
+    }
+    if (source.startsWith('="', end)) {
+      final quote = source.indexOf('"', end + 2);
+      if (quote < 0) {
+        // No `"` after this one: no later `="` can close either.
+        break;
+      }
+      pairs.add((source.substring(at, end), source.substring(end + 2, quote)));
+      at = quote + 1;
+    } else {
+      at = end;
+    }
+  }
+  return pairs;
+}
+
+bool _isNameChar(int codeUnit) => isRegExpWord(codeUnit) || codeUnit == 0x2D;
+
+/// `html.replaceAllMapped(RegExp('<(${names.join('|')})\\b([^>]*)>'), …)`,
+/// with [replace] given groups 1 and 2: the opening tags the mail theme
+/// styles. [names] are tried in order, as the alternation does.
+///
+/// From a `<` with a name and a word boundary, the tag ends at the first
+/// `>` after it; without one, no later `<` can match either.
+String replaceOpeningTags(
+  String html,
+  List<String> names,
+  String Function(String name, String attributes) replace,
+) {
+  final out = StringBuffer();
+  var copied = 0;
+  var from = 0;
+  while (true) {
+    final lt = html.indexOf('<', from);
+    if (lt < 0) {
+      break;
+    }
+    from = lt + 1;
+    String? name;
+    for (final candidate in names) {
+      final end = lt + 1 + candidate.length;
+      if (html.startsWith(candidate, lt + 1) &&
+          (end == html.length || !isRegExpWord(html.codeUnitAt(end)))) {
+        name = candidate;
+        break;
+      }
+    }
+    if (name == null) {
+      continue;
+    }
+    final attributesStart = lt + 1 + name.length;
+    final gt = html.indexOf('>', attributesStart);
+    if (gt < 0) {
+      break;
+    }
+    out
+      ..write(html.substring(copied, lt))
+      ..write(replace(name, html.substring(attributesStart, gt)));
+    copied = from = gt + 1;
+  }
+  if (copied == 0) {
+    return html;
+  }
+  out.write(html.substring(copied));
+  return out.toString();
+}
+
+/// `html.replaceAllMapped(RegExp('<a ([^>]*?)style="[^"]*">'), …)`, with
+/// [replace] given group 1: the footer's links.
+///
+/// From `<a `, the lazy group stops at the first `style="` before the next
+/// `>` whose value is followed by `>` (its value ends at the first `"`
+/// after it). Whether a `style="` succeeds does not depend on the opener,
+/// so the successful ones are found once and each opener takes the first
+/// of them in its reach.
+String replaceStyledAnchors(
+  String html,
+  String Function(String before) replace,
+) {
+  const open = '<a ';
+  const marker = 'style="';
+  if (!html.contains(open)) {
+    return html;
+  }
+  final quotes = _positions(html, '"');
+  final gts = _positions(html, '>');
+  final succeeding = <int>[
+    for (final at in _positions(html, marker))
+      if (_firstAtLeast(quotes, at + marker.length) case final quote?
+          when quote + 1 < html.length && html.codeUnitAt(quote + 1) == 0x3E)
+        at,
+  ];
+  final out = StringBuffer();
+  var copied = 0;
+  var from = 0;
+  while (true) {
+    final start = html.indexOf(open, from);
+    if (start < 0) {
+      break;
+    }
+    from = start + 1;
+    final afterOpen = start + open.length;
+    final reach = _firstAtLeast(gts, afterOpen) ?? html.length;
+    final style = _firstAtLeast(succeeding, afterOpen);
+    if (style == null || style >= reach) {
+      continue;
+    }
+    final quote = _firstAtLeast(quotes, style + marker.length)!;
+    out
+      ..write(html.substring(copied, start))
+      ..write(replace(html.substring(afterOpen, style)));
+    copied = from = quote + 2;
+  }
+  if (copied == 0) {
+    return html;
+  }
+  out.write(html.substring(copied));
+  return out.toString();
+}
+
 /// The start of every occurrence of [pattern] in [text], in order
 /// (occurrences may overlap).
 List<int> _positions(String text, String pattern) {

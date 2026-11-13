@@ -171,8 +171,7 @@ final class MailTheme {
   }
 
   static Map<String, String> _attributes(String source) => {
-    for (final m in RegExp(r'([\w-]+)="([^"]*)"').allMatches(source))
-      m[1]!: _unescape(m[2]!),
+    for (final (name, value) in attributePairs(source)) name: _unescape(value),
   };
 
   /// A whole message: header, [body] (HTML from [render]), an optional
@@ -184,7 +183,9 @@ final class MailTheme {
         : '<img src="${escapeHtml(logoUrl!)}" alt="${escapeHtml(appName)}" '
               'style="height: 75px; margin-top: 15px; margin-bottom: 10px; '
               'max-height: 75px; width: 75px;">';
-    final footerHtml =
+    // `<p style="[^"]*">` stays a regular expression: from each opener it
+    // reads only to the next `"`, so its scans do not overlap.
+    final footerParagraphs =
         render(footer ?? '© $year ${escapeHtml(appName)}. All rights reserved.')
             .replaceAllMapped(
               RegExp('<p style="[^"]*">'),
@@ -192,13 +193,12 @@ final class MailTheme {
                   '<p style="box-sizing: border-box; font-family: $_font; '
                   'line-height: 1.5em; margin-top: 0; color: $muted; '
                   'font-size: 12px; text-align: center;">',
-            )
-            .replaceAllMapped(
-              RegExp('<a ([^>]*?)style="[^"]*">'),
-              (m) =>
-                  '<a ${m[1]}style="color: $muted; '
-                  'text-decoration: underline;">',
             );
+    final footerHtml = replaceStyledAnchors(
+      footerParagraphs,
+      (before) =>
+          '<a ${before}style="color: $muted; text-decoration: underline;">',
+    );
     final subcopyHtml = subcopy == null
         ? ''
         : '<table class="subcopy" width="100%" cellpadding="0" cellspacing="0" '
@@ -277,17 +277,30 @@ final class MailTheme {
           'padding: 10px 0;',
       'table': 'margin: 30px auto; width: 100%;',
     };
-    return html.replaceAllMapped(
-      RegExp(r'<(p|h1|h2|h3|a|ul|ol|blockquote|img|th|td|table)\b([^>]*)>'),
-      (m) {
-        final attributes = m[2]!;
+    return replaceOpeningTags(
+      html,
+      const [
+        'p',
+        'h1',
+        'h2',
+        'h3',
+        'a',
+        'ul',
+        'ol',
+        'blockquote',
+        'img',
+        'th',
+        'td',
+        'table',
+      ],
+      (name, attributes) {
         if (attributes.contains('style=')) {
-          return m[0]!;
+          return '<$name$attributes>';
         }
         final style =
             'box-sizing: border-box; font-family: $_font; '
-            '${styles[m[1]]!}';
-        return '<${m[1]}$attributes style="$style">';
+            '${styles[name]!}';
+        return '<$name$attributes style="$style">';
       },
     );
   }
