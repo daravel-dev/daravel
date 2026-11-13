@@ -190,7 +190,10 @@ back, 303 after an Inertia PUT, PATCH or DELETE, with `session.errors` and
 `session.old('name')` on the next request; passwords are never flashed. Clients
 expecting JSON keep the 422. Forms name their verb with `_method`, or the
 `X-HTTP-Method-Override` header does; `middleware.methodOverride = false` turns
-this off.
+this off. A form body is read for its `_method` only where the path has a
+`PUT`, `PATCH` or `DELETE` route, within the largest body limit and timeout of
+the routes it may reach; the route it reaches then checks its own `bodyLimit`
+against what was read.
 
 Put `auth:web` after the `web` group on protected routes. From
 `COMPAT_LARAVEL_VERSION=12` the login also stores `password_hash_web`, which

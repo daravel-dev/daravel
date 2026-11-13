@@ -1,4 +1,4 @@
-<!-- source: sessions.md sha256:82ac8f2f55e7 -->
+<!-- source: sessions.md sha256:e123d402e6b2 -->
 # Session, cookie, dan CSRF
 
 `daravel_session` memberi route web sebuah session seperti di Laravel: id
@@ -191,6 +191,10 @@ Inertia. `session.errors` dan `session.old('name')` tersedia di request
 berikutnya, dan password tidak pernah di-flash. Client yang mengharapkan JSON
 tetap menerima 422. Form menyebut verb-nya dengan `_method`, atau lewat header
 `X-HTTP-Method-Override`; `middleware.methodOverride = false` mematikannya.
+Body form dibaca untuk `_method`-nya hanya bila path itu punya route `PUT`,
+`PATCH`, atau `DELETE`, dalam batas body dan timeout terbesar dari route yang
+mungkin dituju; route yang akhirnya dituju lalu memeriksa `bodyLimit`-nya
+sendiri terhadap apa yang sudah dibaca.
 
 Pasang `auth:web` setelah grup `web` pada route yang dilindungi. Mulai
 `COMPAT_LARAVEL_VERSION=12`, login juga menyimpan `password_hash_web` yang
