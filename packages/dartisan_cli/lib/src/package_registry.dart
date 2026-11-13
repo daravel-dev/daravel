@@ -244,9 +244,7 @@ const List<PackageManifest> officialPackages = [
     description:
         'Queue supervisors on worker isolates, auto-scaling and a dashboard',
     aliases: ['horizon', 'supervisor'],
-    registration: [
-      ".withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])",
-    ],
+    registration: ['.withHorizon(createApp: createApp)'],
     commands: 'horizonCommands',
     env: [
       'HORIZON_ENABLED=true',
@@ -256,8 +254,14 @@ const List<PackageManifest> officialPackages = [
       'HORIZON_IDLE_TX_TIMEOUT=',
     ],
     next: [
-      'Define who may open the dashboard in bootstrap/policies.dart: '
-          "gate.define('viewHorizon', (user, _) => ...).",
+      'The dashboard is open in APP_ENV=local only. Outside it, with '
+          'sessions (withSession()), sign in and define who may open it '
+          "in bootstrap/policies.dart: gate.define('viewHorizon', "
+          '(user, _) => ...).',
+      'Without sessions, decide per request in bootstrap/app.dart, for '
+          'example on a secret header your proxy adds: '
+          'HorizonDashboard.auth((request) => constantTimeEquals('
+          "request.header('x-horizon-key') ?? '', horizonKey)).",
       'Schedule the metric snapshots in routes/console.dart: '
           "schedule.command('horizon:snapshot').everyFiveMinutes();",
       'Run the workers with dartisan horizon, or beside the server with '

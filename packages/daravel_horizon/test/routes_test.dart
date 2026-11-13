@@ -59,7 +59,12 @@ void main() {
     client = TestClient(app);
   }
 
+  // Outside local the dashboard needs a gate or a callback, in tests too;
+  // the security tests below close it again.
+  setUp(() => HorizonDashboard.auth((Request request) => true));
+
   tearDown(() async {
+    HorizonDashboard.auth(null);
     await app.shutdown();
     base.deleteSync(recursive: true);
   });
@@ -278,11 +283,12 @@ void main() {
     expect(response.body, contains('retry: '));
   });
 
-  test('outside local and testing, every endpoint needs middleware', () async {
+  test('outside local, every endpoint needs the gate', () async {
     await boot({
       'APP_ENV': 'production',
       'APP_KEY': 'base64:${base64.encode(List.filled(32, 7))}',
     });
+    HorizonDashboard.auth(null);
     for (final (method, path) in [
       ('GET', '/horizon/api/stats'),
       ('GET', '/horizon/api/jobs/failed'),
@@ -294,6 +300,24 @@ void main() {
       expect(response.status, 403, reason: '$method $path');
     }
   }, tags: ['security']);
+
+  test('HORIZON_PATH=/ serves the dashboard at the root, without double '
+      'slashes', () async {
+    await boot({'HORIZON_PATH': '/'});
+    final paths = [
+      for (final route in app.router.routes)
+        if (route.routeName?.startsWith('horizon.') ?? false) route.path,
+    ];
+    expect(paths, contains('/api/stats'));
+    expect(paths.where((p) => p.contains('//')), isEmpty);
+    (await client.get('/api/stats')).assertOk();
+    final page = await client.get('/');
+    page.assertOk();
+    expect(page.body, contains('data-base=""'));
+    expect(page.body, contains('href="/failed"'));
+    expect(page.body, isNot(contains('"//')));
+    (await client.get('/failed')).assertOk();
+  });
 
   test('HORIZON_ENABLED=false: 404', () async {
     await boot({'HORIZON_ENABLED': 'false'});
@@ -353,11 +377,12 @@ void main() {
     expect((await client.get('/horizon/nope')).status, 404);
   });
 
-  test('the page needs middleware outside local and testing too', () async {
+  test('the page needs the gate outside local too', () async {
     await boot({
       'APP_ENV': 'production',
       'APP_KEY': 'base64:${base64.encode(List.filled(32, 7))}',
     });
+    HorizonDashboard.auth(null);
     expect((await client.get('/horizon')).status, 403);
     expect((await client.get('/horizon/failed')).status, 403);
   }, tags: ['security']);

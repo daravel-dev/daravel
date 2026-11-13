@@ -37,9 +37,9 @@ const List<SupervisorPlan> plans = [
 ];
 
 /// Builds the unbooted application; each Horizon worker isolate builds its
-/// own with it. Outside `APP_ENV=local` the dashboard answers 403 until it
-/// has middleware, such as `['auth', 'can:viewHorizon']` with a
-/// `viewHorizon` gate (see the README).
+/// own with it. Outside `APP_ENV=local` the dashboard answers 403 until the
+/// `viewHorizon` gate or `HorizonDashboard.auth` allows the request (see the
+/// README).
 Application createApp({String? basePath, Map<String, String>? env}) =>
     Application.configure(basePath: basePath ?? _resolveBasePath())
         .withEnv(env ?? const <String, String>{})

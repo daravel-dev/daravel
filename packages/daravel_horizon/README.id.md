@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:63368368d13d -->
+<!-- source: README.md sha256:93ba5d4ca93a -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -46,7 +46,7 @@ pertama kali di-push.
 
 ## API dashboard
 
-`withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])`
+`withHorizon(createApp: createApp)`
 melayani API JSON dashboard di bawah `HORIZON_PATH` (`/horizon/api/...`)
 dengan nama rute Laravel Horizon: statistik, beban kerja, master, tag yang
 dimonitor, metrik job dan queue, job pending, completed, silenced, dan failed,
@@ -57,11 +57,40 @@ job gagal atau sebanyak yang muat dalam 10 detik per request, lalu menjawab
 berapa yang tersisa (`remaining`); dashboard memanggil lagi dengan `after` dan
 `up_to` yang diterimanya sampai tidak ada yang tersisa. Retry-all yang sedang
 berjalan membuat panggilan lain dijawab 409, dan job yang payload-nya tidak
-terbaca tetap di `failed_jobs`, tercantum di `skipped`. Di luar `APP_ENV=local`
-dan `testing`,
-API menjawab 403 sampai middleware melindunginya. Snapshot metrik diambil oleh
-Horizon yang sedang berjalan: `dartisan horizon:snapshot` hanya memintanya,
-jadi jadwalkan perintah itu setiap lima menit.
+terbaca tetap di `failed_jobs`, tercantum di `skipped`. Snapshot metrik diambil
+oleh Horizon yang sedang berjalan: `dartisan horizon:snapshot` hanya
+memintanya, jadi jadwalkan perintah itu setiap lima menit.
+
+### Siapa yang boleh membukanya
+
+Seperti Laravel Horizon, setiap request diotorisasi sesudah middleware-nya,
+dan middleware saja tidak pernah membuka dashboard:
+
+- `APP_ENV=local`: terbuka;
+- selain itu `HorizonDashboard.auth(callback)` yang memutuskan bila dipasang;
+- selain itu gate `viewHorizon`; tanpa gate, 403.
+
+Callback atau gate yang melempar error menolak request itu, dan error-nya
+dicatat di log. Tanpa `middleware:`, dashboard berada di belakang grup `web`
+bila aplikasi memilikinya (`withSession()`), sehingga gate melihat user yang
+sedang login:
+
+```dart
+gate.define('viewHorizon', (user, _) => user?.authIdentifier == 1);
+```
+
+Tanpa session tidak ada user; putuskan per request, misalnya dari header
+rahasia yang ditambahkan proxy:
+
+```dart
+HorizonDashboard.auth(
+  (request) =>
+      constantTimeEquals(request.header('x-horizon-key') ?? '', horizonKey),
+);
+```
+
+`middleware: ['web', 'auth']` mengarahkan tamu ke halaman login, bukan 403;
+entri `middleware:` yang tidak didaftarkan aplikasi menghentikan boot.
 
 ## Store
 

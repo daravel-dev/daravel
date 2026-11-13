@@ -12,21 +12,33 @@ import 'store/horizon_store.dart';
 /// The dashboard's JSON API (Blueprint #134 §3.7), under `HORIZON_PATH`
 /// with Laravel Horizon's route names (`horizon.*`).
 ///
-/// Outside `APP_ENV=local` and `testing` every endpoint answers 403 until
-/// `withHorizon(middleware:)` protects it, and 404 with
-/// `HORIZON_ENABLED=false`. Payloads, contexts and traces are returned as
+/// Every request is authorized after the route middleware, as Laravel
+/// Horizon's `Authenticate` middleware does: `APP_ENV=local` passes;
+/// otherwise the [auth] callback decides, or without one the
+/// `viewHorizon` gate; anything else is a 403. Middleware is never taken
+/// as authorization. With `HORIZON_ENABLED=false` every endpoint is a
+/// 404. Payloads, contexts and traces are returned as
 /// JSON strings, for the page to show as text.
 abstract final class HorizonDashboard {
+  static FutureOr<bool> Function(Request request)? _authUsing;
+
+  /// Who may see the dashboard (Laravel's `Horizon::auth`); null forgets
+  /// it.
+  static void auth(FutureOr<bool> Function(Request request)? callback) =>
+      _authUsing = callback;
+
   /// Registers the API under [path] behind [middleware].
   static void routes(
     Router router, {
     required String path,
     List<Object> middleware = const [],
   }) {
-    final protected = middleware.isNotEmpty;
     Future<Response> guard(FutureOr<Object?> Function(Request r) body) =>
-        _guard(protected, body);
-    final api = '$path/api';
+        _guard(body);
+    // The prefix of every URL below path: '' at the root, so that
+    // nothing (route, link or fetch) starts with //.
+    final prefix = path == '/' ? '' : path;
+    final api = '$prefix/api';
     router.group((r) {
       r
         ..get(
@@ -111,11 +123,11 @@ abstract final class HorizonDashboard {
         ).name('horizon.jobs.show')
         ..get(
           path,
-          (Request q) => guard((r) => _page(path, 'dashboard')),
+          (Request q) => guard((r) => _page(prefix, 'dashboard')),
         ).name('horizon.index')
         ..get(
-          '$path/{view}',
-          (Request q) => guard((r) => _page(path, r.param<String>('view'))),
+          '$prefix/{view}',
+          (Request q) => guard((r) => _page(prefix, r.param<String>('view'))),
         ).name('horizon.view');
     }, middleware: middleware);
   }
@@ -153,25 +165,46 @@ abstract final class HorizonDashboard {
   }
 
   static Future<Response> _guard(
-    bool protected,
     FutureOr<Object?> Function(Request request) body,
   ) async {
     if (!_config.enabled) {
       throw NotFoundHttpException();
     }
-    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
-    if (!protected && !app.isLocal && !app.isTesting) {
-      return Response.json({
-        'message':
-            'Horizon needs middleware outside local: '
-            "withHorizon(middleware: ['auth', 'can:viewHorizon']).",
-      }, status: 403);
+    final request = Container.current.make<Request>();
+    if (!await _authorized(request)) {
+      throw const ForbiddenHttpException(
+        'Horizon is closed outside local: with sessions, sign in as a user '
+        'the viewHorizon gate allows; without, HorizonDashboard.auth '
+        'decides.',
+      );
     }
-    final result = await body(Container.current.make<Request>());
+    final result = await body(request);
     return switch (result) {
       final Response response => response,
       _ => Response.json(result, headers: const {'cache-control': 'no-store'}),
     };
+  }
+
+  /// Whether [request] may use the dashboard. A callback or a gate that
+  /// throws denies it, logged.
+  static Future<bool> _authorized(Request request) async {
+    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
+    if (app.isLocal) {
+      return true;
+    }
+    try {
+      if (_authUsing case final callback?) {
+        return await callback(request);
+      }
+      return Gate.has('viewHorizon') && await Gate.allows('viewHorizon');
+    } on Object catch (e, stack) {
+      Container.current.make<Logger>().error(
+        'Horizon dashboard authorization failed; the request is denied.',
+        error: e,
+        stackTrace: stack,
+      );
+      return false;
+    }
   }
 
   /// [read] from the store, or null when it fails.
