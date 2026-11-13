@@ -165,10 +165,17 @@ void main() {
         await Future<void>.delayed(
           retryAfter + const Duration(milliseconds: 150),
         );
-        await expectLater(
-          queue.pop('default'),
-          throwsA(isA<CorruptPayloadException>()),
-        );
+        CorruptPayloadException? corrupt;
+        try {
+          await queue.pop('default');
+        } on CorruptPayloadException catch (error) {
+          corrupt = error;
+        }
+        expect(corrupt, isNotNull);
+        // The worker records it in failed_jobs first, then removes it: until
+        // then it stays (a record that fails loses nothing).
+        expect(await hashExists(job), isTrue);
+        await corrupt!.remove!();
         expect(await hashExists(job), isFalse);
         await Future<void>.delayed(
           retryAfter + const Duration(milliseconds: 150),

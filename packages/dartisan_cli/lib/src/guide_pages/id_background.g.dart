@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/background.md`.
 const String pageIdBackground =
-    r'''<!-- source: background.md sha256:3d7a6735a420 -->
+    r'''<!-- source: background.md sha256:5972ac309ed8 -->
 # Cache, event, queue, dan penjadwalan
 
 <!-- include: packages/daravel/test/docs/guide_examples_test.dart#cache-events-queue -->
@@ -235,6 +235,13 @@ membuat isolate sibuk dengan microtask, sehingga timer di sekitar loop itu
   berbuat apa-apa, dan worker mencatat satu peringatan per job ("ran past
   retry_after"). Naikkan `retry_after` di atas job terlama bila Anda
   melihatnya. Antrean database Laravel hanya memeriksa bahwa barisnya ada.
+- Antrean database melewati job yang di-push aplikasi Laravel ke antrean
+  yang sama dengan sebuah kursor, dan menemukan job di bawah kursor yang
+  jatuh tempo, di-release, atau di-reclaim belakangan lewat
+  `available_at`-nya: jaga jam para worker dalam selisih beberapa detik
+  (kelonggaran 5 dtk), atau job seperti itu bisa menunggu sampai
+  `retry_after`. Kursor
+  membutuhkan id integer dari tabel `jobs` Laravel.
 - `Queue.dispatch(job)` mem-push job meskipun tidak ada yang meng-await-nya
   (dalam microtask, setelah setter yang dirangkai padanya), seperti Laravel
   mem-push `PendingDispatch` saat keluar dari scope. Meng-await-nya memberi

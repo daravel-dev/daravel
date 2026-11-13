@@ -222,6 +222,12 @@ keep the isolate busy with microtasks, so a timer around that loop (a
   warning per job ("ran past retry_after"). Raise `retry_after` above the
   longest job when you see it. Laravel's database queue checks only that
   the row exists.
+- The database queue reads past jobs a Laravel app pushed onto the same
+  queue with a cursor, and finds a job below it that falls due, is
+  released or reclaimed later by its `available_at`: keep the workers'
+  clocks within a few seconds of each other (5 s of slack), or such a job
+  may wait up to `retry_after`. The cursor needs the integer ids of
+  Laravel's `jobs` table.
 - `Queue.dispatch(job)` pushes the job even when nothing awaits it (in a
   microtask, after the setters chained on it), as Laravel pushes a
   `PendingDispatch` when it goes out of scope. Awaiting it gives the job id

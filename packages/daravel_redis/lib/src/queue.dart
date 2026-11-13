@@ -229,14 +229,15 @@ return false''');
       payload = JobPayload.decode(raw);
     } on Object catch (error) {
       // A payload that does not decode would stay reserved and be popped
-      // again after every retry_after, for ever. It is removed here, and
-      // the worker records it in failed_jobs, as with the database queue.
-      await _remove(queue, id, attempts);
+      // again after every retry_after, for ever. The worker records it in
+      // failed_jobs and then removes it, as with the database queue; when
+      // the record fails, it stays and is tried again.
       throw CorruptPayloadException(
         id: id,
         queue: queue,
         raw: raw,
         cause: error,
+        remove: () => _remove(queue, id, attempts),
       );
     }
     // List engine: the reservation's score is s = now + R (R =

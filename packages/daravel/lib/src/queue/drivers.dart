@@ -186,8 +186,10 @@ final class JobPayload {
 }
 
 /// A reserved job handed to the worker.
-/// A claimed row whose payload is Daravel-shaped but does not decode. The
-/// driver has removed the row; [raw] is what it held, for `failed_jobs`.
+/// A claimed row whose payload is Daravel-shaped but does not decode; [raw]
+/// is what it held, for `failed_jobs`. The worker records it there first and
+/// then calls [remove], so a record that fails leaves the row to be tried
+/// again after `retry_after` instead of losing it.
 final class CorruptPayloadException extends DaravelException {
   /// A job row whose payload cannot be read.
   CorruptPayloadException({
@@ -195,6 +197,7 @@ final class CorruptPayloadException extends DaravelException {
     required this.queue,
     required this.raw,
     required this.cause,
+    this.remove,
   }) : super(
          'Job $id on queue [$queue] has a payload that does not decode: $cause',
        );
@@ -210,6 +213,10 @@ final class CorruptPayloadException extends DaravelException {
 
   /// The parse error.
   final Object cause;
+
+  /// Removes the row (while it is still this reservation); null when the
+  /// driver removed it already.
+  final Future<Object?> Function()? remove;
 }
 
 /// A job reserved from a queue, being processed.
@@ -976,9 +983,17 @@ final class DatabaseQueue
   /// worker could take up to the cursor was foreign when it looked. Rows
   /// below it that become available later (a delayed job falling due, a
   /// job released by any worker, a reservation that went stale) are found
-  /// by a second, narrow query ([_Cursor]); the cursor starts over every
-  /// `retryAfter` as a safety net. A queue without foreign rows never moves
-  /// it.
+  /// by a second, narrow query ([_Cursor]), read page by page; the cursor
+  /// starts over every `retryAfter` as a safety net. A queue without
+  /// foreign rows never moves it.
+  ///
+  /// The narrow query trusts other processes' clocks to within
+  /// [_clockSlack] (5 s) of this one's: a job below the cursor whose
+  /// `available_at` a clock further behind wrote may wait for the safety
+  /// net, at most `retryAfter`. The cursor needs integer ids (`jobs.id` is
+  /// an auto-increment in Laravel's schema); with other ids every poll reads
+  /// from the start, as before, and foreign rows can hide Daravel jobs
+  /// behind them again.
   @override
   Future<QueuedJob?> pop(String queue) async {
     final now = _now;
@@ -989,33 +1004,43 @@ final class DatabaseQueue
       cursor = null;
     }
     if (cursor != null) {
-      // Below the cursor: only what became available since it was set.
-      final rows = await _available(queue, now, stale)
-          .where('id', '<=', cursor.through)
-          .where((QueryBuilder q) {
-            q
-                .where('available_at', '>', cursor!.since - _clockSlack)
-                .whereNull('reserved_at', not: true, boolean: 'OR');
-          })
-          .orderBy('id')
-          .limit(_maxPollBatch)
-          .get();
-      final (job, _) = await _claimFirst(queue, rows, now);
-      if (job != null) {
-        return job;
+      // Below the cursor: only what became available since it was set,
+      // a page at a time, so foreign rows in that window hide nothing.
+      Object after = 0;
+      for (var page = 0; page < _maxPolls; page++) {
+        final rows = await _available(queue, now, stale)
+            .where('id', '>', after)
+            .where('id', '<=', cursor.through)
+            .where((QueryBuilder q) {
+              q
+                  .where('available_at', '>', cursor!.since - _clockSlack)
+                  .whereNull('reserved_at', not: true, boolean: 'OR');
+            })
+            .orderBy('id')
+            .limit(_maxPollBatch)
+            .get();
+        final (job, _) = await _claimFirst(queue, rows, now);
+        if (job != null) {
+          return job;
+        }
+        if (rows.length < _maxPollBatch) {
+          break;
+        }
+        after = rows.last['id']!;
       }
     }
     var batch = _pollBatch;
     for (var poll = 0; poll < _maxPolls; poll++) {
-      final after = _cursors[queue]?.through ?? 0;
-      final rows = await _available(
-        queue,
-        now,
-        stale,
-      ).where('id', '>', after).orderBy('id').limit(batch).get();
+      final after = _cursors[queue]?.through;
+      final query = _available(queue, now, stale);
+      if (after != null) {
+        query.where('id', '>', after);
+      }
+      final rows = await query.orderBy('id').limit(batch).get();
       final (job, foreignThrough) = await _claimFirst(queue, rows, now);
-      if (foreignThrough != null) {
-        // Every row read up to it was foreign: the next poll starts past it.
+      if (foreignThrough is int) {
+        // Every row read up to it was foreign: the next poll starts past
+        // it. Integer ids only (see above).
         (_cursors[queue] ??= _Cursor(now)).through = foreignThrough;
       }
       if (job != null) {
@@ -1111,14 +1136,16 @@ final class DatabaseQueue
         // A Daravel-shaped row that does not decode (a field of the wrong
         // type, a payload written by another release): the row is claimed
         // and would otherwise be re-reserved after retry_after and crash
-        // the next worker too, for ever. It is removed here; the worker
-        // records it in failed_jobs from the exception.
-        await _query().where('id', id).where('attempts', current).delete();
+        // the next worker too, for ever. The worker records it in
+        // failed_jobs and then removes it; when the record fails, the row
+        // stays and is tried again after retry_after.
         throw CorruptPayloadException(
           id: id,
           queue: queue,
           raw: raw,
           cause: error,
+          remove: () =>
+              _query().where('id', id).where('attempts', current).delete(),
         );
       }
       return (
@@ -1378,14 +1405,17 @@ final class DatabaseQueue
     ];
   }
 
-  /// Clears `reserved_at` of the row; `attempts` and `available_at` stay.
+  /// Clears `reserved_at` of the row and makes it available now, as a
+  /// release without delay sets `available_at` (Laravel's meaning: when the
+  /// job may run), so a [pop] past foreign rows finds it below its cursor;
+  /// `attempts` stays.
   @override
   Future<bool> reclaim(String queue, Object jobId) async {
     final reclaimed = await _query()
         .where('id', jobId)
         .where('queue', queue)
         .whereNotNull('reserved_at')
-        .update(<String, Object?>{'reserved_at': null});
+        .update(<String, Object?>{'reserved_at': null, 'available_at': _now});
     if (reclaimed > 0) {
       await db.notify(_channel, queue, connection);
     }

@@ -73,6 +73,27 @@ final class _FailingProvider implements FailedJobProvider {
       throw UnimplementedError('${invocation.memberName}');
 }
 
+/// A provider (another connection) that finds the job's uuid already in
+/// `failed_jobs`: another worker recorded it.
+final class _RecordedElsewhere implements FailedJobProvider {
+  @override
+  Future<Object> log({
+    required String connection,
+    required String queue,
+    required String payload,
+    required String exception,
+  }) async => throw UniqueConstraintViolationException(
+    'other',
+    'insert into failed_jobs',
+    const [],
+    StateError('duplicate uuid'),
+  );
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
 /// The Laravel 13.40.0 payloads in `fixtures/laravel_job_payloads.json`,
 /// pushed by Laravel's own database queue (class job, legacy string job,
 /// `Class@method` job, `pushRaw` JSON, `pushRaw` text).
@@ -256,9 +277,13 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
       expect(await rows(), 1, reason: 'left for another runtime');
     });
 
-    Future<void> foreign(int count, {String queueName = 'default'}) async {
+    Future<void> foreign(
+      int count, {
+      String queueName = 'default',
+      Duration delay = Duration.zero,
+    }) async {
       final raw = laravelPayloads().first;
-      final at = now.millisecondsSinceEpoch ~/ 1000;
+      final at = now.add(delay).millisecondsSinceEpoch ~/ 1000;
       for (var i = 0; i < count; i += 500) {
         await db.table(table).insert([
           for (var j = i; j < i + 500 && j < count; j++)
@@ -336,6 +361,98 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
       final job = await q.pop('default');
       expect(job?.id, held.id);
       expect(job?.attempts, 2);
+    });
+
+    test(
+      'below the cursor: more than a page of foreign rows falling due '
+      'ahead of a Daravel job hide nothing (read a page at a time)',
+      () async {
+        final q = queue(retryAfter: const Duration(seconds: 90));
+        // 1 200 Laravel jobs and then one Daravel job, all due in 30 s, below
+        // where the cursor will be; then rows due now to move the cursor.
+        await foreign(1200, delay: const Duration(seconds: 30));
+        await q.push(
+          JobPayload.forJob(const Ping()),
+          queue: 'default',
+          delay: const Duration(seconds: 30),
+        );
+        await foreign(300);
+        expect(await q.pop('default'), isNull);
+        now = now.add(const Duration(seconds: 31));
+        final job = await q.pop('default');
+        expect(job, isNotNull, reason: 'behind 1 200 rows in the window');
+        expect(job!.payload.jobName, 'ping');
+      },
+    );
+
+    test(
+      'below the cursor: a job taken back by reclaim is popped at once',
+      () async {
+        final q = queue(retryAfter: const Duration(seconds: 90));
+        final other = queue(retryAfter: const Duration(seconds: 90));
+        await q.push(JobPayload.forJob(const Ping()), queue: 'default');
+        final held = (await other.pop('default'))!;
+        // The job was pushed well before the cursor is set: its
+        // available_at is outside the window below the cursor.
+        now = now.add(const Duration(seconds: 20));
+        await foreign(300);
+        expect(await q.pop('default'), isNull);
+        now = now.add(const Duration(seconds: 2));
+        expect(await other.reclaim('default', held.id), isTrue);
+        final job = await q.pop('default');
+        expect(job?.id, held.id, reason: 'not after retry_after');
+      },
+    );
+
+    test('ids that are not integers: no cursor, no id filter; the job is '
+        'popped', () async {
+      const uuidTable = 'rq2_jobs_uuid';
+      final schema = await freshSchema(db, [uuidTable]);
+      await schema.create(uuidTable, (t) {
+        // A real uuid column on PostgreSQL, where `id > 0` is refused.
+        t.uuid('id').primary();
+        t.string('queue').index();
+        t.longText('payload');
+        t.tinyInteger('attempts').unsigned();
+        t.unsignedInteger('reserved_at').nullable();
+        t.unsignedInteger('available_at');
+        t.unsignedInteger('created_at');
+      });
+      final at = now.millisecondsSinceEpoch ~/ 1000;
+      final raw = laravelPayloads().first;
+      await db.table(uuidTable).insert([
+        for (var i = 0; i < 20; i++)
+          {
+            'id': '00000000-0000-4000-8000-${'$i'.padLeft(12, '0')}',
+            'queue': 'default',
+            'payload': raw,
+            'attempts': 0,
+            'available_at': at,
+            'created_at': at,
+          },
+        {
+          'id': 'ffffffff-0000-4000-8000-000000000001',
+          'queue': 'default',
+          'payload': JobPayload.forJob(const Ping()).encode(),
+          'attempts': 0,
+          'available_at': at,
+          'created_at': at,
+        },
+      ]);
+      final q = DatabaseQueue(
+        db,
+        table: uuidTable,
+        clock: () => now,
+        isKnownJob: (name) => name == 'ping',
+      );
+      final job = await q.pop('default');
+      expect(
+        '${job?.id}'.toLowerCase(),
+        'ffffffff-0000-4000-8000-000000000001',
+      );
+      await q.delete(job!);
+      expect(await q.pop('default'), isNull);
+      await schema.dropIfExists(uuidTable);
     });
   });
 
@@ -419,6 +536,45 @@ void databaseQueueRq2Tests(DatabaseOpener open) {
         },
       );
     }
+
+    test(
+      'two reservations at 255 attempts: the second failure finds the '
+      "uuid in failed_jobs and is not this worker's (no throw, no hook)",
+      () async {
+        Fails.hooks = 0;
+        final q = queue();
+        final failed = DatabaseFailedJobProvider(db, table: failedTable);
+        await q.push(JobPayload.forJob(const Fails()), queue: 'default');
+        await db.table(table).update({'attempts': 254});
+        final a = (await q.pop('default'))!;
+        expect(a.attempts, 255);
+        expect(a.attemptsExhausted, isFalse);
+        now = now.add(const Duration(seconds: 11));
+        final b = (await q.pop('default'))!;
+        expect(b.attemptsExhausted, isTrue);
+        expect(b.attempts, 255, reason: 'the same token as A: (id, 255)');
+        await processor(failed).process(q, b);
+        await processor(failed).process(q, a);
+        expect(await db.table(failedTable).count(), 1);
+        expect(
+          Fails.hooks,
+          1,
+          reason: "once, B's (MaxAttemptsExceeded); A was not the owner",
+        );
+        expect(await rows(), 0);
+      },
+    );
+
+    test('a record refused for its uuid on another connection: not this '
+        "worker's, no throw, no hook, the row stays", () async {
+      Fails.hooks = 0;
+      final q = queue();
+      await q.push(JobPayload.forJob(const Fails()), queue: 'default');
+      final job = (await q.pop('default'))!;
+      await processor(_RecordedElsewhere()).process(q, job);
+      expect(Fails.hooks, 0);
+      expect(await rows(), 1, reason: 'left to whoever recorded it');
+    });
   });
 
   group('attempts at 255', () {
