@@ -487,7 +487,7 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
     await flush();
     var total = 0;
     while (true) {
-      final deleted = await Zone.root.run(() => _trim(limit: 1000));
+      final deleted = await _outside(() => _trim(limit: 1000));
       total += deleted;
       if (deleted == 0) {
         return total;
@@ -504,6 +504,13 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
     await flush();
     _closed = true;
   }
+
+  /// [body] in the root zone, outside the caller's transaction, with its
+  /// result or error handed back in the caller's zone. A future failing in
+  /// the root zone never reaches a listener in a request's error zone: its
+  /// error would be uncaught there, and the request would wait for ever.
+  static Future<T> _outside<T>(Future<T> Function() body) =>
+      Zone.root.run(() => SharedResult(body)).value;
 
   void _dropped(HorizonStoreDrop reason, int count, [Object? error]) {
     appMetrics?.registry
@@ -606,13 +613,13 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
   }
 
   @override
-  Future<void> monitor(String tag) => Zone.root.run(() async {
+  Future<void> monitor(String tag) => _outside(() async {
     // Two dashboards may monitor the same tag at once.
     await _table('horizon_monitored_tags').insertOrIgnore({'tag': fit(tag)});
   });
 
   @override
-  Future<void> unmonitor(String tag) => Zone.root.run(() async {
+  Future<void> unmonitor(String tag) => _outside(() async {
     await _table('horizon_monitored_tags').where('tag', fit(tag)).delete();
     await _table('horizon_job_tags').where('tag', fit(tag)).delete();
   });
@@ -643,7 +650,7 @@ final class DatabaseHorizonStore implements BufferedHorizonStore {
   ];
 
   @override
-  Future<void> snapshot() => Zone.root.run(() async {
+  Future<void> snapshot() => _outside(() async {
     final now = _now;
     final last = await _table('horizon_snapshots').max('taken_at');
     final since = last == null

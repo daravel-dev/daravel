@@ -12,21 +12,33 @@ import 'store/horizon_store.dart';
 /// The dashboard's JSON API (Blueprint #134 §3.7), under `HORIZON_PATH`
 /// with Laravel Horizon's route names (`horizon.*`).
 ///
-/// Outside `APP_ENV=local` and `testing` every endpoint answers 403 until
-/// `withHorizon(middleware:)` protects it, and 404 with
-/// `HORIZON_ENABLED=false`. Payloads, contexts and traces are returned as
+/// Every request is authorized after the route middleware, as Laravel
+/// Horizon's `Authenticate` middleware does: `APP_ENV=local` passes;
+/// otherwise the [auth] callback decides, or without one the
+/// `viewHorizon` gate; anything else is a 403. Middleware is never taken
+/// as authorization. With `HORIZON_ENABLED=false` every endpoint is a
+/// 404. Payloads, contexts and traces are returned as
 /// JSON strings, for the page to show as text.
 abstract final class HorizonDashboard {
+  static FutureOr<bool> Function(Request request)? _authUsing;
+
+  /// Who may see the dashboard (Laravel's `Horizon::auth`); null forgets
+  /// it.
+  static void auth(FutureOr<bool> Function(Request request)? callback) =>
+      _authUsing = callback;
+
   /// Registers the API under [path] behind [middleware].
   static void routes(
     Router router, {
     required String path,
     List<Object> middleware = const [],
   }) {
-    final protected = middleware.isNotEmpty;
     Future<Response> guard(FutureOr<Object?> Function(Request r) body) =>
-        _guard(protected, body);
-    final api = '$path/api';
+        _guard(body);
+    // The prefix of every URL below path: '' at the root, so that
+    // nothing (route, link or fetch) starts with //.
+    final prefix = path == '/' ? '' : path;
+    final api = '$prefix/api';
     router.group((r) {
       r
         ..get(
@@ -111,11 +123,11 @@ abstract final class HorizonDashboard {
         ).name('horizon.jobs.show')
         ..get(
           path,
-          (Request q) => guard((r) => _page(path, 'dashboard')),
+          (Request q) => guard((r) => _page(prefix, 'dashboard')),
         ).name('horizon.index')
         ..get(
-          '$path/{view}',
-          (Request q) => guard((r) => _page(path, r.param<String>('view'))),
+          '$prefix/{view}',
+          (Request q) => guard((r) => _page(prefix, r.param<String>('view'))),
         ).name('horizon.view');
     }, middleware: middleware);
   }
@@ -153,25 +165,46 @@ abstract final class HorizonDashboard {
   }
 
   static Future<Response> _guard(
-    bool protected,
     FutureOr<Object?> Function(Request request) body,
   ) async {
     if (!_config.enabled) {
       throw NotFoundHttpException();
     }
-    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
-    if (!protected && !app.isLocal && !app.isTesting) {
-      return Response.json({
-        'message':
-            'Horizon needs middleware outside local: '
-            "withHorizon(middleware: ['auth', 'can:viewHorizon']).",
-      }, status: 403);
+    final request = Container.current.make<Request>();
+    if (!await _authorized(request)) {
+      throw const ForbiddenHttpException(
+        'Horizon is closed outside local: with sessions, sign in as a user '
+        'the viewHorizon gate allows; without, HorizonDashboard.auth '
+        'decides.',
+      );
     }
-    final result = await body(Container.current.make<Request>());
+    final result = await body(request);
     return switch (result) {
       final Response response => response,
       _ => Response.json(result, headers: const {'cache-control': 'no-store'}),
     };
+  }
+
+  /// Whether [request] may use the dashboard. A callback or a gate that
+  /// throws denies it, logged.
+  static Future<bool> _authorized(Request request) async {
+    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
+    if (app.isLocal) {
+      return true;
+    }
+    try {
+      if (_authUsing case final callback?) {
+        return await callback(request);
+      }
+      return Gate.has('viewHorizon') && await Gate.allows('viewHorizon');
+    } on Object catch (e, stack) {
+      Container.current.make<Logger>().error(
+        'Horizon dashboard authorization failed; the request is denied.',
+        error: e,
+        stackTrace: stack,
+      );
+      return false;
+    }
   }
 
   /// [read] from the store, or null when it fails.
@@ -282,10 +315,9 @@ abstract final class HorizonDashboard {
         }
         final rates = await _call('rates', (s) => s.rates(queue.value));
         final avg = (rates?['avg_ms'] as num?)?.toDouble();
-        final processes = workers.where((w) {
-          final queues = (w as Map?)?['queues'];
-          return queues is List && queues.contains(queue.value);
-        }).length;
+        final processes = workers
+            .where((w) => _queuesOf(w).contains(queue.value))
+            .length;
         loads.add({
           'name': queue.value,
           'connection': connection,
@@ -302,6 +334,15 @@ abstract final class HorizonDashboard {
     }
     return loads;
   }
+
+  /// The queues of a worker in a master's status: the comma-separated
+  /// list it was assigned ([HorizonMaster.status]), or a list.
+  static Iterable<String> _queuesOf(Object? worker) =>
+      switch ((worker as Map?)?['queues']) {
+        final String queues => queues.split(',').map((q) => q.trim()),
+        final List<Object?> queues => queues.whereType<String>(),
+        _ => const <String>[],
+      };
 
   static Future<Object?> _stats(Request request) async =>
       (await _snapshot()).stats;
@@ -369,13 +410,31 @@ abstract final class HorizonDashboard {
     if (tag is! String || tag.trim().isEmpty) {
       return Response.json({'message': 'A tag is required.'}, status: 422);
     }
-    await _call('monitor', (s) => s.monitor(tag.trim()));
-    return Response.noContent();
+    return _change('monitor', (s) => s.monitor(tag.trim()));
   }
 
-  static Future<Object?> _unmonitor(Request request) async {
-    await _call('unmonitor', (s) => s.unmonitor(request.param<String>('tag')));
-    return Response.noContent();
+  static Future<Object?> _unmonitor(Request request) =>
+      _change('unmonitor', (s) => s.unmonitor(request.param<String>('tag')));
+
+  /// [change] on the store: 204, or a 500 when the store fails, logged.
+  /// Unlike a read, a change that did not happen is never an empty answer.
+  static Future<Response> _change(
+    String op,
+    Future<void> Function(HorizonStore store) change,
+  ) async {
+    try {
+      await change(horizonStoreOf(Container.current));
+      return Response.noContent();
+    } on Object catch (error, stackTrace) {
+      Container.current.make<Logger>().error(
+        'Horizon dashboard: [$op] failed.',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return Response.json({
+        'message': 'The Horizon store could not $op the tag.',
+      }, status: 500);
+    }
   }
 
   static Future<Object?> _tagged(Request request) async => {
@@ -417,8 +476,12 @@ abstract final class HorizonDashboard {
     return offset < 0 ? 0 : offset;
   }
 
+  /// The pending jobs of every plan queue, one list in plan and queue
+  /// order, paged by `limit` and `starting_at` over the whole list.
   static Future<Object?> _pending(Request request) async {
     final jobs = <Object?>[];
+    var skip = _offset(request);
+    var need = _limit(request);
     for (final plan in _config.plans) {
       final connection = plan.connection ?? _queues.config.defaultConnection;
       final driver = _queues.connection(connection);
@@ -426,15 +489,56 @@ abstract final class HorizonDashboard {
         continue;
       }
       for (final queue in plan.queues) {
-        for (final job in await driver.pending(
+        if (need == 0) {
+          return {'jobs': jobs};
+        }
+        final page = await driver.pending(
           queue.value,
-          limit: _limit(request),
-        )) {
-          jobs.add({...job.toJson(), 'connection': connection});
+          limit: need,
+          offset: skip,
+        );
+        if (page.isEmpty) {
+          // The whole queue lies before starting_at: skip past it.
+          if (skip > 0) {
+            skip -= await _pendingCount(driver, queue.value, skip);
+          }
+          continue;
+        }
+        skip = 0;
+        need -= page.length;
+        for (final job in page) {
+          jobs.add({
+            ...job.toJson(),
+            'payload': _shown(job.payload),
+            'connection': connection,
+          });
         }
       }
     }
     return {'jobs': jobs};
+  }
+
+  /// How many jobs [queue] has pending, knowing it has at most [atMost]:
+  /// by bisection on one-job pages, so a large `starting_at` never reads
+  /// more than one job a query.
+  static Future<int> _pendingCount(
+    BrowsableQueueDriver driver,
+    String queue,
+    int atMost,
+  ) async {
+    // Invariant: index lo - 1 holds a job (or lo is 0); index hi holds
+    // none.
+    var lo = 0;
+    var hi = atMost;
+    while (lo < hi) {
+      final mid = (lo + hi) ~/ 2;
+      if ((await driver.pending(queue, limit: 1, offset: mid)).isEmpty) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
   }
 
   static Future<Object?> _recent(Request request, String status) async => {
@@ -450,6 +554,41 @@ abstract final class HorizonDashboard {
         const <Object?>[],
   };
 
+  /// The keys under which a payload carries the dispatching Context:
+  /// Daravel's, and Laravel's for a job pushed by a Laravel application
+  /// on the same table.
+  static const List<String> _contextKeys = [
+    'context',
+    'illuminate:log:context',
+  ];
+
+  /// [payload] as the dashboard shows it: without the hidden Context
+  /// (`Context.addHidden`, which never reaches the logs either), and the
+  /// rest redacted as a log context is (`LOG_REDACT`). Laravel Horizon's
+  /// API returns the hidden Context with the payload; this one does not.
+  /// A payload that is not a JSON object is shown as stored.
+  static String _shown(String payload) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } on FormatException {
+      return payload;
+    }
+    if (decoded is! Map<String, Object?>) {
+      return payload;
+    }
+    final visible = <String, Object?>{
+      for (final MapEntry(:key, :value) in decoded.entries)
+        key: _contextKeys.contains(key) && value is Map<String, Object?>
+            ? {
+                for (final entry in value.entries)
+                  if (entry.key != 'hidden') entry.key: entry.value,
+              }
+            : value,
+    };
+    return jsonEncode(Container.current.make<Logger>().redact(visible));
+  }
+
   static Future<Object?> _failedJob(Request request) async {
     final uuid = request.param<String>('uuid');
     final recorded = (await _call('job', (s) => s.job(uuid)))?.toJson();
@@ -463,7 +602,7 @@ abstract final class HorizonDashboard {
         'id': '${failed.id}',
         'connection': failed.connection,
         'queue': failed.queue,
-        'payload': failed.payload,
+        'payload': _shown(failed.payload),
         'exception': failed.exception,
         'failed_at': failed.failedAt.toUtc().toIso8601String(),
       },

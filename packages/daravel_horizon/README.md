@@ -44,20 +44,50 @@ take-back, not from when it was first pushed.
 
 ## Dashboard API
 
-`withHorizon(createApp: createApp, middleware: ['auth', 'can:viewHorizon'])`
-serves the dashboard's JSON API under `HORIZON_PATH` (`/horizon/api/...`)
-with Laravel Horizon's route names: stats, workload, masters, monitored tags,
-job and queue metrics, pending, completed, silenced and failed jobs, retry and
+`withHorizon(createApp: createApp)` serves the dashboard's JSON API under
+`HORIZON_PATH` (`/horizon/api/...`) with Laravel Horizon's route names:
+stats, workload, masters, monitored tags, job and queue metrics, pending, completed, silenced and failed jobs, retry and
 retry-all, and `/horizon/api/stream` (server-sent stats and workload every
 second). Retry-all (a Daravel addition: Laravel Horizon retries one job at a
 time) pushes back at most 1 000 failed jobs or 10 seconds' worth per request
 and answers how many `remaining`; the dashboard calls again with the `after`
 and `up_to` it got until none are. A retry-all already running answers 409,
 and a job whose payload cannot be read stays in `failed_jobs`, listed under
-`skipped`. Outside `APP_ENV=local` and `testing` it answers 403 until the
-middleware protects it. Metric snapshots are taken by the running Horizon:
+`skipped`. Metric snapshots are taken by the running Horizon:
 `dartisan horizon:snapshot` only asks it to, so schedule it every five
 minutes.
+
+### Who may open it
+
+As in Laravel Horizon, every request is authorized after its middleware, and
+middleware alone never opens the dashboard:
+
+- `APP_ENV=local`: open;
+- otherwise `HorizonDashboard.auth(callback)` decides when it is set;
+- otherwise the `viewHorizon` gate; without one, 403.
+
+A callback or gate that throws denies the request, and the error is logged.
+Without `middleware:`, the dashboard sits behind the `web` group when the
+application has one (`withSession()`), so the gate sees the signed-in user:
+
+```dart
+gate.define('viewHorizon', (user, _) => user?.authIdentifier == 1);
+```
+
+Without sessions there is no user; decide per request instead, for example
+on a secret header a proxy adds:
+
+```dart
+HorizonDashboard.auth(
+  (request) =>
+      constantTimeEquals(request.header('x-horizon-key') ?? '', horizonKey),
+);
+```
+
+`middleware: ['web', 'auth']` sends guests to the login page instead of a
+403; a `middleware:` entry the application does not register stops the boot.
+Behind the `web` group, a POST or DELETE without the XSRF token (retry,
+monitoring) answers 419 before the gate is asked, as in Laravel.
 
 ## Store
 

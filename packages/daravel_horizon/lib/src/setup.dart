@@ -23,9 +23,13 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
   /// passed to `Application.serveWith`): each worker isolate builds its
   /// application with it, and Dart cannot find it by itself.
   ///
-  /// The dashboard's API is served at `HORIZON_PATH` (`/horizon`) behind
-  /// [middleware]; outside `APP_ENV=local` and `testing` it answers 403
-  /// until [middleware] protects it (`['auth', 'can:viewHorizon']`).
+  /// The dashboard is served at `HORIZON_PATH` (`/horizon`) behind
+  /// [middleware]; without it, behind the `web` group when the
+  /// application registers one (`withSession()`, Laravel Horizon's
+  /// default), else behind nothing. Middleware only brings the session
+  /// and the user: outside `APP_ENV=local` every request needs the
+  /// `viewHorizon` gate, or [HorizonDashboard.auth], to allow it. A
+  /// [middleware] entry the application does not register stops the boot.
   ApplicationBuilder withHorizon({
     required ApplicationFactory createApp,
     List<SupervisorPlan> plans = const [
@@ -33,7 +37,7 @@ extension HorizonApplicationBuilder on ApplicationBuilder {
     ],
     Map<String, List<SupervisorPlan>> environments = const {},
     Map<String, Duration>? waits,
-    List<Object> middleware = const [],
+    List<Object>? middleware,
   }) =>
       withConfig<HorizonConfig>(
             (env) => HorizonConfig.fromEnv(
@@ -95,9 +99,10 @@ HorizonStore _storeFor(Container c) {
 
 /// Registers the dashboard's routes at boot, where `HORIZON_PATH` is known.
 final class _HorizonRoutes extends ServiceProvider {
-  _HorizonRoutes(this.middleware);
+  _HorizonRoutes(this.given);
 
-  final List<Object> middleware;
+  /// `withHorizon(middleware:)`; null for the default.
+  final List<Object>? given;
 
   @override
   void boot(Container container) {
@@ -105,6 +110,26 @@ final class _HorizonRoutes extends ServiceProvider {
     // without withRedis()) stops the boot with its ConfigException, rather
     // than leaving the dashboard empty or failing at the first job.
     container.make<HorizonStore>();
+    final registry = container.make<MiddlewareRegistry>();
+    final List<Object> middleware;
+    if (given case final explicit?) {
+      try {
+        registry.resolveAll(explicit);
+      } on StateError catch (e) {
+        throw ConfigException(
+          'withHorizon(middleware: $explicit) names middleware this '
+          'application does not register (${e.message}). The web group '
+          'comes with withSession() (daravel_session); without sessions, '
+          'leave middleware out and authorize with '
+          'HorizonDashboard.auth((request) => ...).',
+        );
+      }
+      middleware = explicit;
+    } else {
+      // The session and its user when the application has them; the gate
+      // decides either way, so no session only means no user.
+      middleware = registry.groups.contains('web') ? const ['web'] : const [];
+    }
     final configured = container
         .make<ConfigRepository>()
         .section<HorizonConfig>()

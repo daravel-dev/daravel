@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -21,6 +22,29 @@ void main() {
       read('test/support/store_contract.dart'),
       read('../daravel_horizon/test/support/store_contract.dart'),
     );
+  });
+
+  // No server: the error must come back to the caller (the dashboard's
+  // request), not end the process from the root zone where the store
+  // works.
+  test('monitor, unmonitor and snapshot on an unreachable server throw in '
+      "the caller's zone", () async {
+    final store = RedisHorizonStore(
+      RedisClient(RedisConnectionConfig.fromUrl('redis://127.0.0.1:1')),
+      flushEvery: const Duration(hours: 1),
+    );
+    addTearDown(store.close);
+    for (final (name, call) in <(String, Future<void> Function())>[
+      ('monitor', () => store.monitor('billing')),
+      ('unmonitor', () => store.unmonitor('billing')),
+      ('snapshot', store.snapshot),
+    ]) {
+      await expectLater(
+        call().timeout(const Duration(seconds: 10)),
+        throwsA(isNot(isA<TimeoutException>())),
+        reason: name,
+      );
+    }
   });
 
   final url = Platform.environment['DARAVEL_TEST_REDIS'];
@@ -189,6 +213,19 @@ void main() {
     // x: failed once and completed once, each counted.
     expect(summary['jobs_per_minute'], 10 * (99 + 99 + 2));
     expect(summary['failed_past_week'], 10);
+  });
+
+  test('a page of more jobs than a connection holds commands for at once '
+      '(1 024) is read in batches', () async {
+    Clock.travelTo(start);
+    final store = make();
+    for (var i = 0; i < 1200; i++) {
+      await store.record(job('c$i', later: i));
+    }
+    await store.flush();
+    final page = await store.recent('completed', limit: 1200);
+    expect(page, hasLength(1200));
+    expect(page.first.uuid, 'c1199', reason: 'newest first');
   });
 
   test('a job trimmed off every list loses its hash; one still listed '

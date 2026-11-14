@@ -10,7 +10,8 @@
 /// ```
 library;
 
-export 'src/cells.dart' show ExcelDate, NumberFormat, columnIndex, columnLetter;
+export 'src/cells.dart'
+    show ExcelDate, NumberFormat, columnIndex, columnLetter, maxColumns;
 export 'src/concerns.dart';
 export 'src/csv.dart' show CsvSettings, escapeCsvFormula;
 export 'src/excel.dart';

@@ -349,13 +349,12 @@ dependency_overrides:
         read('pubspec.yaml'),
         contains('  daravel_horizon: ^$daravelVersion'),
       );
-      expect(
-        read('bootstrap/app.dart'),
-        contains(
-          ".withHorizon(createApp: createApp, middleware: ['auth', "
-          "'can:viewHorizon'])",
-        ),
-      );
+      final app = read('bootstrap/app.dart');
+      // One form for every project: the middleware follows the
+      // application (its web group when it has sessions), and the gate or
+      // HorizonDashboard.auth decides outside local.
+      expect(app, contains('.withHorizon(createApp: createApp)'));
+      expect(app, isNot(contains('can:viewHorizon')));
       final commands = read('bootstrap/commands.dart');
       expect(commands, contains('...horizonCommands,'));
       expect(
@@ -366,6 +365,9 @@ dependency_overrides:
       expect(env, contains('# HORIZON_PATH=/horizon'));
       expect(env, contains('# HORIZON_KILL_GRACE=10'));
       expect(output, contains("gate.define('viewHorizon'"));
+      expect(output, contains('HorizonDashboard.auth((request) =>'));
+      expect(output, contains('constantTimeEquals('));
+      expect(output, isNot(contains('=> true')));
       expect(output, contains("schedule.command('horizon:snapshot')"));
     });
 

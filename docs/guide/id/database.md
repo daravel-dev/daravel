@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:939c7efd1d21 -->
+<!-- source: database.md sha256:1a4fc6c4856b -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -35,6 +35,15 @@ Samakan dengan aplikasi Laravel yang memakai database yang sama.
 `DB_ISOLATION_LEVEL` mengatur isolation level transaksi, dan
 `MySqlDriver(initCommands: [...], onConnectionOpen: ...)` menjalankan
 perintah lain pada setiap koneksi baru.
+
+Pengaturan yang dipasang Daravel pada koneksi (`sql_mode`, isolation
+level, timeout statement dan lock, `search_path`) dipasang sekali saat pool
+membuka koneksi itu, sama untuk setiap request yang meminjamnya. `SET` yang
+dijalankan aplikasi sendiri tetap menempel pada koneksi pool itu, dan pool
+tidak me-reset koneksi saat dikembalikan: request berikutnya yang
+meminjamnya mendapat nilai tersebut. Batasi ke transaksi (`SET LOCAL` di
+PostgreSQL di dalam `DB.transaction`), atau, di MySQL, pasang di setiap
+koneksi dengan `initCommands` atau `onConnectionOpen`.
 
 ## Driver dan koneksi
 
@@ -135,7 +144,8 @@ dan MySQL/MariaDB, dengan nama-nama libpq:
 | `require` (MySQL: `REQUIRED`, `PREFERRED`) | TLS, sertifikat tidak diperiksa | TLS, sertifikat tidak diperiksa, kecuali CA diberikan |
 | `verify-full`, `verify-ca` (MySQL: `VERIFY_IDENTITY`, `VERIFY_CA`) | TLS, sertifikat dan nama host diperiksa (`verify-ca` juga, dengan peringatan saat boot) | TLS, sertifikat dan nama host diperiksa |
 | tidak diisi | tanpa TLS | tanpa TLS; dengan CA, seperti `verify-full` |
-| nilai lain | berawalan `verify`: seperti `verify-full`; selain itu tanpa TLS (termasuk `prefer` dan `allow`); keduanya dengan peringatan saat boot | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
+| `prefer`, `allow` | tanpa TLS, dengan peringatan saat boot | seperti `require` |
+| nilai lain | ditolak, dengan menyebut keenam mode (`required` dulu berarti tanpa TLS): saat boot untuk koneksi default, saat pertama dipakai untuk koneksi lain | berawalan `verify`: seperti `verify-full`; selain itu seperti `require`; keduanya dengan peringatan saat boot |
 
 Mode dibaca tanpa membedakan huruf besar/kecil, dengan `-` atau `_` (`REQUIRE`, `verify_full`).
 
@@ -143,6 +153,16 @@ Mode dibaca tanpa membedakan huruf besar/kecil, dengan `-` atau `_` (`REQUIRE`, 
 aktif: siapa pun di antara aplikasi dan server bisa menyodorkan
 sertifikatnya sendiri lalu membaca password dan data. Pakai `verify-full`
 di produksi.
+
+PostgreSQL mengambil CA yang menandatangani sertifikat server dari
+`DB_SSLROOTCERT` (`?sslrootcert=` di `DB_URL`), serta sertifikat client dari
+`DB_SSLCERT` dengan key-nya di `DB_SSLKEY`, nama yang diteruskan
+`PostgresConnector` Laravel ke libpq; file yang tidak bisa dibaca membuat
+koneksi gagal dengan error yang menyebut nama pengaturannya. `require`
+bersama `DB_SSLROOTCERT` ditolak: libpq memeriksa rantai sertifikat untuk
+pasangan itu (seperti `verify-ca`), dan driver ini tidak bisa memeriksanya
+tanpa nama host. Pakai `verify-full` untuk memeriksa sertifikat, atau hapus
+`DB_SSLROOTCERT` untuk mengenkripsi tanpa pemeriksaan.
 
 MySQL dan MariaDB mengambil CA yang menandatangani sertifikat server dari
 `DB_SSLROOTCERT`, atau dari `MYSQL_ATTR_SSL_CA`, nama di
@@ -260,12 +280,15 @@ koneksi kedua ke server.
 | `client` | `KILL QUERY` lewat koneksi kedua, seperti sebelumnya | Untuk user database yang tidak boleh `SET SESSION` variabel ini; driver juga kembali ke mode ini, dengan satu peringatan, bila server menolak |
 
 Di dalam transaksi hanya server yang membatasi statement: timeout di sisi
-client akan membuat `ROLLBACK` mengantre di belakangnya. Jadi di MySQL (bukan
-MariaDB) statement tulis di dalam transaksi tidak dibatasi apa pun dalam
-mode `server`: server hanya menghentikan `SELECT`, dan di dalam transaksi
-tidak ada backstop client, padahal mode lama `client` menghentikannya
-dengan `KILL QUERY`. Andalkan `innodb_lock_wait_timeout` di sana, atau
-pakai `client`. Atur mode di opsi
+client akan membuat `ROLLBACK` mengantre di belakangnya. MySQL hanya
+menghentikan `SELECT`, jadi setiap koneksi juga memasang
+`innodb_lock_wait_timeout` sebesar `DB_QUERY_TIMEOUT` (detik bulat, minimal
+1; default server 50 detik): statement tulis yang menunggu lock baris
+berakhir dengan error 1205, yang diulang `transaction(attempts:)` sesudah
+seluruh percobaan di-rollback. Statement tulis yang lama berjalan tanpa
+menunggu lock tetap tidak dibatasi apa pun dalam mode `server`; pakai
+`client` untuk itu. Entri `initCommands` yang memasang
+`innodb_lock_wait_timeout` sendiri yang berlaku. Atur mode di opsi
 koneksi (`statement_timeout_mode`) atau dengan
 `MySqlDriver(statementTimeoutMode:)`.
 

@@ -16,9 +16,24 @@ final class Mail extends Job {
   Future<void> handle(JobContext ctx) async {}
 }
 
+/// A job whose data holds a password, for the redaction of payloads.
+final class Signup extends Job {
+  const Signup();
+  @override
+  String get jobName => 'signup';
+  @override
+  Map<String, Object?> toJson() => const {
+    'email': 'ana@example.com',
+    'password': 'hunter2',
+  };
+  @override
+  Future<void> handle(JobContext ctx) async {}
+}
+
 /// [env] `BASE_PATH` is the test's own directory: the default signal
 /// store is a file cache under it, which test files running in parallel
 /// would otherwise share (a status written by one seen by another).
+/// `TEST_QUEUES` lists the supervisor's queues (`a` by default).
 Application dashboardApp([Map<String, String> env = const {}]) =>
     Application.configure(
           basePath: env['BASE_PATH'] ?? Directory.systemTemp.path,
@@ -35,10 +50,13 @@ Application dashboardApp([Map<String, String> env = const {}]) =>
         .withJobs([JobDefinition('mail', (_) => const Mail())])
         .withHorizon(
           createApp: dashboardApp,
-          plans: const [
+          plans: [
             SupervisorPlan(
-              name: SupervisorName('s'),
-              queues: [QueueName('a')],
+              name: const SupervisorName('s'),
+              queues: [
+                for (final queue in (env['TEST_QUEUES'] ?? 'a').split(','))
+                  QueueName(queue),
+              ],
               maxProcesses: 1,
             ),
           ],
@@ -59,7 +77,12 @@ void main() {
     client = TestClient(app);
   }
 
+  // Outside local the dashboard needs a gate or a callback, in tests too;
+  // the security tests below close it again.
+  setUp(() => HorizonDashboard.auth((Request request) => true));
+
   tearDown(() async {
+    HorizonDashboard.auth(null);
     await app.shutdown();
     base.deleteSync(recursive: true);
   });
@@ -189,6 +212,115 @@ void main() {
     expect(job['connection'], 'database');
   });
 
+  test('pending jobs page with starting_at across the queues', () async {
+    await boot({'TEST_QUEUES': 'a,b'});
+    await app.run(() async {
+      for (final queue in ['a', 'a', 'a', 'b', 'b']) {
+        await Queue.push(const Mail(), queue: queue);
+      }
+    });
+    Future<List<String>> page(String query) async => [
+      for (final job
+          in (await client.get('/horizon/api/jobs/pending?$query'))
+                  .jsonMap['jobs']!
+              as List<Object?>)
+        '${(job! as Map)['queue']}${(job as Map)['id']}',
+    ];
+    expect(await page(''), ['a1', 'a2', 'a3', 'b4', 'b5']);
+    expect(await page('starting_at=1&limit=2'), ['a2', 'a3']);
+    expect(await page('starting_at=2&limit=2'), ['a3', 'b4']);
+    expect(await page('starting_at=3'), ['b4', 'b5']);
+    expect(await page('starting_at=4'), ['b5']);
+    expect(await page('starting_at=5'), isEmpty);
+    expect(await page('starting_at=1000000000'), isEmpty);
+  });
+
+  test('workload: the processes on each queue and its wait, from the '
+      "master's status", () async {
+    await boot();
+    await app.run(() async {
+      await Queue.push(const Mail(), queue: 'a');
+      await Queue.push(const Mail(), queue: 'a');
+    });
+    for (var i = 0; i < 4; i++) {
+      await record('c$i', 'completed');
+    }
+    // The shape HorizonMaster.status() publishes: a worker's queues are
+    // the comma-separated list it was assigned.
+    final signals = app.container.make<QueueManager>().signalStore!;
+    await app.run(
+      () => signals.store.forever(
+        HorizonSignals.statusKey('horizon'),
+        jsonEncode({
+          'state': 'running',
+          'at': DateTime.now().millisecondsSinceEpoch,
+          'supervisors': {
+            's': [
+              {'name': 'w1', 'queues': 'a', 'processed': 4, 'busy': false},
+            ],
+          },
+        }),
+      ),
+    );
+    final workload =
+        (await client.get('/horizon/api/workload')).json! as List<Object?>;
+    final a = workload.single! as Map;
+    expect(a['name'], 'a');
+    expect(a['length'], 2);
+    expect(a['processes'], 1);
+    expect(a['wait'], isNotNull, reason: 'two jobs of 12 ms on one worker');
+  });
+
+  test('payloads leave without their hidden context, the rest redacted '
+      'as in the logs', () async {
+    await boot();
+    await app.run(() async {
+      Context.add('trace', 't-visible');
+      Context.addHidden('tenant_key', 'hidden-value');
+      await Queue.push(const Signup(), queue: 'a');
+      await App.make<QueueManager>().processor.failedJobs.log(
+        connection: 'database',
+        queue: 'a',
+        payload: JobPayload.forJob(const Signup(), uuid: 'd1').encode(),
+        exception: 'StateError: boom',
+      );
+      // A job Laravel pushed onto the shared table: its Context under
+      // Laravel's own key.
+      await App.make<QueueManager>().processor.failedJobs.log(
+        connection: 'database',
+        queue: 'a',
+        payload: jsonEncode({
+          'uuid': 'l1',
+          'displayName': r'App\Jobs\Signup',
+          'data': {'command': 'O:8:"stdClass":0:{}'},
+          'illuminate:log:context': {
+            'data': {'trace': 's:9:"t-visible";'},
+            'hidden': {'tenant_key': 's:12:"hidden-value";'},
+          },
+        }),
+        exception: 'StateError: boom',
+      );
+    });
+    final pending =
+        ((await client.get('/horizon/api/jobs/pending')).jsonMap['jobs']!
+                    as List<Object?>)
+                .single!
+            as Map;
+    for (final payload in [
+      pending['payload']! as String,
+      (await client.get('/horizon/api/jobs/failed/d1')).jsonMap['payload']!
+          as String,
+      (await client.get('/horizon/api/jobs/failed/l1')).jsonMap['payload']!
+          as String,
+    ]) {
+      expect(payload, isNot(contains('hidden-value')));
+      expect(payload, isNot(contains('tenant_key')));
+      expect(payload, isNot(contains('hunter2')));
+      expect(payload, contains('t-visible'), reason: 'visible context stays');
+      expect(jsonDecode(payload), isA<Map<String, Object?>>());
+    }
+  });
+
   test('a failed job: detail from failed_jobs, retry and retry-all', () async {
     await boot();
     final uuids = <String>[];
@@ -278,11 +410,12 @@ void main() {
     expect(response.body, contains('retry: '));
   });
 
-  test('outside local and testing, every endpoint needs middleware', () async {
+  test('outside local, every endpoint needs the gate', () async {
     await boot({
       'APP_ENV': 'production',
       'APP_KEY': 'base64:${base64.encode(List.filled(32, 7))}',
     });
+    HorizonDashboard.auth(null);
     for (final (method, path) in [
       ('GET', '/horizon/api/stats'),
       ('GET', '/horizon/api/jobs/failed'),
@@ -294,6 +427,24 @@ void main() {
       expect(response.status, 403, reason: '$method $path');
     }
   }, tags: ['security']);
+
+  test('HORIZON_PATH=/ serves the dashboard at the root, without double '
+      'slashes', () async {
+    await boot({'HORIZON_PATH': '/'});
+    final paths = [
+      for (final route in app.router.routes)
+        if (route.routeName?.startsWith('horizon.') ?? false) route.path,
+    ];
+    expect(paths, contains('/api/stats'));
+    expect(paths.where((p) => p.contains('//')), isEmpty);
+    (await client.get('/api/stats')).assertOk();
+    final page = await client.get('/');
+    page.assertOk();
+    expect(page.body, contains('data-base=""'));
+    expect(page.body, contains('href="/failed"'));
+    expect(page.body, isNot(contains('"//')));
+    (await client.get('/failed')).assertOk();
+  });
 
   test('HORIZON_ENABLED=false: 404', () async {
     await boot({'HORIZON_ENABLED': 'false'});
@@ -353,11 +504,12 @@ void main() {
     expect((await client.get('/horizon/nope')).status, 404);
   });
 
-  test('the page needs middleware outside local and testing too', () async {
+  test('the page needs the gate outside local too', () async {
     await boot({
       'APP_ENV': 'production',
       'APP_KEY': 'base64:${base64.encode(List.filled(32, 7))}',
     });
+    HorizonDashboard.auth(null);
     expect((await client.get('/horizon')).status, 403);
     expect((await client.get('/horizon/failed')).status, 403);
   }, tags: ['security']);

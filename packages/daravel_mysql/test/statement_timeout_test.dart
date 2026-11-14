@@ -1,4 +1,5 @@
 // #156: DB_QUERY_TIMEOUT enforced by the server.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -27,6 +28,17 @@ void main() {
           dialect: SqlDialect.mariadb,
         ),
         'SET SESSION max_statement_time = 1.5',
+      );
+    });
+
+    test('the lock wait statement rounds up to whole seconds, at least 1', () {
+      expect(
+        MySqlDriver.lockWaitStatement(const Duration(milliseconds: 1500)),
+        'SET SESSION innodb_lock_wait_timeout = 2',
+      );
+      expect(
+        MySqlDriver.lockWaitStatement(const Duration(milliseconds: 10)),
+        'SET SESSION innodb_lock_wait_timeout = 1',
       );
     });
 
@@ -193,5 +205,132 @@ void main() {
       expect(warnings, hasLength(1));
       expect(warnings.single, contains('enforced by the client'));
     });
+
+    // DB-1 (Reviewer RSEQ 49 #7): max_execution_time bounds only SELECT
+    // and the client backstop is off inside a transaction, so an UPDATE
+    // waiting for a row lock there waited for the server's 50 s.
+    test('an UPDATE waiting for a row lock inside a transaction ends within '
+        'the timeout, with the retryable 1205', () async {
+      final holder = driver();
+      final waiter = driver();
+      await holder.connect();
+      await waiter.connect();
+      addTearDown(holder.close);
+      addTearDown(waiter.close);
+      await holder.execute('DROP TABLE IF EXISTS db1_lock_wait');
+      await holder.execute(
+        'CREATE TABLE db1_lock_wait (id INT PRIMARY KEY, v INT) '
+        'ENGINE=InnoDB',
+      );
+      addTearDown(() => holder.execute('DROP TABLE IF EXISTS db1_lock_wait'));
+      await holder.execute('INSERT INTO db1_lock_wait VALUES (1, 0)');
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      final holding = holder.transaction<void>((tx) async {
+        await tx.execute('UPDATE db1_lock_wait SET v = 1 WHERE id = 1');
+        locked.complete();
+        await release.future;
+      });
+      await locked.future;
+      final watch = Stopwatch()..start();
+      Object? error;
+      try {
+        await waiter.transaction<void>(
+          (tx) => tx.execute('UPDATE db1_lock_wait SET v = 2 WHERE id = 1'),
+        );
+      } on Object catch (e) {
+        error = e;
+      } finally {
+        release.complete();
+        await holding;
+      }
+      expect(watch.elapsed, lessThan(const Duration(seconds: 4)));
+      expect(error, isNotNull);
+      expect(waiter.isRetryableError(error!), isTrue, reason: '$error');
+    }, timeout: const Timeout(Duration(seconds: 90)));
+
+    test('an initCommand that sets its own lock wait wins', () async {
+      final db = driver(
+        initCommands: ['SET SESSION innodb_lock_wait_timeout = 7'],
+      );
+      await db.connect();
+      addTearDown(db.close);
+      final rows = await db.select(
+        'SELECT @@SESSION.innodb_lock_wait_timeout AS t',
+      );
+      expect('${rows.first['t']}', '7');
+    });
+
+    test('transaction(attempts: 2) after a 1205 rolls the whole first attempt '
+        'back: its earlier statements are not applied twice', () async {
+      final holder = driver();
+      await holder.connect();
+      addTearDown(holder.close);
+      await holder.execute('DROP TABLE IF EXISTS db1_retry_lock');
+      await holder.execute('DROP TABLE IF EXISTS db1_retry_log');
+      await holder.execute(
+        'CREATE TABLE db1_retry_lock (id INT PRIMARY KEY, v INT) '
+        'ENGINE=InnoDB',
+      );
+      await holder.execute(
+        'CREATE TABLE db1_retry_log (attempt INT) ENGINE=InnoDB',
+      );
+      addTearDown(() async {
+        await holder.execute('DROP TABLE IF EXISTS db1_retry_lock');
+        await holder.execute('DROP TABLE IF EXISTS db1_retry_log');
+      });
+      await holder.execute('INSERT INTO db1_retry_lock VALUES (1, 0)');
+
+      final base = Directory.systemTemp.createTempSync('daravel_db1_retry');
+      addTearDown(() => base.deleteSync(recursive: true));
+      final app = Application.configure(basePath: base.path)
+          .withEnv({
+            'APP_ENV': 'testing',
+            'DB_CONNECTION': 'mysql',
+            'DB_HOST': uri.host,
+            'DB_PORT': '${uri.hasPort ? uri.port : 3306}',
+            'DB_DATABASE': uri.path.replaceFirst('/', ''),
+            'DB_USERNAME': user.first,
+            'DB_PASSWORD': user.length > 1 ? Uri.decodeComponent(user[1]) : '',
+            'DB_QUERY_TIMEOUT': '1',
+          })
+          .withLogLevel(LogLevel.critical)
+          .withDatabaseDriver('mysql', MySqlDriver.fromConfig)
+          .create();
+      await app.boot();
+      addTearDown(app.shutdown);
+
+      final locked = Completer<void>();
+      final release = Completer<void>();
+      final holding = holder.transaction<void>((tx) async {
+        await tx.execute('UPDATE db1_retry_lock SET v = 1 WHERE id = 1');
+        locked.complete();
+        await release.future;
+      });
+      await locked.future;
+      var attempt = 0;
+      try {
+        await app.run(
+          () => DB.transaction(() async {
+            attempt++;
+            await DB.table('db1_retry_log').insert({'attempt': attempt});
+            if (attempt == 1) {
+              // Waits for the held row lock: 1205 after about 1 s.
+              await DB.statement(
+                'UPDATE db1_retry_lock SET v = 2 WHERE id = 1',
+              );
+            }
+          }, attempts: 2),
+        );
+      } finally {
+        release.complete();
+        await holding;
+      }
+      expect(attempt, 2);
+      final rows = await holder.select(
+        'SELECT attempt FROM db1_retry_log ORDER BY attempt',
+      );
+      expect(rows.map((r) => '${r['attempt']}'), ['2']);
+    }, timeout: const Timeout(Duration(seconds: 90)));
   });
 }
