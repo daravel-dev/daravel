@@ -106,16 +106,23 @@ final class XenditGateway implements PaymentGateway {
         body: response.body,
       );
     }
-    final decoded = jsonDecode(response.body);
-    final Map<String, Object?> invoice;
-    if (decoded is List) {
-      if (decoded.isEmpty) {
-        throw PaymentGatewayException('Xendit has no invoice for $orderId.');
-      }
-      // The newest invoice for the order.
-      invoice = decoded.first as Map<String, Object?>;
-    } else {
-      invoice = decoded as Map<String, Object?>;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException {
+      decoded = null;
+    }
+    if (decoded is List && decoded.isEmpty) {
+      throw PaymentGatewayException('Xendit has no invoice for $orderId.');
+    }
+    // The newest invoice for the order, when a list.
+    final invoice = decoded is List ? decoded.first : decoded;
+    if (invoice is! Map<String, Object?>) {
+      throw PaymentGatewayException(
+        'Xendit status answered ${response.status} without an invoice.',
+        status: response.status,
+        body: response.body,
+      );
     }
     return _event(invoice, prefix: 'status:');
   }

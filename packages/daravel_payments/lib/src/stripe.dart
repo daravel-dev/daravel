@@ -106,7 +106,7 @@ final class StripeGateway implements PaymentGateway {
         body: response.body,
       );
     }
-    final session = jsonDecode(response.body) as Map<String, Object?>;
+    final session = apiObject(response, 'Stripe status');
     final status = switch ((session['status'], session['payment_status'])) {
       (_, 'paid' || 'no_payment_required') => PaymentStatus.paid,
       ('expired', _) => PaymentStatus.expired,

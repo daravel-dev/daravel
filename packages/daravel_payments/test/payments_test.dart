@@ -369,6 +369,19 @@ void main() {
     });
 
     test('expired, then paid after all; unknown orders are reported', () async {
+      // An expiry is confirmed with Midtrans' status API.
+      await app.run(() async {
+        Http.fake({
+          'api.sandbox.midtrans.com/*': Http.response({
+            'status_code': '407',
+            'transaction_status': 'expire',
+            'transaction_id': 'tx-1',
+            'order_id': 'ORDER-42',
+            'gross_amount': '150000.00',
+            'currency': 'IDR',
+          }),
+        });
+      });
       expect(
         await notify(midtransNotification(status: 'expire', statusCode: '202')),
         (200, '{"status":"applied"}'),
