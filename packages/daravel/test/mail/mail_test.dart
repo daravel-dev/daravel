@@ -262,6 +262,10 @@ void main() {
     var auth = 'PLAIN LOGIN';
     String? failOn;
     var silent = false;
+    // Held until tearDown: an unreferenced accepted socket can be closed by
+    // its finalizer, and the client then sees a reset (macOS CI) instead of
+    // a silent server.
+    final silentClients = <Socket>[];
 
     setUp(() async {
       received = [];
@@ -275,6 +279,7 @@ void main() {
         final buffer = StringBuffer();
         void reply(String line) => client.write('$line\r\n');
         if (silent) {
+          silentClients.add(client);
           return;
         }
         reply('220 fake.local ESMTP');
@@ -401,12 +406,51 @@ void main() {
     });
 
     test('a silent server times out', () async {
+      addTearDown(() {
+        for (final client in silentClients) {
+          client.destroy();
+        }
+        silentClients.clear();
+      });
       silent = true;
       await expectLater(
         SmtpTransport(config(timeout: const Duration(milliseconds: 300)))
             .send(message, mime),
         throwsA(isA<SmtpException>()),
       );
+    });
+
+    test('a server that resets the connection after the timeout leaves no '
+        'uncaught error behind the SmtpException', () async {
+      // The client's QUIT after the timeout meets a reset: its write error
+      // goes to the socket's done future, which must not escape.
+      final reset = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(reset.close);
+      reset.listen((client) {
+        // Silent, then gone abruptly once the client gives up.
+        Timer(const Duration(milliseconds: 400), client.destroy);
+      });
+      final uncaught = <Object>[];
+      final result = Completer<Object?>();
+      runZonedGuarded(() async {
+        try {
+          await SmtpTransport(
+            MailConfig(
+              mailer: 'smtp',
+              from: MailAddress('noreply@daravel.dev'),
+              port: reset.port,
+              timeout: const Duration(milliseconds: 300),
+            ),
+          ).send(message, mime);
+          result.complete(null);
+        } on Object catch (error) {
+          result.complete(error);
+        }
+      }, (error, _) => uncaught.add(error));
+      expect(await result.future, isA<SmtpException>());
+      // Past the server's reset and the client's QUIT.
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      expect(uncaught, isEmpty);
     });
 
     test('STARTTLS is required when MAIL_ENCRYPTION=tls', () async {

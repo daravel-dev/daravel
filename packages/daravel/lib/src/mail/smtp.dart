@@ -92,6 +92,12 @@ final class _SmtpSession {
   MailConfig get _config => _transport.config;
 
   void _listen() {
+    // A failed write (the server reset the connection; QUIT after a
+    // timeout) is reported on the socket's `done`, not on a write: nobody
+    // awaits it, so unhandled it became an uncaught error of the caller's
+    // zone (its request or job) after the send had already failed cleanly.
+    // The same error reaches onError below, which the reply path reports.
+    _socket.done.then<void>((_) {}, onError: (Object _) {});
     _subscription = _socket.listen(
       (bytes) {
         _buffer.write(latin1.decode(bytes));
