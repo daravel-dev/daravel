@@ -184,9 +184,16 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   @override
   String? get protocol => _inner.protocol;
 
+  /// The code the session closed with, from the first of:
+  /// 1. the client's close, as the server read it ([peerClosed]), even when
+  ///    the connection was destroyed afterwards;
+  /// 2. the code the server closed with after a violation (also through
+  ///    [peerClosed], when the client sent no valid close of its own);
+  /// 3. the socket's own, once it closed.
   @override
   int? get closeCode => _peerCloseCode ?? _inner.closeCode;
 
+  /// The reason that goes with [closeCode], from the same source.
   @override
   String? get closeReason =>
       _peerCloseCode != null ? _peerCloseReason : _inner.closeReason;

@@ -734,11 +734,11 @@ final class _GuardedResponse implements HttpResponse {
   Future<Socket> detachSocket({bool writeHeaders = true}) async {
     // The handshake's answer says whether compression was agreed to; no
     // frame has been read yet.
-    _guard._deflate =
-        _inner.headers
-            .value('sec-websocket-extensions')
-            ?.contains('permessage-deflate') ??
-        false;
+    // All its values, joined: a header given more than once is read, not
+    // refused.
+    _guard._deflate = (_inner.headers['sec-websocket-extensions'] ?? const [])
+        .join(',')
+        .contains('permessage-deflate');
     final socket = _GuardedSocket(
       await _inner.detachSocket(writeHeaders: writeHeaders),
       _guard,
