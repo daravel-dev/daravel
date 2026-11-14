@@ -744,7 +744,17 @@ final class ServerEngine {
     Response response,
     String id,
   ) async {
-    if (!WebSocketTransformer.isUpgradeRequest(httpRequest)) {
+    final ask = _upgradeAsk(httpRequest);
+    if (ask == _UpgradeAsk.malformed) {
+      logger.warning(
+        'WebSocket handshake refused for request $id: its headers do not '
+        'read as one handshake',
+        <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
+      );
+      await _refuseHandshake(httpRequest);
+      return null;
+    }
+    if (ask == _UpgradeAsk.none) {
       final refusal = Response.json(const <String, Object?>{
         'message': 'Upgrade Required',
       }, status: 426).withHeader('upgrade', 'websocket');
@@ -805,19 +815,55 @@ final class ServerEngine {
         guard.abort();
         return null;
       }
-      // The connection is still HTTP: answered and closed, not left to
-      // its idle timeout.
-      try {
-        httpRequest.response
-          ..statusCode = HttpStatus.badRequest
-          ..persistentConnection = false
-          ..headers.contentType = ContentType.text
-          ..write('Bad Request');
-        await httpRequest.response.close();
-      } on Object {
-        // Answered already, or gone: closed either way.
-      }
+      await _refuseHandshake(httpRequest);
       return null;
+    }
+  }
+
+  /// The headers of a WebSocket handshake.
+  static const List<String> _handshakeHeaders = [
+    'upgrade',
+    'sec-websocket-accept',
+    'sec-websocket-extensions',
+    'sec-websocket-protocol',
+  ];
+
+  /// Whether [httpRequest] asks for the WebSocket protocol, read without
+  /// throwing: a request whose handshake headers do not read as one (a
+  /// single-valued one given twice, such as `Sec-WebSocket-Key`) is
+  /// [_UpgradeAsk.malformed], answered 400 by [_upgrade] and taken as no
+  /// upgrade by the drain ([_handle]). `Connection`, `Sec-WebSocket-Protocol`
+  /// and `Sec-WebSocket-Extensions` may come as lists or repeated
+  /// (RFC 6455 §4.1), and that is not malformed.
+  static _UpgradeAsk _upgradeAsk(HttpRequest httpRequest) {
+    try {
+      return WebSocketTransformer.isUpgradeRequest(httpRequest)
+          ? _UpgradeAsk.upgrade
+          : _UpgradeAsk.none;
+    } on Object {
+      return _UpgradeAsk.malformed;
+    }
+  }
+
+  /// Answers a handshake that cannot be upgraded with 400 and closes the
+  /// connection, not left to its idle timeout: without any handshake
+  /// header the upgrade may have set already, so the client does not read
+  /// it as half an upgrade.
+  static Future<void> _refuseHandshake(HttpRequest httpRequest) async {
+    try {
+      final response = httpRequest.response;
+      for (final name in _handshakeHeaders) {
+        response.headers.removeAll(name);
+      }
+      response
+        ..statusCode = HttpStatus.badRequest
+        ..persistentConnection = false
+        ..headers.set(HttpHeaders.connectionHeader, 'close')
+        ..headers.contentType = ContentType.text
+        ..write('Bad Request');
+      await response.close();
+    } on Object {
+      // Answered already, or gone: closed either way.
     }
   }
 
@@ -1145,11 +1191,13 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
-    if (_stopping && !WebSocketTransformer.isUpgradeRequest(httpRequest)) {
+    if (_stopping && _upgradeAsk(httpRequest) != _UpgradeAsk.upgrade) {
       // Draining: the client opens a new connection for its next request
       // (to another isolate or server) instead of sending it on this one.
       // Not for an upgrade: its connection becomes the WebSocket, which the
-      // drain closes `goingAway` itself ([_upgrade]).
+      // drain closes `goingAway` itself ([_upgrade]). A handshake whose
+      // headers do not read as one counts as no upgrade (read without
+      // throwing: this runs in the server's own listener).
       httpRequest.response.persistentConnection = false;
     }
     if (_mustShed(httpRequest)) {
@@ -1313,4 +1361,16 @@ final class _DiscardedBody {
       _arrival.complete();
     }
   }
+}
+
+/// What a request asks of the WebSocket protocol ([ServerEngine]).
+enum _UpgradeAsk {
+  /// Not an upgrade.
+  none,
+
+  /// A WebSocket handshake.
+  upgrade,
+
+  /// A handshake whose headers do not read as one.
+  malformed,
 }
