@@ -431,9 +431,28 @@ void main() {
       for (var i = 0; i < 4000; i++) {
         burst.add(ping);
       }
-      client.socket.add(burst.takeBytes());
+      final bytes = burst.takeBytes();
+      // PINGs until the guard's queue overflows: how many that takes
+      // depends on how much the system's socket buffers take in first
+      // (more on Linux), so the client sends until the server says so.
+      bool overflowed() =>
+          log.records.any((r) => r.message.contains('read too slowly'));
+      for (var i = 0; i < 64 && !overflowed() && !client.ended; i++) {
+        try {
+          client.socket.add(bytes);
+          await client.socket.flush().timeout(const Duration(seconds: 1));
+        } on Object {
+          break; // the server stopped reading or destroyed the socket
+        }
+      }
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!overflowed() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(overflowed(), isTrue, reason: 'the queue overflowed');
+      // From the overflow, the session ends within the grace.
       final ms = await sessionEndsWithin(const Duration(seconds: 10));
-      printOnFailure('ended after $ms ms');
+      printOnFailure('ended $ms ms after the overflow');
       expect(engine.openWebSockets, 0);
       expect(ms, lessThan(2500));
       client.socket.destroy();
@@ -468,15 +487,23 @@ void main() {
       return frames;
     }
 
+    // Which close a session ends with depends on where the client's CLOSE
+    // is when the server holds TCP back: read already (it came in what the
+    // server read up to the bound), the client's code; not read (it came
+    // after), 1008. The client below decides which by its writes.
     for (final size in [65536, 70000]) {
       for (final route in ['never', 'loop']) {
-        test('$size bytes, then CLOSE(4000) and FIN, to /$route: the server '
-            'ends the session with 1008 after the unread wait', () async {
+        test('$size bytes, then (after the server held TCP back) CLOSE(4000) '
+            'and FIN, to /$route: the server ends the session with 1008 '
+            'after the unread wait', () async {
           final id = 'b-$route-$size';
           final client = await open('/$route?id=$id');
-          client
-            ..send(0x2, Uint8List(size))
-            ..send(0x8, const [0x0F, 0xA0]); // 4000
+          client.send(0x2, Uint8List(size));
+          await client.socket.flush();
+          // The server reads past its bound and holds TCP back: the CLOSE
+          // written now waits in TCP, unread.
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          client.send(0x8, const [0x0F, 0xA0]); // 4000
           await client.socket.flush();
           await client.socket.close();
           final ms = await sessionEndsWithin(const Duration(seconds: 9));
@@ -491,6 +518,30 @@ void main() {
           client.socket.destroy();
         });
       }
+    }
+
+    for (final route in ['never', 'loop']) {
+      test('60 000 bytes and CLOSE(4000) in one write, then FIN, to /$route: '
+          'the close is read before any hold, and the session ends with the '
+          "client's code after the unread wait", () async {
+        final id = 'b4000-$route';
+        final client = await open('/$route?id=$id');
+        client.socket.add([
+          ...RawWsClient.frame(0x2, Uint8List(60000)),
+          ...RawWsClient.frame(0x8, const [0x0F, 0xA0]),
+        ]);
+        await client.socket.flush();
+        await client.socket.close();
+        final ms = await sessionEndsWithin(const Duration(seconds: 9));
+        expect(engine.openWebSockets, 0, reason: 'the session ended');
+        expect(ms, lessThan(8000));
+        expect(seen[id], ['done:4000']);
+        expect(
+          log.records.where((r) => r.message.contains('did not read')),
+          isEmpty,
+        );
+        client.socket.destroy();
+      });
     }
 
     test('a listen at 4.9 s after it filled gets everything, in order, and '

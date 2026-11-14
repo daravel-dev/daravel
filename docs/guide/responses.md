@@ -441,7 +441,10 @@ after it did, the session ends, `socket.closeCode` is the client's code
 what is held is full and nothing has listened for 5 s, the server ends
 the session itself with `1008` and logs a warning with the path: a
 handler that never reads cannot keep a session, whatever the client
-sends. A `listen` after that gets just the end. Listen when you can, with
+sends. Which code it ends with depends on where the client's close was
+when the server held TCP back: within what it had read, the client's
+code; after it, still waiting in TCP, `1008`. A `listen` after that gets
+just the end. Listen when you can, with
 `socket.listen((_) {})` when the messages do not matter.
 
 Every frame the client sends is checked as it arrives, whether the

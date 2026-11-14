@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:f2db9959cb0e -->
+    r'''<!-- source: responses.md sha256:867b4288addf -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -462,8 +462,11 @@ client (1006 bila client pergi tanpa close), dan yang tertahan dibuang.
 Bila yang tertahan sudah penuh dan 5 detik belum ada yang mendengarkan,
 server sendiri mengakhiri sesi dengan `1008` dan mencatat peringatan
 beserta path-nya: handler yang tidak pernah membaca tidak bisa memegang
-sesi, apa pun yang dikirim client. `listen` sesudah itu hanya menerima
-akhirnya. Dengarkan bila bisa, dengan `socket.listen((_) {})` bila pesannya
+sesi, apa pun yang dikirim client. Kode penutupnya bergantung pada letak
+close client saat server menahan TCP: di dalam yang sudah dibaca, kode
+client; sesudahnya, masih menunggu di TCP, `1008`. `listen` sesudah itu
+hanya menerima akhirnya. Dengarkan bila bisa, dengan
+`socket.listen((_) {})` bila pesannya
 tidak penting.
 
 Setiap frame yang dikirim client diperiksa begitu tiba, entah handler
