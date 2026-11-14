@@ -595,6 +595,8 @@ final class NoSqlStringInterpolation extends LintRule {
     'orderByRaw',
     'groupByRaw',
     'fromRaw',
+    // Nothing is bound in DB.unprepared: a value in its SQL is never safe.
+    'unprepared',
     // Unresolved ASTs parse `RawExpression(...)` as an invocation.
     'RawExpression',
   };
@@ -1408,6 +1410,7 @@ final class UnawaitedInDbTransaction extends LintRule {
     'insertOrIgnore',
     'upsert',
     'statement',
+    'unprepared',
     'forceDelete',
     'restore',
     'touch',

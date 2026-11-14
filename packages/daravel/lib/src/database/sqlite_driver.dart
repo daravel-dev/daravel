@@ -20,7 +20,11 @@ import 'query_executor.dart';
 /// transactions begin with `BEGIN IMMEDIATE`, so one that reads and then
 /// writes never finds that another isolate wrote in between.
 final class SqliteDriver
-    implements DatabaseDriver, QueryErrors, RetryableErrors {
+    implements
+        DatabaseDriver,
+        QueryErrors,
+        RetryableErrors,
+        UnpreparedExecutor {
   /// SQLITE_CONSTRAINT_UNIQUE (2067) and SQLITE_CONSTRAINT_PRIMARYKEY
   /// (1555), as Laravel matches "UNIQUE constraint failed".
   @override
@@ -219,7 +223,10 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final result = _database.select(sql, _normalize(bindings));
+    final result = _oneStatement(
+      sql,
+      () => _database.select(sql, _normalize(bindings)),
+    );
     return <Map<String, Object?>>[
       for (final row in result) Map<String, Object?>.of(row),
     ];
@@ -233,8 +240,9 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final db = _database..execute(sql, _normalize(bindings));
-    return db.updatedRows;
+    final db = _database;
+    // Nothing ran: 0, not the count of the statement before.
+    return _runOne(db, sql, bindings) ? db.updatedRows : 0;
   }
 
   @override
@@ -245,8 +253,92 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
-    final db = _database..execute(sql, _normalize(bindings));
-    return db.lastInsertRowId;
+    final db = _database;
+    // Nothing ran: no id, not the one of the statement before.
+    return _runOne(db, sql, bindings) ? db.lastInsertRowId : null;
+  }
+
+  /// Runs [sql] with `sqlite3_exec`, several statements included
+  /// (`DB.unprepared`, as `PDO::exec` does).
+  @override
+  Future<void> unprepared(String sql) async {
+    if (_mustWait) {
+      await _waitTurn();
+    }
+    _checkNoNul(sql);
+    _database.execute(sql);
+  }
+
+  /// Runs [sql] as one prepared statement. `Database.execute` without
+  /// parameters used `sqlite3_exec`, which runs every statement in [sql];
+  /// now SQL holding several is refused, as `select` and every call with
+  /// bindings already refused it. PDO SQLite, which Laravel uses, runs the
+  /// first statement and drops the rest without a word; refusing is the
+  /// safer side of that difference, and `DB.unprepared` runs a script.
+  ///
+  /// SQL holding no statement (empty, blanks, a comment, `;`) without
+  /// bindings does nothing, as `sqlite3_exec` did; the result is whether a
+  /// statement ran.
+  bool _runOne(Database db, String sql, List<Object?> bindings) {
+    final PreparedStatement statement;
+    try {
+      statement = _oneStatement(sql, () => db.prepare(sql, checkNoTail: true));
+    } on NoStatementException {
+      if (bindings.isEmpty) {
+        return false;
+      }
+      rethrow;
+    }
+    try {
+      statement.execute(_normalize(bindings));
+    } finally {
+      statement.close();
+    }
+    return true;
+  }
+
+  /// Refuses [sql] holding a NUL character before `package:sqlite3` sees
+  /// it: its statement loop stopped advancing at the NUL and spun for ever
+  /// (`select`, and `execute` through a prepare), and `sqlite3_exec`
+  /// silently ran only what came before it.
+  static void _checkNoNul(String sql) {
+    if (sql.contains(String.fromCharCode(0))) {
+      throw const NulInSqlException(
+        'SQLite refused SQL holding a NUL character.',
+      );
+    }
+  }
+
+  /// [body], with the `ArgumentError`s `package:sqlite3` throws for the
+  /// shape of the SQL turned into exceptions the connection reports as a
+  /// `QueryException` like any refused query: a second statement becomes
+  /// a [MultipleStatementsException], no statement at all a
+  /// [NoStatementException], and SQL holding a NUL is a
+  /// [NulInSqlException] before the package sees it. The errors are
+  /// recognised by their argument name and wording;
+  /// statement_stacking_test.dart is what notices when an update of
+  /// `package:sqlite3` changes them.
+  static T _oneStatement<T>(String sql, T Function() body) {
+    _checkNoNul(sql);
+    try {
+      return body();
+    } on ArgumentError catch (error) {
+      if (error.name == 'sql') {
+        final message = '${error.message}';
+        if (message.contains('trailing')) {
+          throw const MultipleStatementsException(
+            'SQLite refused SQL holding several statements; run a script '
+            'with DB.unprepared.',
+          );
+        }
+        if (message.contains('Must contain')) {
+          throw const NoStatementException(
+            'SQLite found no statement in the SQL.',
+          );
+        }
+      }
+      rethrow;
+    }
   }
 
   @override

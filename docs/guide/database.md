@@ -642,6 +642,48 @@ SQLite stores these columns as text and leaves the index out, so a migration sti
 runs in tests, but distance queries throw there. On MySQL, `vector` adds the column
 only: indexes and distance queries are not supported.
 
+## One statement per call, and scripts
+
+`DB.select`, `DB.statement` and `DB.insertGetId` run exactly one statement,
+with or without bindings, on every driver. SQL holding a second statement
+(`SELECT 1; DROP TABLE users`) is refused with a `QueryException` and
+nothing runs, so a value that slipped into the SQL text cannot add a
+statement of its own. A trailing `;` or comment is fine.
+
+A script of several statements, or a statement the server cannot prepare,
+goes through `DB.unprepared`, as Laravel's `DB::unprepared`:
+
+```dart
+await DB.unprepared('''
+  CREATE TABLE audit (id integer primary key, note text);
+  CREATE INDEX audit_note ON audit (note);
+''');
+```
+
+Nothing is bound in `DB.unprepared`, so never put input in its SQL;
+`dartisan lint` flags interpolation there as everywhere else.
+
+The placeholders of raw SQL with bindings (`?`, `:name`) are found by a
+scan that knows quotes but not MySQL's backslash escape (`'it\'s'`) or
+comments: in such SQL, write no literal with `\'` and no `:name` inside a
+comment, and pass values as bindings.
+
+- MySQL and MariaDB check each new statement text sent without bindings
+  with a prepare, closed at once, and remember the texts a connection
+  checked (256 per connection, up to 4 096 characters each). A repeated
+  text costs nothing extra; a text seen for the first time on a connection
+  costs one more round trip, so pass values as bindings rather than in the
+  text. A `SET`, `CALL` or `EXECUTE` (and MariaDB's compound statements
+  outside a routine: `BEGIN NOT ATOMIC`, `IF`, `CASE`, `WHILE`, `LOOP`,
+  `REPEAT`, `FOR`) makes the connection check its texts again, since
+  `sql_mode` and the character set change how text splits; so does a
+  statement the prepared protocol does not take (1295), other than
+  transaction control, savepoints, table locks and the like. A trigger or stored function that
+  changes `sql_mode` is not noticed: keep such changes out of them.
+- PostgreSQL already refused a second statement (`42601`).
+- SQLite refuses it too. Laravel on SQLite runs the first statement of
+  such SQL and drops the rest without an error; Daravel refuses instead.
+
 ## Query errors
 
 A query the database refuses throws `QueryException`, with `sql`,

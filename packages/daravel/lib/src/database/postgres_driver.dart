@@ -36,7 +36,11 @@ enum PostgresSslMode {
 /// is kept by the connection; an error its socket raises later that the
 /// client package leaves unhandled would reach that zone's error handler.
 final class PostgresDriver
-    implements NotifyingDriver, SessionTerminatingDriver, QueryErrors {
+    implements
+        NotifyingDriver,
+        SessionTerminatingDriver,
+        QueryErrors,
+        UnpreparedExecutor {
   /// SQLSTATE 23505 (`unique_violation`), as Laravel checks it.
   @override
   bool isUniqueConstraintError(Object error) =>
@@ -524,6 +528,13 @@ final class PostgresDriver
     List<Object?> bindings = const [],
   ]) => _measured(sql, bindings, (e) => e.insertGetId(sql, bindings));
 
+  /// Runs [sql] with the simple query protocol, several statements
+  /// included (`DB.unprepared`); `select`, `execute` and `insertGetId` use
+  /// the extended protocol, where PostgreSQL refuses a second statement.
+  @override
+  Future<void> unprepared(String sql) =>
+      _measured(sql, const <Object?>[], (e) => e.unprepared(sql));
+
   /// What `package:postgres` says when no connection became free within
   /// [connectTimeout].
   static const String _poolTimeout = 'Failed to acquire pool lock.';
@@ -639,7 +650,7 @@ final class _TxOutcome<T> {
   }
 }
 
-final class _PgExecutor implements QueryExecutor {
+final class _PgExecutor implements QueryExecutor, UnpreparedExecutor {
   _PgExecutor(this._session);
 
   final pg.Session _session;
@@ -748,6 +759,16 @@ final class _PgExecutor implements QueryExecutor {
         : '.${micros.toString().padLeft(6, '0').replaceFirst(RegExp(r'0+$'), '')}';
     return '$day ${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)}'
         '$fraction${oid == _timestamptz ? '+00' : ''}';
+  }
+
+  @override
+  Future<void> unprepared(String sql) async {
+    // A String, not pg.Sql: no placeholder parsing, sent as it is.
+    await _session.execute(
+      sql,
+      queryMode: pg.QueryMode.simple,
+      ignoreRows: true,
+    );
   }
 
   @override

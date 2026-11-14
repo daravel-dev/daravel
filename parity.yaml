@@ -340,6 +340,7 @@ sections:
       - { php: "DB::table('users')", dart: "DB.table('users')", symbol: DB.table }
       - { php: "DB::select($sql, $bindings)", dart: "await DB.select(sql, bindings)", symbol: DB.select, async: true }
       - { php: "DB::statement($sql)", dart: "await DB.statement(sql)", symbol: DB.statement, async: true }
+      - { php: "DB::unprepared($sql)", dart: "await DB.unprepared(sql)", symbol: DB.unprepared, async: true, note: "The only call that runs several statements; select, statement and insertGetId refuse a second one on every driver. Laravel on SQLite runs the first statement of a stack and drops the rest; Daravel refuses it." }
       - { php: "DB::transaction(fn)", dart: "await DB.transaction(() async {...})", symbol: DB.transaction, async: true }
       - { php: "DB::afterRollBack(fn)", dart: "DB.afterRollback(fn)", symbol: DB.afterRollback, note: "Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them)." }
       - { php: "DB_CONNECTION=mysql / mariadb", dart: "withDatabaseDriver('mysql', MySqlDriver.fromConfig)", symbol: ApplicationBuilder.withDatabaseDriver, note: "package:daravel_mysql; registered by new projects." }
