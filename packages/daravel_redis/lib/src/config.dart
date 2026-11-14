@@ -147,13 +147,13 @@ final class RedisConnectionConfig {
     } on FormatException {
       throw ConfigException(
         'Malformed REDIS_URL: '
-        '"${redactUrlPassword(url, loneUserIsPassword: true)}".',
+        '"${redactUrl(url, loneUserIsPassword: true)}".',
       );
     } on ArgumentError {
       // Uri.decodeComponent's malformed escapes, substring ranges.
       throw ConfigException(
         'Malformed REDIS_URL: '
-        '"${redactUrlPassword(url, loneUserIsPassword: true)}".',
+        '"${redactUrl(url, loneUserIsPassword: true)}".',
       );
     }
   }

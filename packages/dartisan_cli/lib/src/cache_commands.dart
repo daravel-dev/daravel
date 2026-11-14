@@ -125,12 +125,12 @@ final class CoordinatorStatsCommand extends DaravelCommand {
     try {
       response = await request.get(url);
     } on ConnectionException catch (error) {
-      stderr.writeln('Cannot reach $url: ${error.message}');
+      stderr.writeln('Cannot reach ${redactUrl(url)}: ${error.message}');
       return 1;
     }
     if (!response.successful) {
       stderr.writeln(
-        '$url answered ${response.status}'
+        '${redactUrl(url)} answered ${response.status}'
         '${response.status == 401 ? ': pass --token (METRICS_TOKEN)' : ''}'
         '${response.status == 404 ? ': is METRICS_ENABLED=true?' : ''}.',
       );

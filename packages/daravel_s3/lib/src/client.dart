@@ -182,7 +182,7 @@ final class S3Client {
           request.abort();
         }
         throw ConnectionException(
-          'S3 $method $target timed out after ${timeout.inSeconds}s.',
+          'S3 $method ${_shown(target)} timed out after ${_duration(timeout)}.',
           isTimeout: true,
         );
       } on SocketException catch (error) {
@@ -190,7 +190,9 @@ final class S3Client {
           await Future<void>.delayed(backoff(attempt));
           continue;
         }
-        throw ConnectionException('Could not reach $target: ${error.message}');
+        throw ConnectionException(
+          'Could not reach ${_shown(target)}: ${error.message}',
+        );
       } on HttpException catch (error) {
         // A connection closed or reset before any response: nothing was
         // processed, so the call is sent again. Other HttpExceptions (a
@@ -202,7 +204,9 @@ final class S3Client {
           await Future<void>.delayed(backoff(attempt));
           continue;
         }
-        throw ConnectionException('HTTP error for $target: ${error.message}');
+        throw ConnectionException(
+          'HTTP error for ${_shown(target)}: ${error.message}',
+        );
       }
       if (attempt < retries &&
           !accept.contains(response.statusCode) &&
@@ -265,15 +269,15 @@ final class S3Client {
             timeout,
             onTimeout: (sink) => sink.addError(
               ConnectionException(
-                'S3 response body from $target went quiet for '
-                '${timeout.inSeconds}s.',
+                'S3 response body from ${_shown(target)} went quiet for '
+                '${_duration(timeout)}.',
                 isTimeout: true,
               ),
             ),
           )
           .handleError(
             (Object error) => throw ConnectionException(
-              'S3 response body from $target was cut off: '
+              'S3 response body from ${_shown(target)} was cut off: '
               '${(error as HttpException).message}',
             ),
             test: (error) => error is HttpException,
@@ -530,3 +534,14 @@ Uri _endpoint(String url) {
     throw ConfigException('Malformed S3 endpoint: "${redactUrl(url)}".');
   }
 }
+
+/// [target] as an error message shows it: the user-info password and the
+/// values of sensitive query parameters (`X-Amz-Security-Token`,
+/// `X-Amz-Signature`, `token`, ...) masked.
+String _shown(Uri target) => redactUrl('$target');
+
+/// [duration] for a message: milliseconds below a second, seconds
+/// otherwise.
+String _duration(Duration duration) => duration < const Duration(seconds: 1)
+    ? '${duration.inMilliseconds}ms'
+    : '${duration.inSeconds}s';

@@ -15,6 +15,7 @@ void main() {
   test('a malformed REDIS_URL is reported without its password', () {
     for (final url in [
       'redis://app:$secret@[::1/0', // malformed host
+      'redis://h:6379/notanumber?token=$secret', // token in the query
       'redis://:$secret@[::1/0', // no user
       'redis://$secret@[::1/0', // a lone user info is the password
       'rediss://app:$secret@h/%zz', // malformed escape
