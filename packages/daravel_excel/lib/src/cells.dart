@@ -30,18 +30,23 @@ int columnIndex(String letters) {
   var n = 0;
   for (final unit in letters.toUpperCase().codeUnits) {
     if (unit < 0x41 || unit > 0x5A) {
-      throw FormatException('Not a column: $letters');
+      throw FormatException('Not a column: ${_quoted(letters)}');
     }
     n = n * 26 + (unit - 0x40);
     if (n > maxColumns) {
       throw FormatException(
-        'Column $letters is past XFD, the last of the $maxColumns columns a '
-        'worksheet holds.',
+        'Column ${_quoted(letters)} is past XFD, the last of the $maxColumns '
+        'columns a worksheet holds.',
       );
     }
   }
   return n - 1;
 }
+
+/// [letters] for a message, at most 16 characters: a reference of a
+/// megabyte of letters must not become a megabyte of log line.
+String _quoted(String letters) =>
+    letters.length <= 16 ? letters : '${letters.substring(0, 16)}…';
 
 /// Excel's serial dates (the 1900 system, with its phantom 29 February
 /// 1900): what a date cell holds.
