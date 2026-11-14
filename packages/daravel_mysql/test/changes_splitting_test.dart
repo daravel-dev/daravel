@@ -23,7 +23,7 @@ void main() {
       'BEGIN NOT ATOMIC SET sql_mode = ""; END',
       'begin\n  not   atomic select 1; end',
       'SET STATEMENT max_statement_time = 1 FOR SELECT 1',
-      // RSEQ 52: an executable comment that is empty or closes before the
+      // An executable comment that is empty or closes before the
       // keyword.
       '/*!40101*/ SET NAMES latin1',
       '/*!*/ SET NAMES latin1',
@@ -35,7 +35,7 @@ void main() {
       'BEGIN /*c*/ NOT ATOMIC SELECT 1; END',
       'BEGIN -- c\n NOT ATOMIC SELECT 1; END',
       'BEGIN # c\n NOT /* c */ ATOMIC SELECT 1; END',
-      // RSEQ 57: MariaDB runs compound statements outside a routine, and a
+      // MariaDB runs compound statements outside a routine, and a
       // SET NAMES inside one stays (measured on 11.8).
       'IF 1 THEN SET NAMES latin1; END IF',
       '/* c */ if 1 then set names latin1; end if',
@@ -82,7 +82,7 @@ void main() {
     }
   });
 
-  test('RSEQ 65: a conditional comment before the first keyword or between '
+  test('a conditional comment before the first keyword or between '
       'the keywords read makes the text one that may change splitting', () {
     // The server may skip a conditional comment entirely (MySQL skips every
     // `/*M!…*/`; both skip `/*!N…*/` above their version), so what it holds
@@ -99,7 +99,7 @@ void main() {
       'l /*!999999 x */ : LOOP SET NAMES latin1; END LOOP',
       '/* c */ /*!999999 SELECT 1 */ SET NAMES latin1',
       '/*!40101 SELECT 1 */',
-      // RSEQ 65 item 3: a doubled backquote inside a backquoted label.
+      // A doubled backquote inside a backquoted label.
       '`a``b`: LOOP SET NAMES latin1; END LOOP',
       '`a``b` : BEGIN NOT ATOMIC SELECT 1; END',
     ]) {
@@ -115,8 +115,34 @@ void main() {
       'BEGIN /* c */ WORK',
       '`a``b` = 1',
       '`a``b`',
+      // A lowercase /*m! is a plain comment on both servers.
+      '/*m!100000 SET NAMES latin1 */ SELECT 1',
     ]) {
       expect(MySqlDriver.changesSplitting(sql), isFalse, reason: sql);
+    }
+  });
+
+  test('a hint after a word that cannot be a label keeps the texts '
+      'checked; one after a possible label does not', () {
+    for (final sql in [
+      'SELECT /*!40001 SQL_NO_CACHE */ * FROM t',
+      'select /*M!100000 STRAIGHT_JOIN */ 1',
+      'INSERT /*!50000 IGNORE */ INTO t VALUES (1)',
+      'UPDATE /*!50000 LOW_PRIORITY */ t SET a = 1',
+      'DELETE /*!50000 QUICK */ FROM t',
+      'WITH /*!80000 x */ c AS (SELECT 1) SELECT * FROM c',
+    ]) {
+      expect(MySqlDriver.changesSplitting(sql), isFalse, reason: sql);
+    }
+    for (final sql in [
+      // An identifier that only starts with such a word, a quoted one,
+      // or any other word: a label is possible.
+      'select_x /*!999999 y */ : LOOP SET NAMES latin1; END LOOP',
+      '`select` /*!999999 y */ : LOOP SET NAMES latin1; END LOOP',
+      'binlog /*!999999 y */ : LOOP SET NAMES latin1; END LOOP',
+      'lbl /*!999999 y */ : LOOP SET NAMES latin1; END LOOP',
+    ]) {
+      expect(MySqlDriver.changesSplitting(sql), isTrue, reason: sql);
     }
   });
 

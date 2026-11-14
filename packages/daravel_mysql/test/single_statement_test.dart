@@ -8,7 +8,7 @@ import 'package:daravel/daravel.dart' show NulInSqlException;
 import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:test/test.dart';
 
-/// DB-1 (Reviewer RSEQ 49 #3): a statement without bindings went to MySQL
+/// A statement without bindings went to MySQL
 /// as text on a connection that announces multi-statement support, so
 /// `SELECT 1; DROP TABLE t` ran both. Each new text is now checked with a
 /// prepare (closed at once) and remembered per connection. Runs only with
@@ -150,7 +150,7 @@ void main() {
   );
 
   test('SQL holding a NUL is refused before it is sent: the server read the '
-      'NUL as the end and ran what came before (RSEQ 52 #1)', () async {
+      'NUL as the end and ran what came before', () async {
     final nul = String.fromCharCode(0);
     for (final run in <Future<Object?> Function()>[
       () => db.select('SELECT 1${nul}junk'),
@@ -168,23 +168,20 @@ void main() {
     expect(await db.select('SELECT n FROM db1_single'), isEmpty);
   });
 
-  test(
-    'a SET after an empty executable comment is noticed (RSEQ 52 #3)',
-    () async {
-      await db.execute('DROP TABLE IF EXISTS db1_victim');
-      await db.execute('CREATE TABLE db1_victim (n INT)');
-      addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
-      const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
-      await db.select(text);
-      await db.execute(
-        "/*!40101*/ SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'",
-      );
-      await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
-      expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
-        {'c': 0},
-      ]);
-    },
-  );
+  test('a SET after an empty executable comment is noticed', () async {
+    await db.execute('DROP TABLE IF EXISTS db1_victim');
+    await db.execute('CREATE TABLE db1_victim (n INT)');
+    addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
+    const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
+    await db.select(text);
+    await db.execute(
+      "/*!40101*/ SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'",
+    );
+    await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
+    expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
+      {'c': 0},
+    ]);
+  });
 
   test('a mode changed through PREPARE ... FROM and EXECUTE is noticed too', () async {
     await db.execute('DROP TABLE IF EXISTS db1_victim');
@@ -293,7 +290,7 @@ void main() {
     expect(await prepares() - afterIf, 1);
   });
 
-  group('RSEQ 65: a conditional comment the server skips', () {
+  group('a conditional comment the server skips', () {
     final mariadb =
         (Platform.environment['DARAVEL_TEST_MARIADB'] ?? '').isNotEmpty;
 

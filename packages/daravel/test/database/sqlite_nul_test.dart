@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// DB-1 (Reviewer RSEQ 52 #1): SQL holding a NUL character made
+/// SQL holding a NUL character made
 /// `package:sqlite3` loop for ever (its statement loop stops advancing at
 /// the NUL), and `sqlite3_exec` silently ran only what came before it.
 /// Each call runs in an isolate of its own that is killed when it does not

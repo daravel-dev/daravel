@@ -824,7 +824,7 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   ///   first keyword or between the keywords read here, whatever the
   ///   comment holds: MySQL skips every `/*M!…*/` and both servers skip a
   ///   version above their own, so the keyword inside one may not be what
-  ///   runs (Reviewer RSEQ 65: `/*M!100000 SELECT 1 */ SET …` on MySQL).
+  ///   runs (`/*M!100000 SELECT 1 */ SET …` on MySQL).
   ///
   /// A known limit: a trigger or stored function that sets `sql_mode`,
   /// fired by an ordinary statement, is not noticed. The manual says they
@@ -867,6 +867,12 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
         if (end == start) {
           return false;
         }
+        // A word that cannot be a label starts no label, whatever follows
+        // it (a hint such as `SELECT /*!40001 SQL_NO_CACHE */ …` keeps the
+        // texts checked).
+        if (end == first.end && _notLabels.contains(first.word)) {
+          return false;
+        }
         final colon = _skipIgnored(sql, end);
         if (_hasConditional(sql, end, colon)) {
           return true;
@@ -877,8 +883,24 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
     }
   }
 
+  /// Words that cannot be a label, unquoted: each was refused as one
+  /// (`CREATE PROCEDURE p() w: BEGIN END w`, 1064) by MySQL 8.4 and
+  /// MariaDB 11.8, which took `lbl` (MySQL took `binlog` and `backup`,
+  /// left out).
+  static const Set<String> _notLabels = {
+    'select', 'insert', 'update', 'delete', 'replace', 'with', 'values', //
+    'table', 'show', 'explain', 'describe', 'desc', 'do', 'handler', 'load',
+    'lock', 'unlock', 'analyze', 'check', 'optimize', 'repair', 'grant',
+    'revoke', 'create', 'drop', 'alter', 'rename', 'truncate', 'use',
+    'purge', 'kill', 'release', 'rollback', 'commit', 'start', 'savepoint',
+    'xa', 'deallocate', 'prepare', 'flush', 'reset', 'install', 'uninstall',
+    'signal', 'resignal', 'get', 'help', 'cache', 'change', 'checksum',
+  };
+
   /// Whether `sql[from, to)` holds the opening of a conditional comment
-  /// (`/*!` or MariaDB's `/*M!`).
+  /// (`/*!` or MariaDB's `/*M!`). A lowercase `/*m!` is a plain comment on
+  /// both (measured on MySQL 8.4 and MariaDB 11.8: `SELECT 1 /*m!100000 ,
+  /// 2 */` answers one column).
   static bool _hasConditional(String sql, int from, int to) {
     for (var i = from; i + 2 < to; i++) {
       if (sql.codeUnitAt(i) == 0x2f &&

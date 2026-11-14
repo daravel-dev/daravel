@@ -3,7 +3,7 @@ import 'package:test/test.dart';
 
 import 'support/test_databases.dart';
 
-/// DB-1 (Reviewer RSEQ 49 #3): `select`, `statement` and `insertGetId` run
+/// `select`, `statement` and `insertGetId` run
 /// one statement on every driver and refuse a second, reported as a
 /// `QueryException`; `unprepared` runs a script. MySQL ran a second
 /// statement sent without bindings, and SQLite ran one sent through
@@ -79,7 +79,7 @@ void statementStackingTests(DatabaseOpener open) {
       return;
     }
     // A statement that changed rows and made an id first: the no-op must
-    // not report those as its own (RSEQ 52 #2).
+    // not report those as its own.
     await db.statement('INSERT INTO $table (n) VALUES (1)');
     for (final sql in ['', '  ', '-- why', '/* why */', ';']) {
       expect(await db.statement(sql), 0, reason: '"$sql"');
