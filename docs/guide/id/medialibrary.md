@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:0162a850c297 -->
+<!-- source: medialibrary.md sha256:e32fcfcd1024 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -148,14 +148,13 @@ gambar tepat di batas bawaan memakan (puncak terukur):
 | PNG 16-bit, 4 472 x 4 472 | sekitar 205 MiB | 1 dtk |
 | WebP, 4 472 x 4 472 | sekitar 170 sampai 175 MiB | 0,3 sampai 0,9 dtk |
 | sama, orientasi EXIF 6 | sekitar 245 MiB | 0,8 dtk |
-| WebP, 4 472 x 4 472, dengan transform dan banyak grup Huffman | sekitar 395 MiB, sampai 470 MiB dengan orientasi | 2 sampai 2,6 dtk |
-| WebP ukuran berapa pun, juga yang kecil | sampai sekitar 240 MiB | di bawah 1 dtk |
+| WebP, 4 472 x 4 472, terburuk yang terukur | sekitar 395 MiB, sampai 470 MiB dengan orientasi | 2 sampai 2,6 dtk |
 | GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
 
 WebP dan PNG 16-bit dihitung terhadap separuh `MEDIA_MAX_IMAGE_PIXELS`.
 Batas ini membatasi ukuran gambar, bukan memori secara persis: pada batas
 bawaan, siapkan sekitar 500 MiB memori untuk setiap konversi yang berjalan
-bersamaan, dan turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi
+bersamaan, berapa pun ukuran gambarnya, dan turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi
 proses dengan request.
 
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
