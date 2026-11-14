@@ -190,8 +190,10 @@ final class JwtCodec {
     this.leeway = const Duration(seconds: 30),
     this.issuer,
     this.audience,
+    List<String> requiredClaims = const <String>[],
     DateTime Function()? clock,
   }) : keys = List<JwtKey>.unmodifiable(keys),
+       requiredClaims = List<String>.unmodifiable(requiredClaims),
        _clock = clock ?? _utcNow {
     if (keys.isEmpty) {
       throw const ConfigException('JwtCodec needs at least one key.');
@@ -204,11 +206,13 @@ final class JwtCodec {
     Duration leeway = const Duration(seconds: 30),
     String? issuer,
     String? audience,
+    List<String> requiredClaims = const <String>[],
   }) => JwtCodec(
     keys: <JwtKey>[HmacJwtKey.fromString(secret)],
     leeway: leeway,
     issuer: issuer,
     audience: audience,
+    requiredClaims: requiredClaims,
   );
 
   /// The keys, the signing one first.
@@ -222,6 +226,12 @@ final class JwtCodec {
 
   /// When set, `aud` is added on sign and required on verify.
   final String? audience;
+
+  /// Claims a token must carry to verify (tymon/jwt-auth's
+  /// `required_claims`): present and not null, and for `exp`, `nbf` and
+  /// `iat` a finite number. Empty by default: a token without `exp` then
+  /// never expires, as with firebase/php-jwt.
+  final List<String> requiredClaims;
 
   final DateTime Function() _clock;
 
@@ -297,6 +307,28 @@ final class JwtCodec {
     }
     if (!valid) {
       throw const JwtException('Invalid signature.');
+    }
+    // A required claim must be there (an empty text counts, as in
+    // tymon/jwt-auth, whose `hasAllClaims` checks for the key).
+    for (final claim in requiredClaims) {
+      final value = payload[claim];
+      final missing = switch (claim) {
+        'exp' || 'nbf' || 'iat' => value is! num || !value.isFinite,
+        _ => value == null,
+      };
+      if (missing) {
+        throw JwtException('The token has no [$claim] claim.');
+      }
+    }
+    // A time claim that is there must be a number, whether the times are
+    // checked or not: one that is not would otherwise be skipped, and a
+    // token with `exp: "x"` never expire (firebase/php-jwt v7.2.1 refuses
+    // it the same way, `JWT.php` 134-141).
+    for (final claim in const ['exp', 'nbf', 'iat']) {
+      final value = payload[claim];
+      if (value != null && (value is! num || !value.isFinite)) {
+        throw JwtException('The token [$claim] claim is not a number.');
+      }
     }
     if (checkTimes) {
       _checkTimeClaims(payload);
@@ -530,6 +562,8 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
 
   /// Issues a signed token for [user] with `sub`, `iat`, `exp`, `jti`, and
   /// with [subjectClass] also `nbf`, `prv` and `iss` (tymon's claims).
+  /// `nbf` and `iss` are written too when the codec requires them
+  /// ([JwtCodec.requiredClaims]), so the guard's own tokens verify.
   Future<String> issue(
     Authenticatable user, {
     Duration? ttl,
@@ -538,12 +572,14 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     final now = _clock();
     final expires = now.add(ttl ?? this.ttl);
     final iat = now.millisecondsSinceEpoch ~/ 1000;
+    final required = codec.requiredClaims;
     return codec.sign(<String, Object?>{
-      if (locksSubject && codec.issuer == null) 'iss': issuerClaim ?? '',
+      if ((locksSubject || required.contains('iss')) && codec.issuer == null)
+        'iss': issuerClaim ?? '',
       'sub': user.authIdentifier.toString(),
       'iat': iat,
       'exp': expires.millisecondsSinceEpoch ~/ 1000,
-      if (locksSubject) 'nbf': iat,
+      if (locksSubject || required.contains('nbf')) 'nbf': iat,
       'jti': _jti(),
       if (locksSubject) 'prv': subjectHash,
       ...claims,

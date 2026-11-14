@@ -76,6 +76,17 @@ final class LivekitToken {
     if (video?.roomJoin == true && (identity == null || identity!.isEmpty)) {
       throw StateError('Identity is required to join but has not been set.');
     }
+    // The identity is the participant's id in every room and webhook; a
+    // control character in it (a line break in a log line, a NUL) is
+    // refused rather than signed.
+    if (identity case final String id
+        when id.codeUnits.any((c) => c < 0x20 || c == 0x7F)) {
+      throw ArgumentError.value(
+        id,
+        'identity',
+        'must not hold control characters',
+      );
+    }
     if (ttl <= Duration.zero) {
       throw ArgumentError.value(ttl, 'ttl', 'must be positive');
     }
@@ -103,21 +114,31 @@ final class LivekitToken {
   /// empty key signs, and LiveKit would refuse the result.
   Future<String> toJwt() async {
     requireSecret(apiSecret);
+    requireKey(apiKey);
     return JwtCodec.hs256(apiSecret).sign(claims);
   }
 
-  /// Verifies [jwt]: its signature, its time claims and that [apiKey]
-  /// issued it; throws [JwtException] otherwise, and [StateError] without
-  /// a secret: HS256 over an empty key verifies whatever was signed with
-  /// one, so a missing `LIVEKIT_API_SECRET` must not pass as a valid key.
+  /// Verifies [jwt]: its signature, its time claims, that it has an `exp`
+  /// (as LiveKit's server SDKs require, `requiredClaims: ['exp']`) and
+  /// that [apiKey] issued it; throws [JwtException] otherwise, and
+  /// [StateError] without a secret or a key: HS256 over an empty key
+  /// verifies whatever was signed with one, so a missing
+  /// `LIVEKIT_API_SECRET` must not pass as a valid key, and an empty
+  /// `LIVEKIT_API_KEY` would accept a token of any issuer that leaves `iss`
+  /// out.
   static Future<LivekitClaims> verify(
     String jwt, {
     required String apiKey,
     required String apiSecret,
   }) async {
     requireSecret(apiSecret);
+    requireKey(apiKey);
     return LivekitClaims(
-      (await JwtCodec.hs256(apiSecret, issuer: apiKey).verify(jwt)).claims,
+      (await JwtCodec.hs256(
+        apiSecret,
+        issuer: apiKey,
+        requiredClaims: const ['exp'],
+      ).verify(jwt)).claims,
     );
   }
 
@@ -126,6 +147,17 @@ final class LivekitToken {
     if (apiSecret.isEmpty) {
       throw StateError(
         'LIVEKIT_API_SECRET is not set: LiveKit tokens cannot be signed or '
+        'verified without it.',
+      );
+    }
+  }
+
+  /// [StateError] when [apiKey] is empty or blank: it is the issuer of
+  /// every token, and LiveKit refuses a token without one.
+  static void requireKey(String apiKey) {
+    if (apiKey.trim().isEmpty) {
+      throw StateError(
+        'LIVEKIT_API_KEY is not set: LiveKit tokens cannot be signed or '
         'verified without it.',
       );
     }
@@ -141,24 +173,32 @@ final class LivekitClaims {
   final Map<String, Object?> claims;
 
   /// The participant identity.
-  String? get identity => claims['sub'] as String?;
+  String? get identity => _text('sub');
 
   /// The display name.
-  String? get name => claims['name'] as String?;
+  String? get name => _text('name');
 
   /// The participant metadata.
-  String? get metadata => claims['metadata'] as String?;
+  String? get metadata => _text('metadata');
 
   /// The SHA-256 of a webhook body.
-  String? get sha256 => claims['sha256'] as String?;
+  String? get sha256 => _text('sha256');
 
   /// The API key that issued it.
-  String? get issuer => claims['iss'] as String?;
+  String? get issuer => _text('iss');
 
-  /// The video grant.
+  /// The video grant; [JwtException] when it is not an object.
   VideoGrant? get video => switch (claims['video']) {
+    null => null,
     final Map<String, Object?> grant => VideoGrant.fromJson(grant),
-    _ => null,
+    _ => throw const JwtException('The token video grant is not an object.'),
+  };
+
+  /// The text claim [name]; [JwtException] when it holds another type.
+  String? _text(String name) => switch (claims[name]) {
+    null => null,
+    final String text => text,
+    _ => throw JwtException('The token [$name] claim is not text.'),
   };
 
   /// The participant attributes.

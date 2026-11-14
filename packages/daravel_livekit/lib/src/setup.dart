@@ -125,9 +125,11 @@ abstract final class Livekit {
   }
 
   /// The verified webhook of [request]; [LivekitWebhookException] (401)
-  /// when it is not LiveKit's, older than [maxAge], or already received:
-  /// each event id is remembered in the application's cache for [maxAge]
-  /// plus the skew, so a captured webhook replayed inside the window is
+  /// when it is not LiveKit's, older than [maxAge], without an id or a
+  /// readable `created_at`, or already received: each event id is
+  /// remembered in the application's cache for as long as an event is
+  /// accepted ([LivekitWebhookReceiver.acceptance]: [maxAge] plus twice
+  /// the skew), so a captured webhook replayed inside the window is
   /// refused too (LiveKit retries a webhook it got no 2xx for under the
   /// same id, so a handler that failed sees it again only if it answered
   /// an error; an isolate-scoped cache store sees repeats per isolate).
@@ -141,11 +143,12 @@ abstract final class Livekit {
       apiSecret: config.apiSecret,
       maxAge: maxAge,
     ).fromRequest(request);
-    if (maxAge != null && event.id.isNotEmpty) {
+    if (maxAge != null) {
+      // The receiver refused an event without an id while maxAge is set.
       final fresh = await Cache.add(
         'livekit:webhook:${event.id}',
         1,
-        ttl: maxAge + LivekitWebhookReceiver.skew,
+        ttl: LivekitWebhookReceiver.acceptance(maxAge),
       );
       if (!fresh) {
         throw LivekitWebhookException(
