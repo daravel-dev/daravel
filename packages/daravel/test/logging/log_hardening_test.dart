@@ -53,7 +53,7 @@ void main() {
           'Readiness check [redis] failed',
         );
         expect(logged, hasLength(1));
-        // HC-1 (RSEQ 53 #10): the logged error is redacted too.
+        // The logged error is redacted too.
         expect('${logged.single.context['error']}', isNot(contains('pass123')));
         expect('${logged.single.context['error']}', contains('10.0.5.9'));
       },

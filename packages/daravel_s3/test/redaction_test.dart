@@ -4,7 +4,7 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_s3/daravel_s3.dart';
 import 'package:test/test.dart';
 
-/// HC-1 (Reviewer RSEQ 67 #1): S3's connection errors show the endpoint and
+/// S3's connection errors show the endpoint and
 /// the request with the password and sensitive query values masked, in the
 /// message, the log and the debug error page; a sub-second timeout reads in
 /// milliseconds.

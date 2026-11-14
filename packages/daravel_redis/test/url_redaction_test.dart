@@ -56,7 +56,7 @@ void main() {
 }
 
 void passwordWithColonTests() {
-  // RSEQ 53 #7: the two-element pattern made such a password null.
+  // The two-element pattern made such a password null.
   test('a password holding `:` reaches the config whole', () {
     expect(
       RedisConnectionConfig.fromUrl('redis://app:pa:ss@h').password,

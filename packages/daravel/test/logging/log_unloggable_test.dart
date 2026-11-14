@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// HC-1 (Reviewer RSEQ 53 #8, #9): a value whose `toString()` throws (an
+/// A value whose `toString()` throws (an
 /// ordinary object in the context, the result of `toLogValue()`, the
 /// record's error) cost the whole record in the JSON handlers; the
 /// console wrote the channel name without escaping it.

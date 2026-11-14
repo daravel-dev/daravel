@@ -5,7 +5,7 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
 
-/// HC-1 (Reviewer RSEQ 50/53): outgoing HTTP errors show URLs with the
+/// Outgoing HTTP errors show URLs with the
 /// password and sensitive query values masked, a sub-second timeout reads
 /// in milliseconds, the retry helpers do not send a timed-out POST again,
 /// and a failed broadcast does not quote the whole response body.

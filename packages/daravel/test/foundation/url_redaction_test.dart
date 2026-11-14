@@ -20,10 +20,10 @@ void main() {
       // No `//`: the scheme cannot be told from a user name, so the user
       // is masked too (more, never less).
       ('pgsql:u:$secret@h/db', 'pgsql:***@h/db'),
-      // RSEQ 67: the last `@` of the authority, so an `@` in the query
+      // The last `@` of the authority, so an `@` in the query
       // leaves the path and the query alone.
       ('pgsql://u:$secret@h/db?a=b@c', 'pgsql://u:***@h/db?a=b@c'),
-      // RSEQ 53 #6: no valid scheme, and a password holding `:`.
+      // No valid scheme, and a password holding `:`.
       ('app:$secret@host/db', 'app:***@host/db'),
       ('postgres//app:$secret@host/db', 'postgres//app:***@host/db'),
       ('//app:$secret@bad host/db', '//app:***@bad host/db'),
@@ -32,7 +32,7 @@ void main() {
       // A `://` after the `@` (in the query) is not the scheme's.
       ('app:$secret@host/?next=https://x', 'app:***@host/?next=https://x'),
       // A `://` inside the password: not a scheme's, since what precedes
-      // it is no scheme (Tech Lead, SEQ 208 reply).
+      // it is no scheme.
       ('app:pa://$secret@host/db', 'app:***@host/db'),
       ('//app:pa://$secret@host', '//app:***@host'),
       ('pgsql://app:pa://$secret@h/db', 'pgsql://app:***@h/db'),
@@ -61,7 +61,7 @@ void main() {
     }
   });
 
-  group('RSEQ 67', () {
+  group('authority, pair separators and encoded names', () {
     test('an `@` after the authority does not swallow the URL', () {
       for (final (url, expected) in [
         (
