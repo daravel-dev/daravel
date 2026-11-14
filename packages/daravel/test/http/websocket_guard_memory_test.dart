@@ -301,4 +301,63 @@ void main() {
       client.socket.destroy();
     }
   });
+
+  test('empty frames to a handler that does not read: what is held costs '
+      'about what was sent, not an object per frame', () async {
+    // 50 connections, each 32 760 empty masked text frames of 6 bytes
+    // (196 560 bytes), to a handler that never reads.
+    final frames = BytesBuilder();
+    for (var i = 0; i < 32760; i++) {
+      frames.add(RawWsClient.frame(0x1, const []));
+    }
+    final bytes = frames.takeBytes();
+    // A server of its own, whose resident memory only this test moves.
+
+    final own = await Process.start(Platform.resolvedExecutable, [
+      'test/http/support/guard_server.dart',
+    ]);
+    addTearDown(own.kill);
+    own.stderr.drain<void>().ignore();
+    final ownPort = await own.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .firstWhere((line) => line.startsWith('PORT '))
+        .then((line) => int.parse(line.substring(5)))
+        .timeout(const Duration(seconds: 60));
+    Future<int> resident() async {
+      final client = HttpClient();
+      try {
+        final request = await client.get('127.0.0.1', ownPort, '/rss');
+        return int.parse(await utf8.decodeStream(await request.close()));
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    // One connection first, so the code its path needs is loaded.
+    final warm = await RawWsClient.connect(ownPort, '/silent');
+    warm.socket.add(RawWsClient.frame(0x1, const []));
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    final before = await resident();
+    final clients = <RawWsClient>[];
+    for (var i = 0; i < 50; i++) {
+      final client = await RawWsClient.connect(ownPort, '/silent');
+      clients.add(client);
+      client.socket.add(bytes);
+    }
+    // What the server reads before it holds TCP back.
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final grew = await resident() - before;
+    print('empty frames: grew ${grew >> 20} MiB for 50 connections');
+    if (Platform.isMacOS) {
+      expect(grew, lessThan(512 << 20)); // see expectBounded
+    } else {
+      // 64 KiB held per connection is 3.2 MiB; an object per frame was
+      // about 30 times what was read.
+      expect(grew, lessThan(32 << 20));
+    }
+    for (final client in [warm, ...clients]) {
+      client.socket.destroy();
+    }
+  });
 }

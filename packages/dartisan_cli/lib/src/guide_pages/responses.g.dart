@@ -441,11 +441,18 @@ holds the client back. So a handler that waits on `socket.done` without
 listening, or writes in a loop while `socket.readyState ==
 WebSocket.open`, still learns that the client closed or went away: 5 s
 after it did, the session ends, `socket.closeCode` is the client's code
-(1006 when it left without a close), and what was held is dropped. A
-client that first sent more than that bound and then left without a word
-is not seen leaving, and its session lasts until the server stops. Listen
-when you can, with `socket.listen((_) {})` when the messages do not
-matter.
+(1006 when it left without a close), and what was held is dropped. When
+what is held is full and nothing has listened for 5 s, the server ends
+the session itself with `1008` and logs a warning with the path: a
+handler that never reads cannot keep a session, whatever the client
+sends. A `listen` after that gets just the end. Listen when you can, with
+`socket.listen((_) {})` when the messages do not matter.
+
+Every frame the client sends is checked as it arrives, whether the
+handler reads or not: a frame RFC 6455 refuses (unmasked, a reserved
+opcode or bit, a control frame that is fragmented or over 125 bytes, a
+close code a client may not send) closes the connection with `1002`, and
+a close reason that is not UTF-8 with `1007`.
 
 Once something listens, nothing is dropped: a listener that pauses (an
 `await for` that takes its time over each message) gets every message

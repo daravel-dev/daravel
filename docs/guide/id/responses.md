@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:3cbd472039d8 -->
+<!-- source: responses.md sha256:f2db9959cb0e -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -453,10 +453,19 @@ satu pesan; sesudah itu TCP menahan client. Jadi handler yang menunggu
 `socket.done` tanpa mendengarkan, atau yang menulis dalam loop selama
 `socket.readyState == WebSocket.open`, tetap tahu client menutup atau
 pergi: 5 detik sesudahnya sesi berakhir, `socket.closeCode` berisi kode
-client (1006 bila ia pergi tanpa close), dan yang tertahan dibuang. Client
-yang lebih dulu mengirim melebihi batas itu lalu pergi diam-diam tidak
-terlihat pergi, dan sesinya bertahan sampai server berhenti. Dengarkan bila
-bisa, dengan `socket.listen((_) {})` bila pesannya tidak penting.
+client (1006 bila client pergi tanpa close), dan yang tertahan dibuang.
+Bila yang tertahan sudah penuh dan 5 detik belum ada yang mendengarkan,
+server sendiri mengakhiri sesi dengan `1008` dan mencatat peringatan
+beserta path-nya: handler yang tidak pernah membaca tidak bisa memegang
+sesi, apa pun yang dikirim client. `listen` sesudah itu hanya menerima
+akhirnya. Dengarkan bila bisa, dengan `socket.listen((_) {})` bila pesannya
+tidak penting.
+
+Setiap frame yang dikirim client diperiksa begitu tiba, entah handler
+membaca atau tidak: frame yang ditolak RFC 6455 (tanpa mask, opcode atau
+bit cadangan, frame kendali yang terfragmentasi atau lebih dari 125 byte,
+kode close yang tidak boleh dikirim client) menutup koneksi dengan `1002`,
+dan alasan close yang bukan UTF-8 dengan `1007`.
 
 Begitu ada yang mendengarkan, tidak ada yang dibuang: pendengar yang
 menjeda (`await for` yang lama mengerjakan tiap pesan) menerima semua pesan

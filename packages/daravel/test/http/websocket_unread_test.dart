@@ -136,6 +136,15 @@ void main() {
               }
               into.add('done:${socket.closeCode}');
             }, compress: false)
+            ..ws('/returns-after', (socket, request) async {
+              // Returns after `ms` without ever listening: the server's
+              // drain starts 5 s after that.
+              await Future<void>.delayed(
+                Duration(
+                  milliseconds: int.parse(request.uri.queryParameters['ms']!),
+                ),
+              );
+            }, compress: false)
             ..ws('/returns', (socket, _) {
               socket.add('hello');
             }, compress: false)
@@ -429,5 +438,124 @@ void main() {
       expect(ms, lessThan(2500));
       client.socket.destroy();
     });
+  });
+
+  group('a handler that does not read while what is held is full', () {
+    /// Every frame the server sent, until the connection ended.
+    Future<List<WsFrame>> framesUntilEnd(RawWsClient client) async {
+      final frames = <WsFrame>[];
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (DateTime.now().isBefore(deadline)) {
+        try {
+          frames.add(await client.next());
+        } on TimeoutException {
+          break;
+        }
+        if (client.ended) {
+          // What arrived before the end, then stop.
+          while (true) {
+            try {
+              frames.add(
+                await client.next().timeout(const Duration(milliseconds: 50)),
+              );
+            } on TimeoutException {
+              break;
+            }
+          }
+          break;
+        }
+      }
+      return frames;
+    }
+
+    for (final size in [65536, 70000]) {
+      for (final route in ['never', 'loop']) {
+        test('$size bytes, then CLOSE(4000) and FIN, to /$route: the server '
+            'ends the session with 1008 after the unread wait', () async {
+          final id = 'b-$route-$size';
+          final client = await open('/$route?id=$id');
+          client
+            ..send(0x2, Uint8List(size))
+            ..send(0x8, const [0x0F, 0xA0]); // 4000
+          await client.socket.flush();
+          await client.socket.close();
+          final ms = await sessionEndsWithin(const Duration(seconds: 9));
+          expect(engine.openWebSockets, 0, reason: 'the session ended');
+          expect(ms, lessThan(8000));
+          expect(seen[id], ['done:1008']);
+          final warning = log.records.where(
+            (r) => r.message.contains('did not read'),
+          );
+          expect(warning, hasLength(1));
+          expect(warning.single.context['path'], '/$route');
+          client.socket.destroy();
+        });
+      }
+    }
+
+    test('a listen at 4.9 s after it filled gets everything, in order, and '
+        'no 1008', () async {
+      final client = await open('/later?id=b-late&delay=4900');
+      final messages = [for (var i = 0; i < 100; i++) 'm$i'.padRight(1024)];
+      for (final message in messages) {
+        client.send(0x1, utf8.encode(message));
+      }
+      client.send(0x8, const [0x03, 0xE8]);
+      await sessionEndsWithin(const Duration(seconds: 12));
+      expect(seen['b-late'], [...messages, 'done:1000']);
+      expect(
+        log.records.where((r) => r.message.contains('did not read')),
+        isEmpty,
+      );
+      client.socket.destroy();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test(
+      "the server's drain, 5 s after the handler returned, comes first: "
+      'it reads what was held, and the session goes on to its own close',
+      () async {
+        // The handler returns at once; the client fills what is held 500 ms
+        // later, so the unread wait would end 500 ms after the drain starts.
+        final client = await open('/returns-after?ms=0');
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        client.send(0x2, Uint8List(100000));
+        await Future<void>.delayed(const Duration(seconds: 7));
+        expect(engine.openWebSockets, 1, reason: 'drained, not ended');
+        client.send(0x8, const [0x03, 0xE8]);
+        final frames = await framesUntilEnd(client);
+        final closes = frames.where((f) => f.opcode == 0x8).toList();
+        expect(closes, hasLength(1));
+        expect(closes.single.closeCode, 1000);
+        expect(
+          log.records.where((r) => r.message.contains('did not read')),
+          isEmpty,
+        );
+        client.socket.destroy();
+      },
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+
+    test('the unread wait comes first (the handler returned 3 s in): one '
+        '1008, one close, and the drain finds the session closing', () async {
+      final client = await open('/returns-after?ms=3000');
+      client.send(0x2, Uint8List(100000));
+      final frames = await framesUntilEnd(client);
+      final closes = frames.where((f) => f.opcode == 0x8).toList();
+      expect(closes, hasLength(1));
+      expect(closes.single.closeCode, 1008);
+      await sessionEndsWithin(const Duration(seconds: 5));
+      expect(engine.openWebSockets, 0);
+      expect(
+        log.records.where((r) => r.message.contains('did not read')),
+        hasLength(1),
+      );
+      // Past the drain's moment (3 s + 5 s): nothing more happens.
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(
+        log.records.where((r) => r.message.contains('WebSocket closed')),
+        hasLength(1),
+      );
+      client.socket.destroy();
+    }, timeout: const Timeout(Duration(seconds: 40)));
   });
 }

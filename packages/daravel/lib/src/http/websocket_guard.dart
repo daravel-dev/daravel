@@ -90,6 +90,34 @@ final class WebSocketGuard {
   bool _violated = false;
   Timer? _grace;
 
+  /// permessage-deflate was agreed to at the handshake: a message's first
+  /// frame may carry RSV1.
+  bool _deflate = false;
+
+  /// The code and reason of the client's CLOSE, once read: what the
+  /// session reports, whatever ends the connection afterwards.
+  int? _clientCloseCode;
+  String? _clientCloseReason;
+
+  /// The code and reason the guard closed the connection with (a
+  /// violation): what the session reports when the client sent no valid
+  /// close of its own.
+  int? _violationCode;
+  String? _violationReason;
+
+  /// [_clientCloseCode], else [_violationCode], to [socket]'s [closeCode].
+  void _report(WebSocket? socket) {
+    if (socket is! BufferedWebSocket) {
+      return;
+    }
+    final client = _clientCloseCode;
+    if (client != null) {
+      socket.peerClosed(client, _clientCloseReason);
+    } else if (_violationCode case final code?) {
+      socket.peerClosed(code, _violationReason);
+    }
+  }
+
   /// [request] for [WebSocketTransformer.upgrade]: everything is
   /// [request]'s, except that its response's `detachSocket()` gives the
   /// guarded socket.
@@ -108,6 +136,11 @@ final class WebSocketGuard {
   /// Both report [WebSocket.done]; disposing twice does nothing more.
   void attach(WebSocket socket) {
     _attached = socket;
+    _report(socket);
+    if (socket is BufferedWebSocket) {
+      // What was held while nothing read goes on once something does.
+      socket.onReader = () => _socket?._flushHeld();
+    }
     unawaited(
       socket.done.then<void>(
         (_) => _dispose(),
@@ -121,8 +154,11 @@ final class WebSocketGuard {
       return;
     }
     _violated = true;
+    _violationCode = code;
+    _violationReason = reason;
     onViolation?.call(code, reason);
     final webSocket = _attached;
+    _report(webSocket);
     final socket = _socket;
     if (webSocket == null) {
       socket?.destroy();
@@ -163,9 +199,17 @@ final class WebSocketGuard {
       return;
     }
     _keepGrace = true;
+    // The answer echoes the client's code when it is 1000 or 3000-4999,
+    // else closes with 1000; the reason, already checked as UTF-8 within
+    // 123 bytes, goes with it.
+    final echo = code == null || code == 1000 || (code >= 3000 && code <= 4999)
+        ? code
+        : 1000;
     try {
       unawaited(
-        attached.close(code, reason).then<void>((_) {}, onError: (Object _) {}),
+        attached
+            .close(echo, echo == null ? null : reason)
+            .then<void>((_) {}, onError: (Object _) {}),
       );
     } on Object {
       // Closing already: the grace below ends it.
@@ -179,6 +223,9 @@ final class WebSocketGuard {
   void _gone() {
     final attached = _attached;
     if (attached is BufferedWebSocket) {
+      // A close the client sent, else the guard's own, stands as the
+      // session's code, not the abnormal end of the destroyed socket.
+      _report(attached);
       attached.abandon();
     }
   }
@@ -250,11 +297,47 @@ final class _Inbound {
 
   bool _stopped = false;
 
+  /// The frame whose header was just read goes on as it arrived: its
+  /// header is handed on by [add], from the chunk when it lies there.
+  bool _passHeader = false;
+
   /// Reads [chunk]; [emit] gets what the WebSocket is to read.
+  ///
+  /// Frames that go on as they arrived are handed on as one view of the
+  /// chunk per run of them, not an object per frame: a client sending tiny
+  /// frames costs about what it sends.
   void add(Uint8List chunk, void Function(Uint8List bytes) emit) {
+    // The run of [chunk] waiting to be handed on: [runStart, runEnd).
+    var runStart = 0;
+    var runEnd = 0;
+    void flushRun() {
+      if (runEnd > runStart) {
+        emit(Uint8List.sublistView(chunk, runStart, runEnd));
+      }
+      runStart = runEnd = 0;
+    }
+
+    void extend(int from, int to) {
+      if (runEnd > runStart && runEnd == from) {
+        runEnd = to;
+      } else {
+        flushRun();
+        runStart = from;
+        runEnd = to;
+      }
+    }
+
+    // Anything else handed on goes after the run, in order.
+    void out(Uint8List bytes) {
+      flushRun();
+      emit(bytes);
+    }
+
     var at = 0;
     while (at < chunk.length && !_stopped) {
       if (!_inPayload) {
+        // Where the header starts in this chunk, if it does.
+        final headerAt = _headerRead == 0 ? at : -1;
         while (at < chunk.length && _headerRead < _headerNeeded) {
           _header[_headerRead++] = chunk[at++];
           if (_headerRead == 2) {
@@ -271,24 +354,40 @@ final class _Inbound {
           }
         }
         if (_headerRead < _headerNeeded) {
+          flushRun();
           return;
         }
-        _headerDone(emit);
+        final headerLength = _headerNeeded;
+        _passHeader = false;
+        _headerDone(out);
         _headerRead = 0;
         _headerNeeded = 2;
         if (_stopped) {
+          flushRun();
           return;
         }
+        if (_passHeader) {
+          if (headerAt >= 0) {
+            extend(headerAt, at);
+          } else {
+            // Begun in an earlier chunk: a copy of what was read.
+            out(
+              Uint8List.fromList(
+                Uint8List.sublistView(_header, 0, headerLength),
+              ),
+            );
+          }
+        }
         if (_remaining == 0) {
-          _payloadDone(emit);
+          _payloadDone(out);
         }
         continue;
       }
       final count = min(_remaining, chunk.length - at);
-      final slice = Uint8List.sublistView(chunk, at, at + count);
       if (_pass) {
-        emit(slice);
+        extend(at, at + count);
       } else {
+        final slice = Uint8List.sublistView(chunk, at, at + count);
         final plain = Uint8List(count);
         for (var i = 0; i < count; i++) {
           plain[i] = slice[i] ^ _mask[(_maskOffset + i) & 3];
@@ -303,9 +402,10 @@ final class _Inbound {
       _remaining -= count;
       at += count;
       if (_remaining == 0) {
-        _payloadDone(emit);
+        _payloadDone(out);
       }
     }
+    flushRun();
   }
 
   void _headerDone(void Function(Uint8List bytes) emit) {
@@ -342,18 +442,34 @@ final class _Inbound {
     _maskOffset = 0;
     _remaining = length < 0 ? 0 : length;
     _endsMessage = false;
-    final headerBytes = Uint8List.fromList(
-      Uint8List.sublistView(_header, 0, _headerNeeded),
-    );
 
-    if (length < 0) {
-      // A 64-bit length with the top bit set (RFC 6455 §5.2).
+    // Every frame is checked here (RFC 6455 §5.2, §5.5), before anything
+    // is held or handed on, so a frame the protocol refuses is refused
+    // whether the handler reads or not.
+    if (length < 0 ||
+        (length7 == 126 && length < 126) ||
+        (length7 == 127 && length < 0x10000)) {
+      // A 64-bit length with the top bit set, or a length not in its
+      // shortest form.
+      return _stop(1002, 'Protocol error');
+    }
+    if (!masked) {
+      // A client's frames are masked (§5.1).
+      return _stop(1002, 'Protocol error');
+    }
+    if (rsv & 0x30 != 0) {
+      // RSV2 and RSV3: no extension the server agrees to uses them.
       return _stop(1002, 'Protocol error');
     }
     if (_opcode >= 0x8) {
-      // Control frames: CLOSE, PING, PONG (the WebSocket refuses others).
-      if (rsv != 0) {
-        // No extension defines RSV bits on control frames (RFC 6455 §5.2).
+      // Control frames: CLOSE, PING, PONG.
+      if (_opcode > 0xA || rsv != 0 || !_fin || length > 125) {
+        // A reserved opcode; RSV1, a fragment or more than 125 bytes on a
+        // control frame (§5.5).
+        return _stop(1002, 'Protocol error');
+      }
+      if (_opcode == 0x8 && length == 1) {
+        // A close payload is empty or holds a 2-byte code (§5.5.1).
         return _stop(1002, 'Protocol error');
       }
       if ((_opcode == 0x9 || _opcode == 0xA) && !_takeToken()) {
@@ -364,26 +480,35 @@ final class _Inbound {
         _message = null;
         _deadline?.cancel();
       }
-      if (_opcode == 0x9 && _fin && masked && length <= 125) {
-        // A valid PING: answered here, its PONG in the guard's counted
-        // queue between frames, so it counts toward maxBufferedBytes.
+      if (_opcode == 0x9) {
+        // A PING: answered here, its PONG in the guard's counted queue
+        // between frames, so it counts toward maxBufferedBytes.
         _ping = BytesBuilder(copy: false);
         _pass = false;
         _inPayload = _remaining > 0;
         return;
       }
-      if (_opcode == 0x8 && _fin && masked && length <= 125) {
-        // A valid CLOSE: read whole, then handed on as one frame.
+      if (_opcode == 0x8) {
+        // A CLOSE: read whole and checked, then handed on as one frame.
         _close = BytesBuilder(copy: false);
         _pass = false;
         _inPayload = _remaining > 0;
         return;
       }
-      return _passFrame(headerBytes, length, emit);
+      return _passFrame();
+    }
+    if (_opcode > 0x2) {
+      // Reserved data opcodes 0x3-0x7.
+      return _stop(1002, 'Protocol error');
     }
     if (_opcode == 0x1 || _opcode == 0x2) {
       if (_message != null) {
         return _stop(1002, 'A new message before the last one ended');
+      }
+      if (rsv & 0x40 != 0 && !_guard._deflate) {
+        // RSV1 marks a compressed message, which only permessage-deflate
+        // agreed to at the handshake allows.
+        return _stop(1002, 'Protocol error');
       }
       if (length > _limits.maxMessageBytes) {
         return _stop(1009, 'Message too big');
@@ -391,10 +516,7 @@ final class _Inbound {
       _startDeadline();
       if (_fin) {
         _endsMessage = true;
-        return _passFrame(headerBytes, length, emit);
-      }
-      if (!masked || rsv & 0x30 != 0) {
-        return _stop(1002, 'Protocol error');
+        return _passFrame();
       }
       _message = BytesBuilder(copy: false);
       _messageOpcode = _opcode;
@@ -408,36 +530,30 @@ final class _Inbound {
       _inPayload = _remaining > 0;
       return;
     }
-    if (_opcode == 0x0 && _message != null) {
-      if (!masked || rsv != 0) {
-        return _stop(1002, 'Protocol error');
-      }
-      // What is left of the limit, so no sum of lengths can overflow:
-      // 0 <= _messageBytes <= maxMessageBytes holds here.
-      if (length > _limits.maxMessageBytes - _messageBytes) {
-        return _stop(1009, 'Message too big');
-      }
-      _messageBytes += length;
-      assert(
-        _messageBytes >= 0 && _messageBytes <= _limits.maxMessageBytes,
-        'the message stays within its limit',
-      );
-      _pass = false;
-      _inPayload = _remaining > 0;
-      return;
+    // A continuation.
+    if (_message == null || rsv != 0) {
+      // No message to continue, or RSV1 on a continuation (only a
+      // message's first frame carries it).
+      return _stop(1002, 'Protocol error');
     }
-    // A continuation with no message, a reserved opcode: passed on for
-    // the WebSocket to refuse.
-    _passFrame(headerBytes, length, emit);
+    // What is left of the limit, so no sum of lengths can overflow:
+    // 0 <= _messageBytes <= maxMessageBytes holds here.
+    if (length > _limits.maxMessageBytes - _messageBytes) {
+      return _stop(1009, 'Message too big');
+    }
+    _messageBytes += length;
+    assert(
+      _messageBytes >= 0 && _messageBytes <= _limits.maxMessageBytes,
+      'the message stays within its limit',
+    );
+    _pass = false;
+    _inPayload = _remaining > 0;
   }
 
-  void _passFrame(
-    Uint8List headerBytes,
-    int length,
-    void Function(Uint8List bytes) emit,
-  ) {
+  /// The frame goes on as it arrived; [add] hands its header on.
+  void _passFrame() {
     _pass = true;
-    emit(headerBytes);
+    _passHeader = true;
     _inPayload = _remaining > 0;
   }
 
@@ -462,14 +578,24 @@ final class _Inbound {
       _close = null;
       _pass = true;
       final payload = close.takeBytes();
+      final code = payload.length >= 2 ? payload[0] << 8 | payload[1] : null;
+      if (code != null && !isClientCloseCode(code)) {
+        return _stop(1002, 'Invalid close code');
+      }
+      String? reason;
+      if (payload.length > 2) {
+        try {
+          reason = utf8.decode(Uint8List.sublistView(payload, 2));
+        } on FormatException {
+          // The reason is UTF-8 (§5.5.1); data that is not is 1007 (§7.4.1).
+          return _stop(1007, 'Invalid UTF-8 in the close reason');
+        }
+      }
       emit(_frame(0x8, false, payload.length));
       if (payload.isNotEmpty) {
         emit(payload);
       }
-      _guard._socket?._clientClose(
-        payload.length >= 2 ? payload[0] << 8 | payload[1] : null,
-        payload.length > 2 ? payload.sublist(2) : null,
-      );
+      _guard._socket?._clientClose(code, reason);
       return;
     }
     if (!_fin) {
@@ -483,6 +609,14 @@ final class _Inbound {
       emit(payload);
     }
   }
+
+  /// Whether a client may close with [code] (RFC 6455 §7.4.1 and the IANA
+  /// registry of §11.7): 1000-1003, 1007-1014 and 3000-4999. 1004, 1005,
+  /// 1006 and 1015 are never sent, and the rest is reserved.
+  static bool isClientCloseCode(int code) =>
+      (code >= 1000 && code <= 1003) ||
+      (code >= 1007 && code <= 1014) ||
+      (code >= 3000 && code <= 4999);
 
   /// The header of one whole masked frame with key 0000 (a client's frames
   /// are masked, RFC 6455 §5.3; XOR with 0 changes nothing).
@@ -598,6 +732,13 @@ final class _GuardedResponse implements HttpResponse {
 
   @override
   Future<Socket> detachSocket({bool writeHeaders = true}) async {
+    // The handshake's answer says whether compression was agreed to; no
+    // frame has been read yet.
+    _guard._deflate =
+        _inner.headers
+            .value('sec-websocket-extensions')
+            ?.contains('permessage-deflate') ??
+        false;
     final socket = _GuardedSocket(
       await _inner.detachSocket(writeHeaders: writeHeaders),
       _guard,
@@ -689,6 +830,11 @@ final class _GuardedResponse implements HttpResponse {
   void writeln([Object? object = '']) => _inner.writeln(object);
 }
 
+/// Small slices held together, in order, as one buffer.
+final class _HeldBytes {
+  final BytesBuilder builder = BytesBuilder();
+}
+
 /// The end of the client's TCP stream, held in order behind its bytes.
 final class _TcpEnd {
   _TcpEnd(this.error, this.stackTrace);
@@ -741,23 +887,74 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   static const Duration unreadWait = Duration(seconds: 5);
   Timer? _unreadWait;
 
+  /// Something reads the WebSocket ([BufferedWebSocket.isRead]): the
+  /// application, the server's drain, or the WebSocket's own close. Until
+  /// then what arrives is held here, within the bound of [_held].
+  bool get _readerPresent =>
+      _guard._attached is BufferedWebSocket &&
+      (_guard._attached! as BufferedWebSocket).isRead;
+
+  /// What arrives may go to the WebSocket now.
+  bool get _passing => !_handOnPaused && _readerPresent;
+
   /// [bytes] to the WebSocket, handed on at a 16-byte offset in their
   /// buffer (a slice that starts elsewhere is copied); held while it does
-  /// not read.
+  /// not read or nothing reads it.
   void _handOn(Uint8List bytes) {
-    final aligned = (bytes.offsetInBytes & 15) == 0
-        ? bytes
-        : Uint8List.fromList(bytes);
-    if (_handOnPaused || _held.isNotEmpty) {
-      _held.add(aligned);
-      _heldBytes += aligned.length;
+    if (!_passing || _held.isNotEmpty) {
+      _hold(bytes);
       if (!_tcpHeldBack && _heldBytes > _heldLimit) {
         _tcpHeldBack = true;
         _reading?.pause();
+        if (!_appListens) {
+          // Held back with nothing reading: the application has the
+          // unread wait to listen ([_unreadExpired]).
+          _startUnreadWait();
+        }
       }
       return;
     }
-    _in.add(aligned);
+    _in.add(
+      (bytes.offsetInBytes & 15) == 0 ? bytes : Uint8List.fromList(bytes),
+    );
+  }
+
+  /// What one held item costs beyond its bytes: the object and its slot in
+  /// the queue. Measured at about 55 bytes for a 2-byte frame and 95 for a
+  /// 6-byte one held alone; 128 bounds both.
+  static const int heldItemCost = 128;
+
+  /// Slices below this many bytes are merged into the held buffer before
+  /// them ([_HeldBytes]), so a client sending tiny frames costs about what
+  /// it sends, not an object per frame.
+  static const int mergeBelow = 1 << 10;
+
+  /// A merged buffer stops taking slices at this size.
+  static const int mergedSize = 16 << 10;
+
+  /// [bytes] into [_held]: merged when small, as they are when not (a
+  /// slice that does not start at a 16-byte offset copied).
+  void _hold(Uint8List bytes) {
+    if (bytes.length < mergeBelow) {
+      final last = _held.isEmpty ? null : _held.last;
+      if (last is _HeldBytes && last.builder.length < mergedSize) {
+        last.builder.add(bytes);
+        _heldBytes += bytes.length;
+        return;
+      }
+      _held.add(_HeldBytes()..builder.add(bytes));
+      _heldBytes += heldItemCost + bytes.length;
+      return;
+    }
+    // A view of a larger buffer (the TCP chunk) would keep all of it: held
+    // as a copy of its own bytes, at offset 0.
+    _held.add(
+      bytes.offsetInBytes == 0 &&
+              bytes.lengthInBytes == bytes.buffer.lengthInBytes
+          ? bytes
+          : Uint8List.fromList(bytes),
+    );
+    _heldBytes += heldItemCost + bytes.length;
   }
 
   /// [_flushHeld] is handing items on: the WebSocket can pause and resume
@@ -772,11 +969,16 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     }
     _flushing = true;
     try {
-      while (!_handOnPaused && _held.isNotEmpty && !_destroyed) {
+      while (_passing && _held.isNotEmpty && !_destroyed) {
         final item = _held.removeFirst();
         if (item is Uint8List) {
-          _heldBytes -= item.length;
+          _heldBytes -= heldItemCost + item.length;
           _in.add(item);
+        } else if (item is _HeldBytes) {
+          // A fresh buffer: at offset 0, so handed on as it is.
+          final bytes = item.builder.takeBytes();
+          _heldBytes -= heldItemCost + bytes.length;
+          _in.add(bytes);
         } else if (item is _TcpEnd) {
           _endIn(item);
         }
@@ -785,7 +987,9 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       _flushing = false;
     }
     assert(_heldBytes >= 0, 'what is held is counted once');
-    if (_held.isEmpty) {
+    if (_held.isEmpty || _appListens) {
+      // Read, or listened to (a listener that pauses keeps what waits):
+      // nothing is given up.
       _unreadWait?.cancel();
       _unreadWait = null;
     }
@@ -816,7 +1020,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// The client's TCP stream ended (FIN) or failed (RST).
   void _tcpEnd([Object? error, StackTrace? stackTrace]) {
     final end = _TcpEnd(error, stackTrace);
-    if (!_handOnPaused && _held.isEmpty) {
+    if (_passing && _held.isEmpty) {
       _endIn(end);
     } else if (_held.isEmpty && !_appListens) {
       // Nothing waits that a reader could still want: the session ends.
@@ -824,35 +1028,60 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     } else {
       _held.add(end);
       if (!_appListens) {
-        _startUnreadWait(null, null);
+        _startUnreadWait();
       }
     }
   }
+
+  /// The client's CLOSE was read (and handed on, or held).
+  bool _closeRead = false;
 
   /// The client's CLOSE was handed on, with [code] and [reason]; if it
   /// waits in [_held] and the application has not listened, it has
   /// [unreadWait] to do so.
-  void _clientClose(int? code, Uint8List? reason) {
+  void _clientClose(int? code, String? reason) {
+    _closeRead = true;
+    _guard._clientCloseCode = code;
+    _guard._clientCloseReason = reason;
     if (_held.isNotEmpty && !_appListens) {
-      _startUnreadWait(code, reason);
+      _startUnreadWait();
     }
   }
 
-  void _startUnreadWait(int? code, Uint8List? reason) {
-    _unreadWait ??= Timer(unreadWait, () {
-      _unreadWait = null;
-      if (_held.isEmpty || _destroyed || _appListens) {
-        return; // read in time, or listened to: nothing is given up
-      }
-      // Nobody read: what waits is dropped, and the session ends.
-      final ended = _held.last is _TcpEnd;
-      _held.clear();
-      _heldBytes = 0;
-      final text = reason == null
-          ? null
-          : utf8.decode(reason, allowMalformed: true);
-      _guard._closedUnread(code, text, clientGone: ended);
-    });
+  /// Gives the application [unreadWait] to listen: started when the
+  /// client's close or the end of TCP waits in [_held], or when [_held] is
+  /// full and TCP holds the client back, while the application has not
+  /// listened. Cancelled once it listens or nothing waits ([_flushHeld]).
+  void _startUnreadWait() {
+    _unreadWait ??= Timer(unreadWait, _unreadExpired);
+  }
+
+  void _unreadExpired() {
+    _unreadWait = null;
+    if (_held.isEmpty || _destroyed || _appListens) {
+      return; // read in time, or listened to: nothing is given up
+    }
+    // Nobody read: what waits is dropped, and the session ends.
+    final ended = _held.last is _TcpEnd;
+    _held.clear();
+    _heldBytes = 0;
+    if (ended || _closeRead) {
+      _guard._closedUnread(
+        _guard._clientCloseCode,
+        _guard._clientCloseReason,
+        clientGone: ended,
+      );
+      return;
+    }
+    // Full, and TCP holds the client back: its close could not be read
+    // either. The server ends the session, and reads on what the client
+    // still sends (within [discardAfterViolation]) so its answer and its
+    // end are seen.
+    _guard._violation(1008, 'The application did not read');
+    if (_tcpHeldBack) {
+      _tcpHeldBack = false;
+      _reading?.resume();
+    }
   }
 
   /// What the client may still send after a violation, read and dropped:

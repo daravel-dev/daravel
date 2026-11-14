@@ -67,12 +67,27 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   bool get isListened => _listened;
   bool _listened = false;
 
+  /// Whether something reads what the client sends: the application, the
+  /// server's [drainUnlistened], or this socket's own close, which waits
+  /// for the client's answer. Until then the server holds what arrives.
+  bool get isRead =>
+      _listened || _drain != null || _drained || _closedUnlistened;
+
+  /// Told when something starts reading ([isRead]): for the server, which
+  /// then hands on what it held.
+  void Function()? onReader;
+
   /// The server's subscription of [drainUnlistened], which a later [listen]
   /// takes over.
   StreamSubscription<dynamic>? _drain;
 
   /// [drainUnlistened] read the client's stream to its end.
   bool _drained = false;
+
+  /// The socket was closed before anything listened (the server ended the
+  /// session of a handler that had not read): a later [listen] gets the
+  /// end only.
+  bool _closedUnlistened = false;
 
   /// Reads what the client sends and drops it, for a handler that returned
   /// and has not listened: the client's close or its going away then ends
@@ -95,6 +110,7 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
         _peerClosed();
       },
     );
+    onReader?.call();
   }
 
   @override
@@ -110,9 +126,10 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
       onDone?.call();
     }
 
-    if (_drained) {
-      // The server read the stream to its end already: this listener gets
-      // the end, nothing else.
+    if (_drained || _closedUnlistened) {
+      // The server read the stream to its end already, or closed the
+      // socket before anything listened: this listener gets the end,
+      // nothing else, and never an error for a stream already read.
       return const Stream<dynamic>.empty().listen(
         null,
         onError: onError,
@@ -129,12 +146,14 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
         ..onError(onError ?? (Object _) {})
         ..onDone(done);
     }
-    return _inner.listen(
+    final subscription = _inner.listen(
       onData,
       onError: onError,
       onDone: done,
       cancelOnError: cancelOnError,
     );
+    onReader?.call();
+    return subscription;
   }
 
   /// The peer closed or went away: what waits cannot reach it, and the
@@ -166,17 +185,19 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   String? get protocol => _inner.protocol;
 
   @override
-  int? get closeCode => _inner.closeCode ?? _peerCloseCode;
+  int? get closeCode => _peerCloseCode ?? _inner.closeCode;
 
   @override
-  String? get closeReason => _inner.closeReason ?? _peerCloseReason;
+  String? get closeReason =>
+      _peerCloseCode != null ? _peerCloseReason : _inner.closeReason;
 
   int? _peerCloseCode;
   String? _peerCloseReason;
 
-  /// The client closed with [code] and [reason] while nothing read this
-  /// socket (the server read its close frame on the socket's behalf):
-  /// [closeCode] and [closeReason] report them.
+  /// The client closed with [code] and [reason], as the server read it
+  /// (its close frame read on this socket's behalf, or the connection
+  /// destroyed after it): [closeCode] and [closeReason] report them, before
+  /// whatever the end of the connection reports.
   void peerClosed(int code, String? reason) {
     _peerCloseCode = code;
     _peerCloseReason = reason;
@@ -284,6 +305,11 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     Duration grace = closeGrace,
   }) async {
     _closing = true;
+    if (!_listened && _drain == null) {
+      // Closed with nobody reading: a listen from now on gets the end
+      // only.
+      _closedUnlistened = true;
+    }
     await _unbind(drop: drop);
     final closing = _inner
         .close(code, reason)
@@ -293,6 +319,10 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
             // The socket is gone already; closing it again changes nothing.
           },
         );
+    if (_closedUnlistened) {
+      // The close waits for the client's answer: what was held goes on.
+      onReader?.call();
+    }
     final giveUp = Timer(grace, () {
       if (!_gaveUp.isCompleted) {
         _gaveUp.complete();
