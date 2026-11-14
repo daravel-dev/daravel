@@ -134,9 +134,18 @@ width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
 (1 000) is not converted (`ImageTooLargeException`), and the original stays
 stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
 takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
-sample), and an animated WebP frame whose bitstream size differs from its
-frame header is refused. A conversion refused this way fails its job
-at once, without retries.
+sample). An animated PNG or WebP frame must lie inside the image it
+belongs to, and an animated WebP frame's bitstream must have the size its
+frame header declares; a JPEG must have 1 or 3 color components. Any other
+file is refused. A conversion refused this way fails its job at once,
+without retries.
+
+The limits keep memory bounded, though not small: converting an image at
+the default limit takes about 130 MiB and 2.5 s for a baseline JPEG of
+8 000 x 5 000, about 415 MiB and 3 s for a progressive one, and up to
+330 MiB and 4 s for an animation filling the budget (measured peaks).
+Lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
+requests.
 
 Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on

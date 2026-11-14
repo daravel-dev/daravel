@@ -312,8 +312,15 @@ Uint8List convertImageSync(
   // bytes (maxPixels x 4) holds half as many of its pixels.
   final pixels = _pngBitDepth(bytes) > 8 ? maxPixels ~/ 2 : maxPixels;
   final decoder = _decoderFor(bytes, math.max(1, pixels));
-  if (decoder is img.WebPDecoder) {
-    _checkWebpFrames(bytes);
+  switch (decoder) {
+    case img.WebPDecoder():
+      _checkWebpFrames(bytes);
+    case img.PngDecoder():
+      _checkPngFrames(bytes);
+    case img.JpegDecoder():
+      _checkJpegComponents(bytes);
+    default:
+      break;
   }
   final info = decoder == null
       ? null
@@ -581,9 +588,11 @@ img.Decoder? _decoderFor(Uint8List bytes, int maxPixels) {
 /// budget (checked per frame and over all frames or pages, with our
 /// limit) as [ImageTooLargeException], a damaged file as
 /// [ImageConversionException]. The budget error is told by its message,
-/// which `package:image` does not type: the APNG test in
-/// `test/image_limits_test.dart` ("an APNG frame larger than its canvas is
-/// refused") fails if that message changes.
+/// which `package:image` does not type. Our own checks run first (the
+/// header budget, frames inside their canvas) and are never looser than
+/// the package's, so no file known to us reaches that error any more: the
+/// mapping stays as a guard, and a changed message would only turn such a
+/// file into an [ImageConversionException], still refused.
 T _guarded<T>(T Function() body) {
   try {
     return body();
@@ -594,9 +603,10 @@ T _guarded<T>(T Function() body) {
   }
 }
 
-/// For an animated WebP, refuses a frame whose bitstream (`VP8L` or
-/// `VP8 `) declares another size than its `ANMF` header. Not a WebP, or
-/// not animated: nothing to do.
+/// For an animated WebP, refuses a frame (`ANMF`) that does not lie inside
+/// the canvas `VP8X` declares (the format requires it), or whose bitstream
+/// (`VP8L` or `VP8 `) declares another size than its `ANMF` header. Not a
+/// WebP, or not animated: nothing to do.
 void _checkWebpFrames(Uint8List bytes) {
   int le(int at, int length) {
     var value = 0;
@@ -613,9 +623,10 @@ void _checkWebpFrames(Uint8List bytes) {
     return;
   }
   const malformed = ImageConversionException(
-    'An animated WebP frame is malformed or its bitstream does not match '
-    'its frame size; it was not converted.',
+    'An animated WebP frame is malformed, lies outside its canvas, or its '
+    'bitstream does not match its frame size; it was not converted.',
   );
+  (int, int)? canvas;
   var at = 12;
   while (at + 8 <= bytes.length) {
     final size = le(at + 4, 4);
@@ -624,12 +635,24 @@ void _checkWebpFrames(Uint8List bytes) {
     if (end > bytes.length) {
       throw malformed;
     }
-    if (fourcc(at, 'ANMF')) {
-      if (size < 16) {
+    if (fourcc(at, 'VP8X')) {
+      if (size < 10) {
         throw malformed;
       }
+      canvas = (le(data + 4, 3) + 1, le(data + 7, 3) + 1);
+    }
+    if (fourcc(at, 'ANMF')) {
+      if (size < 16 || canvas == null) {
+        throw malformed;
+      }
+      // Offsets are stored halved.
+      final x = le(data, 3) * 2;
+      final y = le(data + 3, 3) * 2;
       final width = le(data + 6, 3) + 1;
       final height = le(data + 9, 3) + 1;
+      if (x + width > canvas.$1 || y + height > canvas.$2) {
+        throw malformed;
+      }
       var sub = data + 16;
       while (sub + 8 <= end) {
         final subSize = le(sub + 4, 4);
@@ -657,6 +680,101 @@ void _checkWebpFrames(Uint8List bytes) {
       }
     }
     at = end + (size.isOdd ? 1 : 0);
+  }
+}
+
+/// For an APNG, refuses a frame (`fcTL`) that does not lie inside the
+/// image `IHDR` declares (the format requires it). Chunks are walked by
+/// their lengths only; nothing is inflated. Not a PNG: nothing to do.
+void _checkPngFrames(Uint8List bytes) {
+  if (_pngBitDepth(bytes) == 0) {
+    return;
+  }
+  const malformed = ImageConversionException(
+    'An animated PNG frame is malformed or lies outside the image; it was '
+    'not converted.',
+  );
+  int be(int at) =>
+      (bytes[at] << 24) |
+      (bytes[at + 1] << 16) |
+      (bytes[at + 2] << 8) |
+      bytes[at + 3];
+  bool type(int at, String code) =>
+      String.fromCharCodes(bytes, at, at + 4) == code;
+  final width = be(16);
+  final height = be(20);
+  var at = 8;
+  while (at + 12 <= bytes.length) {
+    final length = be(at);
+    final data = at + 8;
+    if (data + length + 4 > bytes.length) {
+      // A truncated chunk: the decoder reports it.
+      return;
+    }
+    if (type(at + 4, 'fcTL')) {
+      if (length < 26) {
+        throw malformed;
+      }
+      final w = be(data + 4);
+      final h = be(data + 8);
+      final x = be(data + 12);
+      final y = be(data + 16);
+      if (x + w > width || y + h > height) {
+        throw malformed;
+      }
+    } else if (type(at + 4, 'IEND')) {
+      return;
+    }
+    at = data + length + 4;
+  }
+}
+
+/// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
+/// 1 or 3 (the ones converted), before anything is decoded. Segments are
+/// walked by their
+/// lengths, and entropy-coded data byte by byte to its next marker. Not a
+/// JPEG: nothing to do.
+void _checkJpegComponents(Uint8List bytes) {
+  final n = bytes.length;
+  if (n < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) {
+    return;
+  }
+  var at = 2;
+  while (at + 4 <= n) {
+    if (bytes[at] != 0xFF) {
+      // Entropy-coded data: on to the next marker (not a stuffed 0xFF00
+      // or a restart marker).
+      at++;
+      continue;
+    }
+    final marker = bytes[at + 1];
+    if (marker == 0xFF ||
+        marker == 0x00 ||
+        marker == 0x01 ||
+        (marker >= 0xD0 && marker <= 0xD7)) {
+      at += marker == 0xFF ? 1 : 2;
+      continue;
+    }
+    if (marker == 0xD9) {
+      return;
+    }
+    final length = (bytes[at + 2] << 8) | bytes[at + 3];
+    final sof =
+        marker >= 0xC0 &&
+        marker <= 0xCF &&
+        marker != 0xC4 &&
+        marker != 0xC8 &&
+        marker != 0xCC;
+    if (sof) {
+      final components = at + 9 < n ? bytes[at + 9] : 0;
+      if (components != 1 && components != 3) {
+        throw ImageConversionException(
+          'The JPEG has $components color components; only 1 or 3 are '
+          'converted.',
+        );
+      }
+    }
+    at += 2 + length;
   }
 }
 

@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:742ccbfa93c4 -->
+<!-- source: medialibrary.md sha256:fb1b520d494f -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -132,9 +132,18 @@ frame) atau memuat lebih dari `MEDIA_MAX_IMAGE_FRAMES` frame (1 000) tidak
 dikonversi (`ImageTooLargeException`), dan file aslinya tetap tersimpan.
 File berukuran satu megabyte bisa menyatakan 16 000 x 16 000 piksel, yang
 butuh gigabyte untuk didekode. PNG 16-bit dihitung dua kali (dua byte per
-sampel), dan frame WebP animasi yang ukuran bitstream-nya berbeda dari
-header frame-nya ditolak. Konversi yang ditolak dengan cara ini
-langsung menggagalkan job-nya, tanpa diulang.
+sampel). Frame PNG atau WebP animasi harus berada di dalam gambarnya, dan
+ukuran bitstream frame WebP animasi harus sama dengan yang dinyatakan
+header frame-nya; JPEG harus memiliki 1 atau 3 komponen warna. Berkas
+lain ditolak. Konversi yang ditolak dengan cara ini langsung
+menggagalkan job-nya, tanpa diulang.
+
+Batas ini menjaga memori tetap terbatas, tetapi tidak kecil: mengonversi
+gambar tepat di batas bawaan memakan sekitar 130 MiB dan 2,5 dtk untuk
+JPEG baseline 8 000 x 5 000, sekitar 415 MiB dan 3 dtk untuk JPEG
+progresif, dan sampai 330 MiB dan 4 dtk untuk animasi yang memenuhi
+anggaran (puncak terukur). Turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi
+berbagi proses dengan request.
 
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau

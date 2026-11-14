@@ -316,10 +316,15 @@ Uint8List _apngWithHugeFrame(int width, int height) {
   return out.takeBytes();
 }
 
-/// An animated WebP whose canvas (`VP8X`) and single frame (`ANMF`) are
-/// [frame] x [frame], holding a lossless (`VP8L`) bitstream of [bitstream] x
-/// [bitstream].
-Uint8List _animatedWebp({required int frame, required int bitstream}) {
+/// An animated WebP whose canvas (`VP8X`) is [canvas] x [canvas] ([frame] by
+/// default) and whose single frame (`ANMF`) is [frame] x [frame], holding a
+/// lossless (`VP8L`) bitstream of [bitstream] x [bitstream].
+Uint8List _animatedWebp({
+  required int frame,
+  required int bitstream,
+  int? canvas,
+}) {
+  final side = canvas ?? frame;
   List<int> le24(int v) => [v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF];
   List<int> chunk(String type, List<int> data) => [
     ...ascii.encode(type),
@@ -342,8 +347,8 @@ Uint8List _animatedWebp({required int frame, required int bitstream}) {
   ]);
   final body = [
     ...ascii.encode('WEBP'),
-    // Animation flag; canvas [frame] x [frame].
-    ...chunk('VP8X', [0x02, 0, 0, 0, ...le24(frame - 1), ...le24(frame - 1)]),
+    // Animation flag; canvas [side] x [side].
+    ...chunk('VP8X', [0x02, 0, 0, 0, ...le24(side - 1), ...le24(side - 1)]),
     ...chunk('ANIM', [0, 0, 0, 0, 0, 0]),
     // Offset 0,0; frame [frame] x [frame]; duration 1; no flags.
     ...chunk('ANMF', [
@@ -369,7 +374,7 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
   const mib = 1024 * 1024;
   test('an APNG frame larger than its canvas is refused', () async {
     final (line, rss) = await convert(_apngWithHugeFrame(16000, 16000));
-    expect(line, 'error ImageTooLargeException');
+    expect(line, 'error ImageConversionException');
     expect(rss, lessThan(300 * mib));
   }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -387,6 +392,65 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  // RSEQ 63: a frame must lie inside its canvas.
+  test('an animated WebP frame outside its canvas is refused', () {
+    expect(
+      () => convertImageSync(_animatedWebp(frame: 2, bitstream: 2, canvas: 1), {
+        'width': [1],
+      }),
+      throwsA(isA<ImageConversionException>()),
+    );
+  });
+
+  test('an APNG frame outside its image is refused; frames inside convert', () {
+    expect(
+      () => convertImageSync(_apngWithHugeFrame(2, 2), {
+        'width': [1],
+      }),
+      throwsA(isA<ImageConversionException>()),
+    );
+    final animation = img.Image(width: 4, height: 4, numChannels: 4)
+      ..addFrame(img.Image(width: 4, height: 4, numChannels: 4));
+    expect(
+      convertImageSync(img.encodePng(animation), {
+        'width': [2],
+      }),
+      isNotEmpty,
+    );
+  });
+
+  test('a JPEG of 4 color components is refused before it is decoded', () {
+    expect(
+      () => convertImageSync(_jpegComponents(4), {
+        'width': [1],
+      }),
+      throwsA(
+        isA<ImageConversionException>().having(
+          (e) => e.message,
+          'message',
+          contains('4 color components'),
+        ),
+      ),
+    );
+  });
+}
+
+/// An 8 x 8 progressive (`SOF2`) JPEG of [components] components with no
+/// real scan data.
+Uint8List _jpegComponents(int components) {
+  final sof = <int>[
+    8, 0, 8, 0, 8, components, //
+    for (var i = 1; i <= components; i++) ...[i, 0x11, 0],
+  ];
+  final dqt = List<int>.filled(65, 1)..[0] = 0;
+  return Uint8List.fromList([
+    0xFF, 0xD8, //
+    0xFF, 0xDB, 0, dqt.length + 2, ...dqt,
+    0xFF, 0xC2, 0, sof.length + 2, ...sof,
+    0xFF, 0xDA, 0, 8, 1, 1, 0x00, 0, 0, 0,
+    0x00, 0xFF, 0xD9,
+  ]);
 }
 
 void tiffAndBudgetTests() {
