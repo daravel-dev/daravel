@@ -82,6 +82,44 @@ void main() {
     }
   });
 
+  test('RSEQ 65: a conditional comment before the first keyword or between '
+      'the keywords read makes the text one that may change splitting', () {
+    // The server may skip a conditional comment entirely (MySQL skips every
+    // `/*M!…*/`; both skip `/*!N…*/` above their version), so what it holds
+    // is not what runs: its content is not read.
+    for (final sql in [
+      "/*M!100000 SELECT 1 */ SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'",
+      '/*!999999 SAVEPOINT x */ SET NAMES latin1',
+      '/*!999999 DO 1 */ EXECUTE stmt',
+      '/*M!100000 SELECT 1 */ IF 1 THEN SET NAMES latin1; END IF',
+      '/*!999999 SELECT 1 */ SET NAMES latin1',
+      'BEGIN /*M!999999 WORK */ NOT ATOMIC SET NAMES latin1; END',
+      'BEGIN /*!999999 WORK */ NOT ATOMIC SET NAMES latin1; END',
+      'BEGIN NOT /*!999999 x */ ATOMIC SET NAMES latin1; END',
+      'l /*!999999 x */ : LOOP SET NAMES latin1; END LOOP',
+      '/* c */ /*!999999 SELECT 1 */ SET NAMES latin1',
+      '/*!40101 SELECT 1 */',
+      // RSEQ 65 item 3: a doubled backquote inside a backquoted label.
+      '`a``b`: LOOP SET NAMES latin1; END LOOP',
+      '`a``b` : BEGIN NOT ATOMIC SELECT 1; END',
+    ]) {
+      expect(MySqlDriver.changesSplitting(sql), isTrue, reason: sql);
+    }
+    // Without a conditional comment where it is read (`/*M` lacks its `!`,
+    // a `!` that does not follow `/*`, one after the first word), these
+    // stay as they were.
+    for (final sql in [
+      '/*M SELECT 1 */ SELECT 2',
+      '/* ! */ SELECT 1',
+      'SELECT 1 /*!999999 SET NAMES latin1 */',
+      'BEGIN /* c */ WORK',
+      '`a``b` = 1',
+      '`a``b`',
+    ]) {
+      expect(MySqlDriver.changesSplitting(sql), isFalse, reason: sql);
+    }
+  });
+
   test('10 000 comments are scanned in linear time', () {
     for (final unit in ['/**/', '/* a */ ', '-- x\n', '#\n']) {
       for (final tail in ['select 1', 'set x = 1']) {

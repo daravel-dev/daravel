@@ -293,6 +293,94 @@ void main() {
     expect(await prepares() - afterIf, 1);
   });
 
+  group('RSEQ 65: a conditional comment the server skips', () {
+    final mariadb =
+        (Platform.environment['DARAVEL_TEST_MARIADB'] ?? '').isNotEmpty;
+
+    test('hides no SET from the check: the stack a text becomes is '
+        'refused', () async {
+      await db.execute('DROP TABLE IF EXISTS db1_victim');
+      await db.execute('CREATE TABLE db1_victim (n INT)');
+      addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
+      const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
+      await db.select(text);
+      const set =
+          "/*M!100000 SELECT 1 */ SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'";
+      if (mariadb) {
+        // MariaDB runs the comment: `SELECT 1 SET …` is not a statement.
+        await expectLater(
+          db.execute(set),
+          throwsA(isA<MySQLServerException>()),
+        );
+        return;
+      }
+      // MySQL skips the whole comment and runs the SET.
+      await db.execute(set);
+      expect(
+        (await db.select('SELECT @@session.sql_mode AS m')).single['m'],
+        contains('NO_BACKSLASH_ESCAPES'),
+      );
+      await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
+      expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
+        {'c': 0},
+      ], reason: 'the table is still there');
+    });
+
+    test('in front of SET NAMES: the texts are checked again', () async {
+      addTearDown(() => db.unprepared('SET NAMES utf8mb4'));
+      await prepares();
+      const text = 'SELECT COUNT(*) AS c FROM db1_single';
+      await db.select(text);
+      // Both servers skip a version above their own.
+      await db.execute('/*!999999 SELECT 1 */ SET NAMES latin1');
+      expect(
+        (await db.select('SELECT @@session.character_set_client AS cs'))
+            .single['cs'],
+        'latin1',
+      );
+      final after = await prepares();
+      await db.select(text);
+      expect(await prepares() - after, 1);
+    });
+
+    test('in front of a 1295 statement: a keyword inside it does not keep '
+        'the texts', () async {
+      addTearDown(() => db.unprepared('DEALLOCATE PREPARE db1_ps'));
+      await prepares();
+      const text = 'SELECT COUNT(*) AS c FROM db1_single';
+      await db.select(text);
+      await db.execute(
+        "/*!999999 SAVEPOINT x */ PREPARE db1_ps FROM 'SELECT 1'",
+      );
+      final after = await prepares();
+      await db.select(text);
+      expect(await prepares() - after, 1);
+    });
+
+    test('MariaDB: between BEGIN and NOT ATOMIC', () async {
+      if (!mariadb) {
+        markTestSkipped('MariaDB only (DARAVEL_TEST_MARIADB)');
+        return;
+      }
+      addTearDown(() => db.unprepared('SET NAMES utf8mb4'));
+      await prepares();
+      const text = 'SELECT COUNT(*) AS c FROM db1_single';
+      await db.select(text);
+      await db.execute(
+        'BEGIN /*M!999999 WORK */ NOT ATOMIC SET NAMES latin1; END',
+      );
+      expect(
+        (await db.select('SELECT @@session.character_set_client AS cs'))
+            .single['cs'],
+        'latin1',
+        reason: 'the block ran and its SET NAMES stayed',
+      );
+      final after = await prepares();
+      await db.select(text);
+      expect(await prepares() - after, 1);
+    });
+  });
+
   test('1 000 distinct texts leave no prepared statement on the server, '
       'and a text over 4 096 is checked every time', () async {
     await status('Com_stmt_close');

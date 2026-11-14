@@ -819,7 +819,12 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   ///   refuses them (1064);
   /// - a statement starting with a label (`l: BEGIN NOT ATOMIC …`), which
   ///   MariaDB 11.8 refuses outside a routine (1064) but which costs
-  ///   nothing to notice.
+  ///   nothing to notice;
+  /// - any text with an executable comment (`/*!…`, `/*M!…`) before its
+  ///   first keyword or between the keywords read here, whatever the
+  ///   comment holds: MySQL skips every `/*M!…*/` and both servers skip a
+  ///   version above their own, so the keyword inside one may not be what
+  ///   runs (Reviewer RSEQ 65: `/*M!100000 SELECT 1 */ SET …` on MySQL).
   ///
   /// A known limit: a trigger or stored function that sets `sql_mode`,
   /// fired by an ordinary statement, is not noticed. The manual says they
@@ -831,15 +836,31 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// comments took 14 s).
   static bool changesSplitting(String sql) {
     final start = _skipIgnored(sql, 0);
+    // A conditional comment before the first keyword, or between the
+    // keywords read below, may be one the server ignores (`/*M!…*/` on
+    // MySQL, `/*!999999 …*/` on an older server): what it holds is not
+    // what runs. Its content is not interpreted; the text is taken as one
+    // that may change splitting.
+    if (_hasConditional(sql, 0, start)) {
+      return true;
+    }
     final first = _word(sql, start);
     switch (first.word) {
       case 'set' || 'call' || 'execute':
       case 'if' || 'case' || 'while' || 'loop' || 'repeat' || 'for':
         return true;
       case 'begin':
-        final second = _word(sql, _skipIgnored(sql, first.end));
-        return second.word == 'not' &&
-            _word(sql, _skipIgnored(sql, second.end)).word == 'atomic';
+        final secondAt = _skipIgnored(sql, first.end);
+        if (_hasConditional(sql, first.end, secondAt)) {
+          return true;
+        }
+        final second = _word(sql, secondAt);
+        if (second.word != 'not') {
+          return false;
+        }
+        final thirdAt = _skipIgnored(sql, second.end);
+        return _hasConditional(sql, second.end, thirdAt) ||
+            _word(sql, thirdAt).word == 'atomic';
       default:
         // A label: an identifier, then `:` (not `:=`).
         final end = _identifierEnd(sql, start);
@@ -847,10 +868,29 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
           return false;
         }
         final colon = _skipIgnored(sql, end);
+        if (_hasConditional(sql, end, colon)) {
+          return true;
+        }
         return colon < sql.length &&
             sql.codeUnitAt(colon) == 0x3a &&
             (colon + 1 == sql.length || sql.codeUnitAt(colon + 1) != 0x3d);
     }
+  }
+
+  /// Whether `sql[from, to)` holds the opening of a conditional comment
+  /// (`/*!` or MariaDB's `/*M!`).
+  static bool _hasConditional(String sql, int from, int to) {
+    for (var i = from; i + 2 < to; i++) {
+      if (sql.codeUnitAt(i) == 0x2f &&
+          sql.codeUnitAt(i + 1) == 0x2a &&
+          (sql.codeUnitAt(i + 2) == 0x21 ||
+              (sql.codeUnitAt(i + 2) == 0x4d &&
+                  i + 3 < to &&
+                  sql.codeUnitAt(i + 3) == 0x21))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Whether [sql], refused by a prepare with 1295, is a kind of statement
@@ -862,22 +902,39 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// transaction would empty it and pay its checks again. A 1295 text is one
   /// statement: the server refuses a stack it starts as a syntax error
   /// (1064) before it gets that far. `BEGIN NOT ATOMIC` is caught by
-  /// [changesSplitting] before the text is checked.
-  static bool _keepsSplitting(String sql) =>
-      switch (_word(sql, _skipIgnored(sql, 0)).word) {
-        'savepoint' || 'release' || 'rollback' || 'start' || 'begin' => true,
-        'commit' || 'lock' || 'unlock' || 'xa' || 'handler' => true,
-        'check' || 'help' => true,
-        _ => false,
-      };
+  /// [changesSplitting] before the text is checked. A conditional comment
+  /// before the first keyword makes it unknown what runs: not kept.
+  static bool _keepsSplitting(String sql) {
+    final start = _skipIgnored(sql, 0);
+    if (_hasConditional(sql, 0, start)) {
+      return false;
+    }
+    return switch (_word(sql, start).word) {
+      'savepoint' || 'release' || 'rollback' || 'start' || 'begin' => true,
+      'commit' || 'lock' || 'unlock' || 'xa' || 'handler' => true,
+      'check' || 'help' => true,
+      _ => false,
+    };
+  }
 
   /// Where the identifier at [start] ends: letters, digits, `_` and `$`,
-  /// or a backquoted name (an unterminated one ends the text).
+  /// or a backquoted name, where a doubled backquote is one inside the name
+  /// (an unterminated one ends the text).
   static int _identifierEnd(String sql, int start) {
     final n = sql.length;
     if (start < n && sql.codeUnitAt(start) == 0x60) {
-      final close = sql.indexOf('`', start + 1);
-      return close < 0 ? n : close + 1;
+      var i = start + 1;
+      while (i < n) {
+        if (sql.codeUnitAt(i) == 0x60) {
+          if (i + 1 < n && sql.codeUnitAt(i + 1) == 0x60) {
+            i += 2;
+            continue;
+          }
+          return i + 1;
+        }
+        i++;
+      }
+      return n;
     }
     var i = start;
     while (i < n) {
