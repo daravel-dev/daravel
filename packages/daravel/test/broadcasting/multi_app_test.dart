@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import '../http/support/websocket_counts.dart';
+
 /// Two Pusher applications on one server (Blueprint #135, R2): `a` is the
 /// one of the `REVERB_APP_*` settings, `b` comes from the provider only.
 const BroadcastApp appA = BroadcastApp(id: '42', key: 'key-a', secret: 'sec-a');
@@ -16,6 +18,9 @@ const BroadcastApp appB = BroadcastApp(
 );
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
 

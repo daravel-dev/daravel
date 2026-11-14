@@ -135,6 +135,12 @@ jobs:
             fi
           done
 
+      # The WebSocket memory tests load the machine (hundreds of
+      # connections, tens of MB through loopback): skipped in the run above
+      # (dart_test.yaml), run here alone so they slow no other test.
+      - name: Test (WebSocket memory, alone)
+        run: (cd packages/daravel && dart test --tags memory --run-skipped --concurrency=1 --reporter=expanded)
+
       # The same suites again through a real ServerEngine socket instead of
       # Application.handle: dart:io's own behaviour (default headers, HEAD,
       # lengths, compression) is only visible there.

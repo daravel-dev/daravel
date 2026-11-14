@@ -7,6 +7,7 @@ import 'package:daravel/src/broadcasting/secretbox.dart';
 import 'package:test/test.dart';
 
 import '../http/support/raw_ws_client.dart';
+import '../http/support/websocket_counts.dart';
 
 final class Member implements Authenticatable {
   const Member(this.id, this.name);
@@ -42,6 +43,9 @@ final List<int> masterKey = List.filled(32, 0x2a);
 const String masterKeyBase64 = 'KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=';
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
 

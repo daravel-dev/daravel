@@ -3,6 +3,8 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'websocket_stats.dart';
+
 /// The WebSocket a `router.ws` handler gets: `dart:io`'s, with a bound on
 /// what waits to be sent.
 ///
@@ -49,7 +51,13 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   static const Duration closeGrace = Duration(seconds: 5);
 
   final ListQueue<Object> _queue = ListQueue<Object>();
-  int _bufferedBytes = 0;
+  int __bufferedBytes = 0;
+  int get _bufferedBytes => __bufferedBytes;
+  set _bufferedBytes(int value) {
+    WebSocketGuardStats.queuedBy(value - __bufferedBytes);
+    __bufferedBytes = value;
+  }
+
   _Feed? _feed;
   Future<void>? _binding;
   bool _closing = false;

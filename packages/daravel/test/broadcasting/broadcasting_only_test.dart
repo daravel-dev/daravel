@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import '../http/support/websocket_counts.dart';
+
 /// `Application.serveBroadcastingOnly` (Blueprint #135, R3): what
 /// `reverb:start` serves.
 Application broadcastingApp() =>
@@ -27,6 +29,9 @@ Application broadcastingApp() =>
         .create();
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   final engines = <ServerEngine>[];
   final apps = <Application>[];
 

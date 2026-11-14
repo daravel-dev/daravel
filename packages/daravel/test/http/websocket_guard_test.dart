@@ -11,10 +11,14 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/websocket_counts.dart';
 
 /// The WebSocket guard (http/websocket_guard.dart) through a real socket,
 /// with a raw client that writes frames by hand.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
   late MemoryHandler log;

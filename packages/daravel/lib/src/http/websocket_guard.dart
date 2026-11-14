@@ -27,6 +27,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'buffered_web_socket.dart';
+import 'websocket_stats.dart';
 
 /// The limits of a [WebSocketGuard].
 final class WebSocketGuardLimits {
@@ -301,7 +302,13 @@ final class _Inbound {
   BytesBuilder? _message;
   int _messageOpcode = 0;
   bool _messageRsv1 = false;
-  int _messageBytes = 0;
+  int __messageBytes = 0;
+  int get _messageBytes => __messageBytes;
+  set _messageBytes(int value) {
+    WebSocketGuardStats.assemblingBy(value - __messageBytes);
+    __messageBytes = value;
+  }
+
   Timer? _deadline;
 
   // Control frames: a token bucket.
@@ -492,6 +499,7 @@ final class _Inbound {
       if (_opcode == 0x8 && _message != null) {
         // A close in the middle of a message: the message is dropped.
         _message = null;
+        _messageBytes = 0;
         _deadline?.cancel();
       }
       if (_opcode == 0x9) {
@@ -617,6 +625,7 @@ final class _Inbound {
     }
     final payload = _message!.takeBytes();
     _message = null;
+    _messageBytes = 0;
     _deadline?.cancel();
     emit(_frame(_messageOpcode, _messageRsv1, payload.length));
     if (payload.isNotEmpty) {
@@ -678,6 +687,7 @@ final class _Inbound {
   void _stop(int code, String reason) {
     _stopped = true;
     _message = null;
+    _messageBytes = 0;
     _deadline?.cancel();
     _guard._violation(code, reason);
   }
@@ -685,6 +695,7 @@ final class _Inbound {
   void dispose() {
     _stopped = true;
     _message = null;
+    _messageBytes = 0;
     _ping = null;
     _close = null;
     _deadline?.cancel();
@@ -884,7 +895,20 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// [_heldLimit] bytes wait. At most [_heldLimit] plus one assembled
   /// message (up to `maxMessageBytes`) plus one TCP chunk wait here.
   final Queue<Object> _held = Queue<Object>();
-  int _heldBytes = 0;
+  int __heldBytes = 0;
+  int get _heldBytes => __heldBytes;
+  set _heldBytes(int value) {
+    WebSocketGuardStats.heldBy(value - __heldBytes);
+    __heldBytes = value;
+  }
+
+  /// How many items [_held] holds (merged slices count once).
+  int __heldItems = 0;
+  int get _heldItems => __heldItems;
+  set _heldItems(int value) {
+    WebSocketGuardStats.heldItemsBy(value - __heldItems);
+    __heldItems = value;
+  }
 
   /// The WebSocket paused its reading.
   bool _handOnPaused = false;
@@ -963,6 +987,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       }
       _held.add(_HeldBytes()..builder.add(bytes));
       _heldBytes += heldItemCost + bytes.length;
+      _heldItems++;
       return;
     }
     // A view of a larger buffer (the TCP chunk) would keep all of it: held
@@ -974,6 +999,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
           : Uint8List.fromList(bytes),
     );
     _heldBytes += heldItemCost + bytes.length;
+    _heldItems++;
   }
 
   /// [_flushHeld] is handing items on: the WebSocket can pause and resume
@@ -992,11 +1018,13 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         final item = _held.removeFirst();
         if (item is Uint8List) {
           _heldBytes -= heldItemCost + item.length;
+          _heldItems--;
           _in.add(item);
         } else if (item is _HeldBytes) {
           // A fresh buffer: at offset 0, so handed on as it is.
           final bytes = item.builder.takeBytes();
           _heldBytes -= heldItemCost + bytes.length;
+          _heldItems--;
           _in.add(bytes);
         } else if (item is _TcpEnd) {
           _endIn(item);
@@ -1044,6 +1072,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       // No reader can come: the session ends now.
       _held.clear();
       _heldBytes = 0;
+      _heldItems = 0;
       _guard._closedUnread(
         _guard._clientCloseCode,
         _guard._clientCloseReason,
@@ -1078,6 +1107,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       // No reader can come: the session ends now, with the client's code.
       _held.clear();
       _heldBytes = 0;
+      _heldItems = 0;
       _guard._closedUnread(code, reason, clientGone: false);
       return;
     }
@@ -1103,6 +1133,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     final ended = _held.last is _TcpEnd;
     _held.clear();
     _heldBytes = 0;
+    _heldItems = 0;
     if (ended || _closeRead) {
       _guard._closedUnread(
         _guard._clientCloseCode,
@@ -1170,6 +1201,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         final ended = _held.isNotEmpty && _held.last is _TcpEnd;
         _held.clear();
         _heldBytes = 0;
+        _heldItems = 0;
         _unreadWait?.cancel();
         _unreadWait = null;
         if (ended || _closeRead) {
@@ -1196,7 +1228,13 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   bool _readerGone = false;
 
   final Queue<List<int>> _waiting = Queue<List<int>>();
-  int _waitingBytes = 0;
+  int __waitingBytes = 0;
+  int get _waitingBytes => __waitingBytes;
+  set _waitingBytes(int value) {
+    WebSocketGuardStats.waitingBy(value - __waitingBytes);
+    __waitingBytes = value;
+  }
+
   bool _paused = false;
 
   /// What the TCP socket writes, fed from [_waiting] while not paused.
@@ -1431,6 +1469,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _pongs.clear();
     _held.clear();
     _heldBytes = 0;
+    _heldItems = 0;
     _unreadWait?.cancel();
     _unreadWait = null;
     // The WebSocket still sees its stream end, so its close completes.

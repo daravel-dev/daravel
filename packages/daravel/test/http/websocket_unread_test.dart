@@ -8,11 +8,15 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/websocket_counts.dart';
 
 /// A WebSocket whose handler does not read yet (it does async work first)
 /// or never reads: the server reads the client on, holds what it sends in
 /// order, and sees its close or its going away.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
   late MemoryHandler log;

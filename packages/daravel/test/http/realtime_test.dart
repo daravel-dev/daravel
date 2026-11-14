@@ -7,6 +7,8 @@ import 'package:daravel/src/http/buffered_web_socket.dart';
 import 'package:daravel_test/daravel_test.dart';
 import 'package:test/test.dart';
 
+import 'support/websocket_counts.dart';
+
 /// Lets a request through only with `x-allowed`, and leaves a value for the
 /// handler (it runs in the same request scope).
 final class _Gate implements Middleware {
@@ -45,6 +47,9 @@ Future<String> readToEnd(StreamIterator<String> chunks) async {
 }
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   group('SseEvent', () {
     test('frames follow the EventSource format', () {
       expect(const SseEvent('hi').encode(), 'event: update\ndata: hi\n\n');
