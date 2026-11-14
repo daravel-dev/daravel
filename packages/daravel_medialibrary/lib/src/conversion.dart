@@ -289,10 +289,18 @@ bool canConvert({String? mimeType, String? extension}) {
 /// What is guaranteed: a still image (JPEG, PNG, WebP, BMP) or a GIF is
 /// decoded by a decoder held to [maxPixels] (half of it for a WebP or a
 /// 16-bit PNG), one frame for a still image; an animated PNG or WebP is not
-/// converted in this version. The limit bounds an image's size, not memory
-/// exactly: at the default limit, plan about 500 MiB of memory per
-/// conversion running at once, whatever the size of the image. Measured
-/// peaks (a compiled process):
+/// converted in this version. An image with a side longer than 65 535, or
+/// a JPEG with more scans than its size allows, is not converted. A
+/// manipulation does not make an image of more pixels than the larger of
+/// the one it starts from and a quarter of [maxPixels], nor one with a
+/// side longer than 65 535: past that, [ImageTooLargeException]. A
+/// manipulation's cost follows the pixels it makes (a resize to 10 million
+/// pixels takes about 3.3 s; a blur, whose amount the conversion sets,
+/// costs more per pixel).
+///
+/// The limit bounds an image's size, not memory exactly: at the default
+/// limit, plan about 500 MiB of memory per conversion running at once,
+/// whatever the size of the image. Measured peaks (a compiled process):
 ///
 /// | Image | Peak memory | Time |
 /// | --- | --- | --- |
@@ -306,6 +314,8 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | WebP, 4 472 x 4 472, worst measured | about 395 MiB (470 with orientation) | 2.6 s |
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
+/// | JPEG at its scan limit (40, 20 or 5 MP) | about 245 MiB at 40 MP | 3.1 to 3.4 s |
+/// | a manipulation making 10 million pixels | 46 to 160 MiB | 3.3 to 3.8 s |
 Future<Uint8List> convertImage(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
@@ -364,6 +374,17 @@ Uint8List convertImageSync(
       'converted.',
     );
   }
+  // A very long side costs time even with few pixels, and no JPEG or GIF
+  // (the formats written) can hold more than [_maxImageSide].
+  if (info.width > _maxImageSide || info.height > _maxImageSide) {
+    throw ImageTooLargeException(
+      'The image is ${info.width} x ${info.height} pixels, a side longer '
+      'than $_maxImageSide; it was not converted.',
+    );
+  }
+  if (decoder is img.JpegDecoder) {
+    _checkJpegScans(bytes, info.width, info.height, maxPixels);
+  }
   // Divisions only: width x height x frames <= pixels, without a product
   // that could overflow.
   if (frames > maxFrames || info.width > pixels ~/ frames ~/ info.height) {
@@ -393,18 +414,21 @@ Uint8List convertImageSync(
       : img.bakeOrientation(decoded);
   int? quality;
   var format = 'jpg';
+  // How far a manipulation may grow the image past its own pixels.
+  final growth = math.max(1, maxPixels ~/ _growthDivisor);
   for (final MapEntry(key: name, value: args) in manipulations.entries) {
     switch (name) {
       case 'width':
-        image = _width(image, args[0]! as int);
+        image = _width(image, args[0]! as int, growth);
       case 'height':
-        image = _height(image, args[0]! as int);
+        image = _height(image, args[0]! as int, growth);
       case 'fit':
         image = _fit(
           image,
           Fit.values.byName(args[0]! as String),
           args[1] as int?,
           args[2] as int?,
+          growth,
         );
       case 'crop':
         image = _crop(
@@ -441,22 +465,63 @@ Uint8List convertImageSync(
 double _aspect(img.Image image) => image.width / image.height;
 
 /// spatie/image's `width()`: the height follows the aspect ratio.
-img.Image _width(img.Image image, int width) =>
-    _resize(image, width, math.max(1, (width / _aspect(image)).round()));
+img.Image _width(img.Image image, int width, int growth) =>
+    _resize(image, width, _side(width / _aspect(image)), growth);
 
 /// spatie/image's `height()`: the width follows the aspect ratio.
-img.Image _height(img.Image image, int height) =>
-    _resize(image, math.max(1, (height * _aspect(image)).round()), height);
+img.Image _height(img.Image image, int height, int growth) =>
+    _resize(image, _side(height * _aspect(image)), height, growth);
 
-img.Image _resize(img.Image image, int width, int height) =>
-    width == image.width && height == image.height
-    ? image
-    : img.copyResize(
-        image,
-        width: width,
-        height: height,
-        interpolation: img.Interpolation.cubic,
-      );
+/// A side computed from an aspect ratio, at least 1; [_checkTarget]
+/// refuses one past [_maxImageSide]. A value no int holds (infinite, or
+/// past 2^53) reads as 2^53, which is refused the same way.
+int _side(double value) => value.isFinite && value < 9007199254740992
+    ? math.max(1, value.round())
+    : 9007199254740992;
+
+img.Image _resize(img.Image image, int width, int height, int growth) {
+  if (width == image.width && height == image.height) {
+    return image;
+  }
+  _checkTarget(image, width, height, image.numFrames, growth);
+  return img.copyResize(
+    image,
+    width: width,
+    height: height,
+    interpolation: img.Interpolation.cubic,
+  );
+}
+
+/// Refuses to make a [width] x [height] image of [frames] frames out of
+/// [image] when a side is longer than [_maxImageSide], or when it holds more
+/// pixels than both [image] and [growth]: making an image costs time with
+/// its pixels, and a thin file would otherwise grow into hundreds of
+/// millions of them. Shrinking is always allowed (its cost is bounded by
+/// the image's own limit). Divisions only, without a product that could
+/// overflow.
+void _checkTarget(
+  img.Image image,
+  int width,
+  int height,
+  int frames,
+  int growth,
+) {
+  final own = image.width * image.height * math.max(1, image.numFrames);
+  final allowed = math.max(own, growth);
+  final count = math.max(1, frames);
+  if (width < 1 ||
+      height < 1 ||
+      width > _maxImageSide ||
+      height > _maxImageSide ||
+      width > allowed ~/ count ~/ height) {
+    throw ImageTooLargeException(
+      'The conversion would make a $width x $height image'
+      '${count > 1 ? ' of $count frames' : ''} out of a ${image.width} x '
+      '${image.height} one, past the limit of $allowed pixels; it was not '
+      'converted.',
+    );
+  }
+}
 
 /// spatie/image's `Fit::calculateSize()` and `Size::resize()`.
 (int, int) _size(
@@ -499,7 +564,7 @@ img.Image _resize(img.Image image, int width, int height) =>
       : dominantWidth;
 }
 
-img.Image _fit(img.Image image, Fit fit, int? width, int? height) {
+img.Image _fit(img.Image image, Fit fit, int? width, int? height, int growth) {
   final desiredWidth = width ?? image.width;
   final desiredHeight = height ?? image.height;
   switch (fit) {
@@ -510,13 +575,13 @@ img.Image _fit(img.Image image, Fit fit, int? width, int? height) {
       var result = image;
       if (image.width < desiredWidth || image.height < desiredHeight) {
         result = desiredWidth < desiredHeight
-            ? _height(result, desiredHeight)
-            : _width(result, desiredWidth);
+            ? _height(result, desiredHeight, growth)
+            : _width(result, desiredWidth, growth);
       }
       result = originalAspect > desiredWidth / desiredHeight
-          ? _height(result, desiredHeight)
-          : _width(result, desiredWidth);
-      return _canvas(result, desiredWidth, desiredHeight);
+          ? _height(result, desiredHeight, growth)
+          : _width(result, desiredWidth, growth);
+      return _canvas(result, desiredWidth, desiredHeight, growth);
     case Fit.fillMax:
       if (width == null || height == null) {
         throw const ImageConversionException(
@@ -531,7 +596,7 @@ img.Image _fit(img.Image image, Fit fit, int? width, int? height) {
         preserveAspect: true,
         doNotUpsize: false,
       );
-      return _canvas(_resize(image, w, h), width, height);
+      return _canvas(_resize(image, w, h, growth), width, height, growth);
     case Fit.contain || Fit.max || Fit.fill || Fit.stretch:
       final (w, h) = fit == Fit.stretch
           ? (desiredWidth, desiredHeight)
@@ -543,16 +608,16 @@ img.Image _fit(img.Image image, Fit fit, int? width, int? height) {
               preserveAspect: true,
               doNotUpsize: fit != Fit.contain,
             );
-      final resized = _resize(image, w, h);
+      final resized = _resize(image, w, h, growth);
       return fit == Fit.fill
-          ? _canvas(resized, desiredWidth, desiredHeight)
+          ? _canvas(resized, desiredWidth, desiredHeight, growth)
           : resized;
   }
 }
 
 /// spatie/image's `resizeCanvas()` centered: [image] on a white canvas of
 /// [width] × [height], cut where it is larger.
-img.Image _canvas(img.Image image, int width, int height) {
+img.Image _canvas(img.Image image, int width, int height, int growth) {
   if (image.width == width && image.height == height) {
     return image;
   }
@@ -560,6 +625,7 @@ img.Image _canvas(img.Image image, int width, int height) {
   if (cut.width == width && cut.height == height) {
     return cut;
   }
+  _checkTarget(image, width, height, 1, growth);
   final canvas = img.Image(
     width: width,
     height: height,
@@ -652,6 +718,61 @@ bool _isAnimated(img.DecodeInfo info) => switch (info) {
 /// Whether an animated GIF is converted: its decoder checks every frame
 /// against its logical screen while decoding.
 const bool _convertsAnimatedGif = true;
+
+/// The longest side converted, of the image read and of any image a
+/// manipulation makes: the most a JPEG or a GIF (the formats written) can
+/// hold. A long side costs time even with few pixels (decoding and
+/// writing go row by row): measured, a 1 x 1 000 000 PNG took 0.5 s and
+/// 40 000 000 rows about 20 s; at 65 535, 64 ms or less in every format.
+const int _maxImageSide = 65535;
+
+/// A manipulation may make an image of up to the larger of its own pixels
+/// and `maxPixels ~/ _growthDivisor` (frames counted): 10 million pixels at
+/// the default limit. Making an image costs time with its pixels, not with
+/// those of the file it came from: a cubic resize, measured (a compiled
+/// process) from a 100 x 100 and from an 8 000 x 5 000 image:
+///
+/// | Result | from 100 x 100 | from 8 000 x 5 000 |
+/// | --- | --- | --- |
+/// | 5 MP | 1.6 s, 31 MiB | 1.9 s, 146 MiB |
+/// | 10 MP | 3.3 s, 46 MiB | 3.8 s, 160 MiB |
+/// | 20 MP | 6.8 s, 80 MiB | 8.3 s, 189 MiB |
+/// | 40 MP | 15 s, 137 MiB | 18 s, 252 MiB |
+///
+/// Shrinking is bounded by the image's own limit; growing stops at a
+/// quarter of it, so 1080p to 4K (8.3 MP) still converts.
+const int _growthDivisor = 4;
+
+/// For a JPEG, refuses one with more scans than its size allows: each scan
+/// is a pass over the image, so a small file of many scans takes a long
+/// time to decode. The count is every `FF DA` (start of scan) in the file,
+/// an upper bound on the scans a decoder can see (an EXIF thumbnail and
+/// other data count too); the file's structure is deliberately not
+/// interpreted. At most `16 x maxPixels` scanned pixels, the pixels counted
+/// in whole 8 x 8 blocks: 16 scans for 40 MP, 64 for 10 MP. Measured, the
+/// worst file at the limit took about 3.4 s whatever its size; real
+/// progressive JPEGs (5 to 12 `FF DA`) stayed under a third of it.
+void _checkJpegScans(Uint8List bytes, int width, int height, int maxPixels) {
+  var scans = 0;
+  for (var i = 0; i + 1 < bytes.length; i++) {
+    if (bytes[i] == 0xFF && bytes[i + 1] == 0xDA) {
+      scans++;
+    }
+  }
+  if (scans == 0) {
+    return;
+  }
+  final blockWidth = (width + 7) ~/ 8 * 8;
+  final blockHeight = (height + 7) ~/ 8 * 8;
+  // 16 x maxPixels without overflowing for any configured limit.
+  final budget = maxPixels > (1 << 58) ? (1 << 62) : maxPixels * 16;
+  if (blockWidth > budget ~/ scans ~/ blockHeight) {
+    throw ImageTooLargeException(
+      'The JPEG holds up to $scans scans of $width x $height pixels, more '
+      'than its size allows; it was not converted.',
+    );
+  }
+}
 
 /// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
 /// 1 or 3 (the ones converted), before anything is decoded. An early
