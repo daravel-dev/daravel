@@ -883,18 +883,17 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
     }
   }
 
-  /// Words that cannot be a label, unquoted: each was refused as one
-  /// (`CREATE PROCEDURE p() w: BEGIN END w`, 1064) by MySQL 8.4 and
-  /// MariaDB 11.8, which took `lbl` (MySQL took `binlog` and `backup`,
-  /// left out).
+  /// Words that cannot be a label, unquoted: the common statements, where
+  /// a hint after the first word is usual. Each was refused as one
+  /// (`CREATE PROCEDURE p() w: BEGIN END w`, 1064) by MySQL 8.0.46 and
+  /// 8.4.13 and MariaDB 10.6.28, 11.8.9 and 12.3.3, all of which took
+  /// `lbl`. Keywords that differ between servers (MySQL takes `binlog` and
+  /// `backup` as labels) are left out, as is any word not verified on
+  /// each of those versions: a word that can be a label somewhere would
+  /// hide a label there.
   static const Set<String> _notLabels = {
-    'select', 'insert', 'update', 'delete', 'replace', 'with', 'values', //
-    'table', 'show', 'explain', 'describe', 'desc', 'do', 'handler', 'load',
-    'lock', 'unlock', 'analyze', 'check', 'optimize', 'repair', 'grant',
-    'revoke', 'create', 'drop', 'alter', 'rename', 'truncate', 'use',
-    'purge', 'kill', 'release', 'rollback', 'commit', 'start', 'savepoint',
-    'xa', 'deallocate', 'prepare', 'flush', 'reset', 'install', 'uninstall',
-    'signal', 'resignal', 'get', 'help', 'cache', 'change', 'checksum',
+    'select', 'insert', 'update', 'delete', 'replace', 'with', 'create', //
+    'drop', 'alter', 'show', 'use',
   };
 
   /// Whether `sql[from, to)` holds the opening of a conditional comment
