@@ -245,7 +245,9 @@ final class MidtransGateway implements PaymentGateway {
   /// two genuine notifications that share a signature apart (`expire` and
   /// `cancel` are both signed 202 for the same amount); a status not known
   /// is one kind, so a notification posted under endless made-up statuses
-  /// calls the API once per window. A failed call is not kept.
+  /// calls the API once per window. A failed call is not kept. Calls are
+  /// not shared while they run: deliveries of one notification at the same
+  /// moment each call the API once, before the first answer is kept.
   Future<PaymentEvent> _confirm(
     String orderId,
     String signature,
