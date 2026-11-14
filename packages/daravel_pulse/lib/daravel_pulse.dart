@@ -5,7 +5,7 @@
 ///
 /// ```dart
 /// Application.configure(basePath: '.')
-///     .withPulse(middleware: ['auth', 'can:viewPulse'])
+///     .withPulse()
 /// ```
 library;
 

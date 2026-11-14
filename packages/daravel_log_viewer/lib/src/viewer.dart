@@ -14,21 +14,24 @@ import 'ui.dart';
 
 /// `withLogViewer()` on the application builder.
 extension LogViewerApplicationBuilder on ApplicationBuilder {
-  /// Serves the log viewer at [path] (`LOG_VIEWER_PATH`, `/log-viewer`)
-  /// behind [middleware]. Outside `APP_ENV=local` and `testing` it answers
-  /// 403 until [middleware] protects it (`['auth', 'can:view-logs']`).
-  ApplicationBuilder withLogViewer({
-    String? path,
-    List<Object> middleware = const [],
-  }) =>
+  /// Serves the log viewer at [path] (`LOG_VIEWER_PATH`, `/log-viewer`).
+  ///
+  /// Who may open it, every route included (download, delete, tail):
+  /// `APP_ENV=local` passes; otherwise [LogViewer.auth] when set, else the
+  /// `viewLogViewer` gate (opcodesio/log-viewer's `LogViewer::auth` and
+  /// gate); anything else is a 403, `APP_ENV=testing` too. [middleware]
+  /// only runs before that decision: without it, the `web` group when the
+  /// application registers it, else none; middleware the application does
+  /// not register is a ConfigException.
+  ApplicationBuilder withLogViewer({String? path, List<Object>? middleware}) =>
       withConfig<LogViewerConfig>(LogViewerConfig.fromEnv)
           .withProviders([_LogViewerProvider(path, middleware)]);
 }
 
 final class _LogViewerProvider extends ServiceProvider {
-  _LogViewerProvider(this.path, this.middleware);
+  _LogViewerProvider(this.path, this.given);
   final String? path;
-  final List<Object> middleware;
+  final List<Object>? given;
 
   @override
   void boot(Container container) {
@@ -36,13 +39,27 @@ final class _LogViewerProvider extends ServiceProvider {
     LogViewer.routes(
       container.make<Router>(),
       path: path ?? config.get<String>('log_viewer.path', '/log-viewer'),
-      middleware: middleware,
+      middleware: DashboardGate.middleware(
+        container.make<MiddlewareRegistry>(),
+        given,
+        setup: 'withLogViewer',
+        authHint: 'LogViewer.auth',
+      ),
     );
   }
 }
 
 /// The log viewer's routes and API.
 abstract final class LogViewer {
+  static FutureOr<bool> Function(Request request)? _authUsing;
+
+  /// Who may use the viewer outside `APP_ENV=local`, before the
+  /// `viewLogViewer` gate (opcodesio/log-viewer's `LogViewer::auth`); null
+  /// forgets it. Kept per isolate: call it inside `createApp`, so that
+  /// every worker isolate has it; an isolate without it asks the gate.
+  static void auth(FutureOr<bool> Function(Request request)? callback) =>
+      _authUsing = callback;
+
   /// Registers the page and its API under [path].
   static void routes(
     Router router, {
@@ -50,27 +67,26 @@ abstract final class LogViewer {
     List<Object> middleware = const [],
   }) {
     final base = path.endsWith('/') ? path.substring(0, path.length - 1) : path;
-    final protected = middleware.isNotEmpty;
     router.group((r) {
       r
-          .get(base, (Request request) => _guard(protected, () => _page(base)))
+          .get(base, (Request request) => _guard(request, () => _page(base)))
           .name('log-viewer');
-      r.get('$base/api/files', (Request request) => _guard(protected, _files));
+      r.get('$base/api/files', (Request request) => _guard(request, _files));
       r.get(
         '$base/api/entries',
-        (Request request) => _guard(protected, () => _entries(request)),
+        (Request request) => _guard(request, () => _entries(request)),
       );
       r.get(
         '$base/api/tail',
-        (Request request) => _guard(protected, () => _tail(request)),
+        (Request request) => _guard(request, () => _tail(request)),
       );
       r.get(
         '$base/api/download',
-        (Request request) => _guard(protected, () => _download(request)),
+        (Request request) => _guard(request, () => _download(request)),
       );
       r.delete(
         '$base/api/files',
-        (Request request) => _guard(protected, () => _delete(request)),
+        (Request request) => _guard(request, () => _delete(request)),
       );
     }, middleware: middleware);
   }
@@ -96,20 +112,24 @@ abstract final class LogViewer {
   }
 
   static Future<Response> _guard(
-    bool protected,
+    Request request,
     FutureOr<Response> Function() handler,
   ) async {
     final config = _config;
     if (!config.enabled) {
       throw NotFoundHttpException();
     }
-    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
-    if (!protected && !app.isLocal && !app.isTesting) {
-      return Response.json({
-        'message':
-            'The log viewer needs middleware outside local: '
-            "withLogViewer(middleware: ['auth', 'can:view-logs']).",
-      }, status: 403);
+    if (!await DashboardGate.allows(
+      request,
+      ability: 'viewLogViewer',
+      name: 'Log viewer',
+      callback: _authUsing,
+    )) {
+      throw const ForbiddenHttpException(
+        'The log viewer is closed outside local: with sessions, sign in as '
+        'a user the viewLogViewer gate allows; without, LogViewer.auth '
+        'decides.',
+      );
     }
     try {
       return await handler();

@@ -4,7 +4,7 @@
 ///
 /// ```dart
 /// Application.configure(basePath: '.')
-///     .withLogViewer(middleware: ['auth', 'can:view-logs'])
+///     .withLogViewer()
 /// ```
 library;
 

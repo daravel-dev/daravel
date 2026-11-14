@@ -1,4 +1,4 @@
-<!-- source: broadcasting.md sha256:febfefd346cf -->
+<!-- source: broadcasting.md sha256:3181eeb0e310 -->
 # Broadcasting
 
 Daravel berbicara dengan protokol Pusher, seperti Laravel Reverb, di port
@@ -351,7 +351,7 @@ bila queue tidak punya signal store sama sekali. `reverb:stats` membaca
 dari `reverb:start`):
 
 ```dart
-.withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard: '/reverb'
+.withReverb() // dashboard: '/reverb'
 ```
 
 ```dart
@@ -375,9 +375,12 @@ Halaman ini diperbarui lewat server-sent events (`GET /reverb/api/stream`,
 tiap detik); `GET /reverb/api/stats` sama dengan keluaran
 `reverb:stats --json`, dan `GET /reverb/api/apps` mendaftar aplikasinya.
 
-Di luar `APP_ENV=local` dan `testing`, setiap route dashboard menjawab `403`
-sampai `middleware:` menjaganya, termasuk restart; `withReverb(dashboard:
-'')` tidak menyajikan route apa pun. Halaman ini membawa
+Di luar `APP_ENV=local` (termasuk `testing`), setiap route dashboard,
+termasuk restart, menjawab `403` kecuali `ReverbDashboard.auth` (per
+request, untuk aplikasi tanpa session; panggil di dalam `createApp`) atau
+gate `viewReverb` mengizinkan request itu. `middleware:` hanya berjalan
+sebelum keputusan itu (bawaannya group `web` bila aplikasi punya session);
+`withReverb(dashboard: '')` tidak menyajikan route apa pun. Halaman ini membawa
 Content-Security-Policy sendiri dengan nonce baru, tidak memuat apa pun dari
 origin lain, dan menulis setiap nilai sebagai teks. Kartu *Reverb* di Pulse
 menautkan ke halaman ini.

@@ -11,21 +11,23 @@ import 'ui.dart';
 /// `withPulse()` on the application builder.
 extension PulseApplicationBuilder on ApplicationBuilder {
   /// Records requests, slow queries, exceptions and jobs, and serves the
-  /// dashboard at [path] (`PULSE_PATH`, `/pulse`) behind [middleware].
-  /// Outside `APP_ENV=local` and `testing` it answers 403 until
-  /// [middleware] protects it (`['auth', 'can:viewPulse']`).
-  ApplicationBuilder withPulse({
-    String? path,
-    List<Object> middleware = const [],
-  }) =>
+  /// dashboard at [path] (`PULSE_PATH`, `/pulse`).
+  ///
+  /// Who may open it is decided as Laravel Pulse does: `APP_ENV=local`
+  /// passes; otherwise [Pulse.auth] when set, else the `viewPulse` gate;
+  /// anything else is a 403 (`APP_ENV=testing` too). [middleware] only
+  /// runs before that decision: without it, the `web` group when the
+  /// application registers it (the session and its user), else none.
+  /// Middleware the application does not register is a ConfigException.
+  ApplicationBuilder withPulse({String? path, List<Object>? middleware}) =>
       withConfig<PulseConfig>(PulseConfig.fromEnv)
           .withProviders([_PulseProvider(path, middleware)]);
 }
 
 final class _PulseProvider extends ServiceProvider {
-  _PulseProvider(this.path, this.middleware);
+  _PulseProvider(this.path, this.given);
   final String? path;
-  final List<Object> middleware;
+  final List<Object>? given;
 
   @override
   void boot(Container container) {
@@ -36,6 +38,12 @@ final class _PulseProvider extends ServiceProvider {
     if (config.enabled) {
       Pulse._record(container, recorder, config, base);
     }
+    final middleware = DashboardGate.middleware(
+      container.make<MiddlewareRegistry>(),
+      given,
+      setup: 'withPulse',
+      authHint: 'Pulse.auth',
+    );
     Pulse.routes(container.make<Router>(), path: base, middleware: middleware);
   }
 
@@ -48,6 +56,16 @@ final class _PulseProvider extends ServiceProvider {
 abstract final class Pulse {
   /// The topic of the isolates' reports on the coordinator.
   static const String topic = 'pulse';
+
+  static FutureOr<bool> Function(Request request)? _authUsing;
+
+  /// Who may see the dashboard outside `APP_ENV=local`, before the
+  /// `viewPulse` gate; null forgets it. A Daravel addition (Laravel Pulse
+  /// has only the gate), for applications without sessions. Kept per
+  /// isolate: call it inside `createApp`, so that every worker isolate has
+  /// it; an isolate without it asks the gate.
+  static void auth(FutureOr<bool> Function(Request request)? callback) =>
+      _authUsing = callback;
 
   static void _record(
     Container container,
@@ -112,20 +130,20 @@ abstract final class Pulse {
     }
   }
 
-  /// Registers the page and its API under [path].
+  /// Registers the page and its API under [path], each request authorized
+  /// after [middleware] (see `withPulse`).
   static void routes(
     Router router, {
     String path = '/pulse',
     List<Object> middleware = const [],
   }) {
-    final protected = middleware.isNotEmpty;
     router.group((r) {
       r
-          .get(path, (Request request) => _guard(protected, () => _page(path)))
+          .get(path, (Request request) => _guard(request, () => _page(path)))
           .name('pulse');
       r.get(
         '$path/api/stats',
-        (Request request) => _guard(protected, () => _stats(request)),
+        (Request request) => _guard(request, () => _stats(request)),
       );
     }, middleware: middleware);
   }
@@ -138,19 +156,22 @@ abstract final class Pulse {
   }
 
   static Future<Response> _guard(
-    bool protected,
+    Request request,
     FutureOr<Response> Function() handler,
   ) async {
     if (!_config.enabled) {
       throw NotFoundHttpException();
     }
-    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
-    if (!protected && !app.isLocal && !app.isTesting) {
-      return Response.json({
-        'message':
-            'Pulse needs middleware outside local: '
-            "withPulse(middleware: ['auth', 'can:viewPulse']).",
-      }, status: 403);
+    if (!await DashboardGate.allows(
+      request,
+      ability: 'viewPulse',
+      name: 'Pulse dashboard',
+      callback: _authUsing,
+    )) {
+      throw const ForbiddenHttpException(
+        'Pulse is closed outside local: with sessions, sign in as a user '
+        'the viewPulse gate allows; without, Pulse.auth decides.',
+      );
     }
     return handler();
   }

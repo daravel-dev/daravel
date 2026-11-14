@@ -16,18 +16,30 @@ import 'ui.dart';
 /// Its numbers are a [ReverbReport] of `/metrics`: this process's own
 /// ([AppMetrics.render], every isolate merged), or, with
 /// `REVERB_METRICS_URL`, those of the `reverb:start` server it names.
-/// Outside `APP_ENV=local` and `testing` every endpoint answers 403 until
-/// `withReverb(middleware:)` protects it. No secret is ever sent.
+///
+/// Every request is authorized after the route middleware, the way the
+/// Horizon dashboard is ([DashboardGate]): `APP_ENV=local` passes;
+/// otherwise the [auth] callback decides, or without one the `viewReverb`
+/// gate; anything else is a 403 (`APP_ENV=testing` too). Middleware is
+/// never taken as authorization. No secret is ever sent.
 abstract final class ReverbDashboard {
+  static FutureOr<bool> Function(Request request)? _authUsing;
+
+  /// Who may see the dashboard outside `APP_ENV=local`, before the
+  /// `viewReverb` gate; null forgets it. Kept per isolate: call it inside
+  /// `createApp`, so that every worker isolate has it; an isolate without
+  /// it asks the gate.
+  static void auth(FutureOr<bool> Function(Request request)? callback) =>
+      _authUsing = callback;
+
   /// Registers the page and the API under [path] behind [middleware].
   static void routes(
     Router router, {
     required String path,
     List<Object> middleware = const [],
   }) {
-    final protected = middleware.isNotEmpty;
     Future<Response> guard(FutureOr<Object?> Function(Request r) body) =>
-        _guard(protected, body);
+        _guard(body);
     final api = '$path/api';
     router.group((r) {
       r
@@ -249,18 +261,22 @@ abstract final class ReverbDashboard {
   }
 
   static Future<Response> _guard(
-    bool protected,
     FutureOr<Object?> Function(Request request) body,
   ) async {
-    final app = _container.make<ConfigRepository>().section<AppConfig>();
-    if (!protected && !app.isLocal && !app.isTesting) {
-      return Response.json({
-        'message':
-            'The Reverb dashboard needs middleware outside local: '
-            "withReverb(middleware: ['auth', 'can:viewReverb']).",
-      }, status: 403);
+    final request = _container.make<Request>();
+    if (!await DashboardGate.allows(
+      request,
+      ability: 'viewReverb',
+      name: 'Reverb dashboard',
+      callback: _authUsing,
+    )) {
+      throw const ForbiddenHttpException(
+        'The Reverb dashboard is closed outside local: with sessions, sign '
+        'in as a user the viewReverb gate allows; without, '
+        'ReverbDashboard.auth decides.',
+      );
     }
-    final result = await body(_container.make<Request>());
+    final result = await body(request);
     return switch (result) {
       final Response response => response,
       _ => Response.json(result, headers: const {'cache-control': 'no-store'}),
