@@ -423,7 +423,9 @@ uncompressed otherwise. Compression keeps zlib state per connection, and
 a small compressed message can inflate to its route's `maxPayloadBytes`:
 turn it on for known clients sending large, repetitive text, not for
 public endpoints. An offer naming a window size RFC 7692 does not allow
-(outside 8 to 15) is declined, and that client connects uncompressed.
+(outside 8 to 15), or holding a quote or a backslash anywhere (clients do
+not quote these parameters), is declined, and that client connects
+uncompressed.
 
 The server sees a client leave only while something listens to its
 socket. Listen before the handler returns, or within 5 s after: a handler

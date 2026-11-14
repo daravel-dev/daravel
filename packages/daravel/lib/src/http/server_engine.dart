@@ -819,9 +819,7 @@ final class ServerEngine {
             // declined: the connection goes on uncompressed.
             compression:
                 response.webSocketCompression &&
-                    _deflateOfferAcceptable(
-                      httpRequest.headers['sec-websocket-extensions'],
-                    )
+                    _deflateOfferAcceptable(httpRequest.headers)
                 ? CompressionOptions.compressionDefault
                 : CompressionOptions.compressionOff,
             // With the guard's assembly, the limit of a whole message (and
@@ -1401,51 +1399,56 @@ final class _DiscardedBody {
   }
 }
 
-/// Whether the permessage-deflate offers in [extensions] (the request's
-/// `Sec-WebSocket-Extensions` values) may be agreed to: each window size
-/// they name is one RFC 7692 §7.1.2 allows, a decimal 8 to 15 without a
-/// leading zero (`client_max_window_bits` may also come without a value),
-/// and no parameter appears twice in one offer. Otherwise compression is
-/// not agreed to for the handshake, and the connection goes on without it.
-bool _deflateOfferAcceptable(List<String>? extensions) {
-  if (extensions == null) {
+/// Whether the permessage-deflate offer of [headers] may be agreed to.
+///
+/// The offer is read the way the handshake reads it to agree:
+/// `headers.value('sec-websocket-extensions')`, then
+/// `HeaderValue.parse(value, valueSeparator: ',')`, whose first value
+/// must be `permessage-deflate` for compression to be agreed to at all,
+/// and whose parameters give the window sizes. Each window size named
+/// there must be one RFC 7692 §7.1.2 allows: a decimal 8 to 15 without a
+/// leading zero (`client_max_window_bits` may also come without a value).
+///
+/// A value holding a quote or a backslash is not agreed to whatever it
+/// says: clients do not quote these parameters, and no two readers can
+/// then disagree on what it names. Otherwise compression is not agreed to
+/// for the handshake, and the connection goes on without it.
+bool _deflateOfferAcceptable(HttpHeaders headers) {
+  final String? value;
+  try {
+    value = headers.value('sec-websocket-extensions');
+  } on Object {
+    // Given more than once: the upgrade itself refuses that (400).
+    return false;
+  }
+  if (value == null) {
+    return true;
+  }
+  if (value.contains('"') || value.contains(r'\')) {
+    return false;
+  }
+  final offer = HeaderValue.parse(value, valueSeparator: ',');
+  if (offer.value != 'permessage-deflate') {
+    // Nothing the handshake would agree to.
     return true;
   }
   final window = RegExp(r'^(?:[89]|1[0-5])$');
-  for (final offer in extensions.expand((value) => value.split(','))) {
-    final parts = offer.split(';').map((part) => part.trim()).toList();
-    if (parts.first.toLowerCase() != 'permessage-deflate') {
+  for (final name in const [
+    'server_max_window_bits',
+    'client_max_window_bits',
+  ]) {
+    if (!offer.parameters.containsKey(name)) {
       continue;
     }
-    final seen = <String>{};
-    for (final parameter in parts.skip(1)) {
-      if (parameter.isEmpty) {
+    final bits = offer.parameters[name];
+    if (bits == null) {
+      if (name == 'client_max_window_bits') {
         continue;
       }
-      final equals = parameter.indexOf('=');
-      final name = (equals < 0 ? parameter : parameter.substring(0, equals))
-          .trim()
-          .toLowerCase();
-      if (!seen.add(name)) {
-        return false;
-      }
-      if (name != 'server_max_window_bits' &&
-          name != 'client_max_window_bits') {
-        continue;
-      }
-      if (equals < 0) {
-        if (name == 'client_max_window_bits') {
-          continue;
-        }
-        return false;
-      }
-      var value = parameter.substring(equals + 1).trim();
-      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-        value = value.substring(1, value.length - 1);
-      }
-      if (!window.hasMatch(value)) {
-        return false;
-      }
+      return false;
+    }
+    if (!window.hasMatch(bits)) {
+      return false;
     }
   }
   return true;
