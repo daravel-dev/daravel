@@ -20,12 +20,17 @@ final class _Client {
           if (end < 0) {
             return;
           }
-          head.complete(latin1.decode(all.sublist(0, end)));
+          final text = latin1.decode(all.sublist(0, end));
+          head.complete(text);
+          // Frames follow a 101 only; after a refusal comes its body.
+          _upgraded = text.startsWith('HTTP/1.1 101');
           _bytes
             ..clear()
             ..add(all.sublist(end + 4));
         }
-        _parse();
+        if (_upgraded) {
+          _parse();
+        }
       },
       onDone: _end,
       onError: (Object _) => _end(),
@@ -34,6 +39,7 @@ final class _Client {
 
   final Socket socket;
   final Completer<String> head = Completer<String>();
+  bool _upgraded = false;
   final BytesBuilder _bytes = BytesBuilder();
   final List<Completer<String?>> _waiting = [];
   final List<String?> _messages = [];
@@ -144,6 +150,7 @@ final class _Client {
 void main() {
   late Application app;
   late ServerEngine engine;
+  late MemoryHandler log;
 
   setUp(() async {
     app = Application.configure(basePath: Directory.systemTemp.path)
@@ -160,7 +167,7 @@ void main() {
       app,
       const ServeOptions(host: '127.0.0.1', port: 0, handleSignals: false),
       kernel: app.kernel,
-      logger: Logger(handlers: [MemoryHandler()]),
+      logger: Logger(handlers: [log = MemoryHandler()]),
     );
     await engine.start();
   });
@@ -260,22 +267,43 @@ void main() {
     });
   }
 
-  test('an unclosed quote: refused (400) or declined, never agreed to', () async {
-    final socket = await Socket.connect('127.0.0.1', engine.port!);
-    addTearDown(socket.destroy);
-    final client = _Client(socket);
-    socket.add(
-      latin1.encode(
-        'GET /c HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
-        'Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
-        'Sec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: '
-        'permessage-deflate; foo="a,b; server_max_window_bits=10\r\n\r\n',
-      ),
+  for (final (name, offer) in [
+    (
+      'an unclosed quote',
+      'permessage-deflate; foo="a,b; server_max_window_bits=10',
+    ),
+    ('a value that does not parse', 'permessage-deflate; a b'),
+    (
+      'a window size that does not parse',
+      'permessage-deflate; server_max_window_bits=1 0',
+    ),
+  ]) {
+    test(
+      '$name: refused (400) or declined, never agreed to, no error',
+      () async {
+        final socket = await Socket.connect('127.0.0.1', engine.port!);
+        addTearDown(socket.destroy);
+        final client = _Client(socket);
+        socket.add(
+          latin1.encode(
+            'GET /c HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
+            'Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+            'Sec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: '
+            '$offer\r\n\r\n',
+          ),
+        );
+        final head = await client.head.future.timeout(
+          const Duration(seconds: 3),
+        );
+        expect(
+          head,
+          anyOf(startsWith('HTTP/1.1 400'), startsWith('HTTP/1.1 101')),
+        );
+        expect(head.toLowerCase(), isNot(contains('sec-websocket-extensions')));
+        expect(log.records.where((r) => r.level == LogLevel.error), isEmpty);
+      },
     );
-    final head = await client.head.future.timeout(const Duration(seconds: 3));
-    expect(head, anyOf(startsWith('HTTP/1.1 400'), startsWith('HTTP/1.1 101')));
-    expect(head.toLowerCase(), isNot(contains('sec-websocket-extensions')));
-  });
+  }
 
   // Forms another reader may take differently: whatever is decided, it
   // is never agreed to and then broken.

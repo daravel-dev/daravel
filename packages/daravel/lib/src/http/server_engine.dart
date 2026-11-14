@@ -1427,7 +1427,14 @@ bool _deflateOfferAcceptable(HttpHeaders headers) {
   if (value.contains('"') || value.contains(r'\')) {
     return false;
   }
-  final offer = HeaderValue.parse(value, valueSeparator: ',');
+  final HeaderValue offer;
+  try {
+    offer = HeaderValue.parse(value, valueSeparator: ',');
+  } on Object {
+    // A value that does not parse is never agreed to (the handshake's own
+    // reading refuses it too), and never an error here.
+    return false;
+  }
   if (offer.value != 'permessage-deflate') {
     // Nothing the handshake would agree to.
     return true;
