@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:16dae5a26692 -->
+<!-- source: medialibrary.md sha256:cfc31537dccf -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -142,15 +142,20 @@ gambar tepat di batas bawaan memakan (puncak terukur):
 | Gambar | Memori | Waktu |
 |---|---|---|
 | JPEG baseline, 8 000 x 5 000 | sekitar 130 MiB | 2,5 dtk |
-| JPEG progresif, 8 000 x 5 000 | sekitar 415 MiB | 3 dtk |
+| sama, orientasi EXIF 6 | sekitar 130 MiB | 3,5 dtk |
+| JPEG progresif, 8 000 x 5 000 (dengan atau tanpa orientasi) | sekitar 415 MiB | 3 dtk |
 | PNG, 6 324 x 6 324 | sekitar 205 MiB | 1 dtk |
 | PNG 16-bit, 4 472 x 4 472 | sekitar 205 MiB | 1 dtk |
-| WebP, 6 324 x 6 324 | sekitar 320 MiB | 0,7 dtk |
-| WebP ukuran berapa pun, juga yang kecil | sampai sekitar 320 MiB | di bawah 1 dtk |
+| WebP, 4 472 x 4 472 | sekitar 170 sampai 175 MiB | 0,3 sampai 0,9 dtk |
+| sama, orientasi EXIF 6 | sekitar 245 MiB | 0,8 dtk |
+| WebP ukuran berapa pun, juga yang kecil | sampai sekitar 240 MiB | di bawah 1 dtk |
 | GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
 
-Turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi proses dengan
-request.
+WebP dan PNG 16-bit dihitung terhadap separuh `MEDIA_MAX_IMAGE_PIXELS`.
+Batas ini membatasi ukuran gambar, bukan memori secara persis: pada batas
+bawaan, siapkan sekitar 450 MiB memori untuk setiap konversi yang berjalan
+bersamaan, dan turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi
+proses dengan request.
 
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau

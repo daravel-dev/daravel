@@ -503,6 +503,46 @@ void tiffAndBudgetTests() {
     );
   });
 
+  // RSEQ 70: a WebP counts against half the pixel limit.
+  test('a WebP counts against half the pixel limit', () {
+    // 64 pixels: under half of 130, not under half of 100.
+    expect(
+      convertImageSync(_stillWebp(8), {
+        'width': [4],
+      }, maxPixels: 130),
+      isNotEmpty,
+    );
+    expect(
+      () => convertImageSync(_stillWebp(8), {
+        'width': [4],
+      }, maxPixels: 100),
+      throwsA(isA<ImageTooLargeException>()),
+    );
+  });
+
+  test('an animated GIF of 1 000 frames converts; 1 001 frames do not', () {
+    Uint8List gif(int frames) {
+      final animation = img.Image(width: 1, height: 1);
+      for (var i = 1; i < frames; i++) {
+        animation.addFrame(img.Image(width: 1, height: 1));
+      }
+      return img.encodeGif(animation);
+    }
+
+    expect(
+      convertImageSync(gif(1000), {
+        'width': [1],
+      }),
+      isNotEmpty,
+    );
+    expect(
+      () => convertImageSync(gif(1001), {
+        'width': [1],
+      }),
+      throwsA(isA<ImageTooLargeException>()),
+    );
+  });
+
   test('limits below 1 and images of no width are refused', () {
     final png = img.encodePng(img.Image(width: 2, height: 2));
     for (final (pixels, frames) in [(0, 1), (1, 0), (-5, 10)]) {

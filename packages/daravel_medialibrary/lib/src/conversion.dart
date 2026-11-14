@@ -287,18 +287,22 @@ bool canConvert({String? mimeType, String? extension}) {
 /// that declares 16 000 x 16 000 pixels would take gigabytes otherwise.
 ///
 /// What is guaranteed: a still image (JPEG, PNG, WebP, BMP) or a GIF is
-/// decoded by a decoder held to [maxPixels], one frame for a still image;
-/// an animated PNG or WebP is not converted in this version. Measured peak
-/// memory at the default limit (40 million pixels, a compiled process):
+/// decoded by a decoder held to [maxPixels] (half of it for a WebP or a
+/// 16-bit PNG), one frame for a still image; an animated PNG or WebP is not
+/// converted in this version. The limit bounds an image's size, not memory
+/// exactly: at the default limit, plan about 450 MiB of memory per
+/// conversion running at once. Measured peaks (a compiled process):
 ///
 /// | Image | Peak memory | Time |
 /// | --- | --- | --- |
 /// | baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
-/// | progressive JPEG, 8 000 x 5 000 | about 415 MiB | 3 s |
+/// | the same, EXIF orientation 6 | about 130 MiB | 3.5 s |
+/// | progressive JPEG, 8 000 x 5 000 (with or without orientation) | about 415 MiB | 3 s |
 /// | PNG, 6 324 x 6 324 | about 205 MiB | 1 s |
-/// | PNG, 16-bit, 4 472 x 4 472 (half the pixels) | about 205 MiB | 1 s |
-/// | WebP, 6 324 x 6 324 | about 320 MiB | 0.7 s |
-/// | WebP of any size, even a small one | up to about 320 MiB | under 1 s |
+/// | PNG, 16-bit, 4 472 x 4 472 | about 205 MiB | 1 s |
+/// | WebP, 4 472 x 4 472 | about 170 to 175 MiB | 0.3 to 0.9 s |
+/// | the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
+/// | WebP of any size, even a small one | up to about 240 MiB | under 1 s |
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 Future<Uint8List> convertImage(
@@ -345,10 +349,11 @@ Uint8List convertImageSync(
       'Animated images (PNG, WebP) are not converted in this version.',
     );
   }
-  // A 16-bit PNG decodes to two bytes per sample: the same budget in
-  // bytes (maxPixels x 4) holds half as many of its pixels. The depth is
-  // the decoder's reading.
-  final pixels = info is img.PngInfo && info.bits > 8
+  // Half the pixels for a 16-bit PNG, which decodes to two bytes per
+  // sample, and for a WebP, whose measured cost per pixel is about twice a
+  // JPEG's: the same memory then holds half as many of their pixels. Both
+  // are the decoder's reading.
+  final pixels = (info is img.PngInfo && info.bits > 8) || info is img.WebPInfo
       ? math.max(1, maxPixels ~/ 2)
       : maxPixels;
   final frames = math.max(1, info.numFrames);
