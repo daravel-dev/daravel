@@ -729,7 +729,10 @@ final class ServerEngine {
 
   /// What upgrades a WebSocket request in place of
   /// [WebSocketTransformer.upgrade], for tests of an upgrade that fails
-  /// before or after it took the connection over.
+  /// before or after it took the connection over. For tests only: it is
+  /// never read from configuration, it applies to every engine of the
+  /// isolate, and a test that sets it puts it back to null in its
+  /// `tearDown`.
   @visibleForTesting
   static Future<WebSocket> Function(
     HttpRequest request, {
