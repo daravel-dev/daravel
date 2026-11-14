@@ -21,7 +21,7 @@ import 'package:daravel_reverb/daravel_reverb.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
     .withBroadcasting(channels: registerChannels)
-    .withReverb(middleware: ['auth', 'can:viewReverb']) // /reverb dashboard
+    .withReverb() // /reverb dashboard
     .create();
 ```
 
@@ -64,12 +64,15 @@ holds a secret.
 
 ## Dashboard
 
-`/reverb` (`withReverb(dashboard: '/reverb', middleware: [...])`) shows connections per
+`/reverb` (`withReverb(dashboard: '/reverb')`) shows connections per
 application and isolate, channels, messages per second, fan-out p50/p95,
 refusals and slow consumers, the applications without their secrets, and
-a button for `reverb:restart`. Outside `local` and `testing` it answers 403
-until `middleware:` guards it. Define the gate in `bootstrap/policies.dart`:
-`gate.define('viewReverb', (user, _) => ...)`.
+a button for `reverb:restart`. Outside `local` (`testing` too) every route
+answers 403 unless the `viewReverb` gate allows the request
+(`gate.define('viewReverb', (user, _) => ...)` in `bootstrap/policies.dart`)
+or, without sessions, `ReverbDashboard.auth((request) => ...)` does; call it
+inside `createApp`, so that every worker isolate has it. Middleware
+(`withReverb(middleware: [...])`) only runs before that decision.
 
 ## Several applications
 

@@ -192,8 +192,14 @@ void main() {
     late Directory dir;
     late Application app;
 
-    setUp(() => dir = Directory.systemTemp.createTempSync('daravel_pulse_'));
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('daravel_pulse_');
+      // APP_ENV=testing opens nothing: these tests let every request in.
+      // The gate itself: test/pulse_gate_test.dart.
+      Pulse.auth((_) => true);
+    });
     tearDown(() async {
+      Pulse.auth(null);
       await app.shutdown();
       dir.deleteSync(recursive: true);
     });
@@ -328,20 +334,7 @@ void main() {
       expect(response.headers.first('x-frame-options'), 'DENY');
     });
 
-    test('closed outside local without middleware; 404 when off', () async {
-      final production = {
-        'APP_ENV': 'production',
-        'APP_KEY': 'base64:${base64Encode(List.filled(32, 7))}',
-      };
-      app = await boot(env: production);
-      expect((await get('/pulse')).$1, 403);
-      expect((await get('/pulse/api/stats')).$1, 403);
-      await app.shutdown();
-
-      app = await boot(env: production, middleware: ['allow']);
-      expect((await get('/pulse')).$1, 200);
-      await app.shutdown();
-
+    test('404 when off', () async {
       app = await boot(env: {'PULSE_ENABLED': 'false'});
       expect((await get('/pulse')).$1, 404);
       expect((await get('/api/users/1')).$1, 200);

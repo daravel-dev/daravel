@@ -101,6 +101,7 @@ sections:
       - { php: "php artisan reverb:start (Laravel Reverb)", dart: ".withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET", symbol: PusherServer, note: "The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged." }
       - { php: "php artisan reverb:start --host= --port= --debug", dart: "dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)", symbol: ReverbStartCommand, note: "The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked." }
       - { php: "php artisan reverb:restart", dart: "dartisan reverb:restart (daravel_reverb)", symbol: ReverbRestartCommand, note: "Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again." }
+      - { php: "(none)", dart: ".withReverb() /reverb dashboard + Gate.define('viewReverb', ...) or ReverbDashboard.auth((request) => ...)", symbol: ReverbDashboard.auth, note: "Daravel-only (Laravel Reverb has no dashboard): open in APP_ENV=local only, 403 elsewhere unless the callback or the gate allows; middleware never opens it." }
       - { php: "(none)", dart: "createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)", symbol: Application.serveBroadcastingOnly, note: "Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route." }
       - { php: "(none)", dart: "await app.restart()", symbol: Application.restart, note: "Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash." }
       - { php: "config/reverb.php 'apps' => ['apps' => [...]] from .env", dart: ".withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)", symbol: ReverbApps.fromEnv, note: "The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s." }
@@ -185,10 +186,12 @@ sections:
       - { php: "php artisan make:export UsersExport --model=User", dart: "dartisan make:export UsersExport --model=User", symbol: MakeExportCommand }
   - name: Log viewer (daravel_log_viewer)
     symbols:
-      - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer(middleware: ['auth', 'can:view-logs'])", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware." }
+      - { php: "composer require opcodesio/log-viewer (/log-viewer)", dart: ".withLogViewer()", symbol: LogViewerApplicationBuilder.withLogViewer, note: "Reads Daravel's JSON logs and Laravel's Monolog files from their end; open in APP_ENV=local only, 403 elsewhere unless LogViewer.auth or the viewLogViewer gate allows; middleware never opens it." }
+      - { php: "LogViewer::auth(fn ($request) => ...) / Gate::define('viewLogViewer', ...)", dart: "LogViewer.auth((request) => ...) / Gate.define('viewLogViewer', ...)", symbol: LogViewer.auth, note: "Unlike opcodesio/log-viewer, an environment other than local with neither is closed (staging too)." }
   - name: Pulse (daravel_pulse)
     symbols:
-      - { php: "composer require laravel/pulse (/pulse)", dart: ".withPulse(middleware: ['auth', 'can:viewPulse'])", symbol: PulseApplicationBuilder.withPulse, note: "Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware." }
+      - { php: "composer require laravel/pulse (/pulse)", dart: ".withPulse()", symbol: PulseApplicationBuilder.withPulse, note: "Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; open in APP_ENV=local only, as laravel/pulse." }
+      - { php: "Gate::define('viewPulse', fn ($user) => ...)", dart: "Gate.define('viewPulse', (user, _) => ...)", symbol: Pulse.auth, note: "Decides outside APP_ENV=local, as laravel/pulse's Authorize middleware. Pulse.auth((request) => ...) is a Daravel addition (Laravel Pulse has only the gate), for applications without sessions." }
       - { php: "PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD", dart: "the same .env keys", symbol: PulseConfig.fromEnv }
       - { php: "DB::transaction($fn, attempts: 5)", dart: "DB.transaction(fn, attempts: 5), with jitter between retries", symbol: DatabaseManager.retryDelay }
       - { php: "(none)", dart: "QueryExecuted.poolWait", symbol: QueryExecuted.poolWait }

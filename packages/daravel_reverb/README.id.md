@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:d77a75fd97ff -->
+<!-- source: README.md sha256:8695a48c36ed -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_reverb
@@ -23,7 +23,7 @@ import 'package:daravel_reverb/daravel_reverb.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
     .withBroadcasting(channels: registerChannels)
-    .withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard /reverb
+    .withReverb() // dashboard /reverb
     .create();
 ```
 
@@ -66,12 +66,16 @@ serta memperingatkan secret di bawah 32 byte. `toMap()` (dan
 
 ## Dashboard
 
-`/reverb` (`withReverb(dashboard: '/reverb', middleware: [...])`) menampilkan koneksi
+`/reverb` (`withReverb(dashboard: '/reverb')`) menampilkan koneksi
 per aplikasi dan isolate, channel, pesan per detik, fan-out p50/p95,
 penolakan dan slow consumer, daftar aplikasi tanpa secret-nya, dan tombol
-untuk `reverb:restart`. Di luar `local` dan `testing`, halaman ini menjawab
-403 sampai `middleware:` menjaganya. Definisikan gate di
-`bootstrap/policies.dart`: `gate.define('viewReverb', (user, _) => ...)`.
+untuk `reverb:restart`. Di luar `local` (termasuk `testing`), setiap route
+menjawab 403 kecuali gate `viewReverb` mengizinkan request itu
+(`gate.define('viewReverb', (user, _) => ...)` di
+`bootstrap/policies.dart`) atau, tanpa session,
+`ReverbDashboard.auth((request) => ...)` mengizinkannya; panggil di dalam
+`createApp` supaya setiap worker isolate memilikinya. Middleware
+(`withReverb(middleware: [...])`) hanya berjalan sebelum keputusan itu.
 
 ## Beberapa aplikasi
 

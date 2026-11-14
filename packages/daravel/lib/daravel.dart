@@ -79,6 +79,7 @@ export 'src/support/broadcast_facade.dart';
 export 'src/support/mail_facade.dart';
 export 'src/support/facades.dart';
 export 'src/support/brand.dart';
+export 'src/support/dashboard_gate.dart';
 export 'src/support/collection.dart';
 export 'src/support/helpers.dart';
 export 'src/support/request_id.dart';

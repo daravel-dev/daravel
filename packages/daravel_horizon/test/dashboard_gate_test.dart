@@ -174,7 +174,11 @@ void main() {
         reason: 'the mutations (retry, monitoring) are counted too',
       );
       for (final route in routes) {
-        final uri = route.path.replaceAll(RegExp(r'\{[^}]+\}'), 'x');
+        // A tab for the page's {view} (only tabs are that route's), x
+        // for an id.
+        final uri = route.path
+            .replaceAll('{view}', 'failed')
+            .replaceAll(RegExp(r'\{[^}]+\}'), 'x');
         for (final method in route.methods.where((m) => m != 'HEAD')) {
           final response = await client.send(method, uri);
           expect(

@@ -245,7 +245,7 @@ void main() {
 
     Future<Application> boot({
       Map<String, String> env = const {},
-      List<Object> middleware = const [],
+      List<Object>? middleware,
     }) async {
       logs = p.join(dir.path, 'storage', 'logs');
       Directory(logs).createSync(recursive: true);
@@ -259,7 +259,13 @@ void main() {
       return application;
     }
 
-    tearDown(() async => app.shutdown());
+    // APP_ENV=testing opens nothing: these tests let every request in
+    // unless they say otherwise.
+    setUp(() => LogViewer.auth((_) => true));
+    tearDown(() async {
+      LogViewer.auth(null);
+      await app.shutdown();
+    });
 
     Future<(int, Map<String, String>, String)> get(
       String path, {
@@ -363,15 +369,41 @@ void main() {
       expect(file.existsSync(), isFalse);
     });
 
-    test('closed outside local without middleware; options off', () async {
-      app = await boot(
-        env: {
-          'APP_ENV': 'production',
-          'APP_KEY': 'base64:${base64Encode(List.filled(32, 7))}',
-        },
-      );
-      expect((await get('/log-viewer')).$1, 403);
-      await app.shutdown();
+    test('closed outside local, every route, middleware or not; the '
+        'options still apply once allowed', () async {
+      LogViewer.auth(null);
+      for (final middleware in [
+        <Object>[],
+        <Object>['allow'],
+      ]) {
+        app = await boot(
+          env: {
+            'APP_ENV': 'production',
+            'APP_KEY': 'base64:${base64Encode(List.filled(32, 7))}',
+            'LOG_VIEWER_ALLOW_DELETE': 'true',
+          },
+          middleware: middleware,
+        );
+        final file = File(p.join(logs, 'app.log'))
+          ..writeAsStringSync('${jsonLine(1)}\n');
+        final routes = [
+          for (final route in app.router.routes)
+            if (route.path.startsWith('/log-viewer'))
+              (route.methods.first, route.path),
+        ];
+        expect(routes, hasLength(6));
+        for (final (method, path) in routes) {
+          final query = path.endsWith('/log-viewer') ? '' : '?file=app.log';
+          expect(
+            (await get('$path$query', method: method)).$1,
+            403,
+            reason: '$middleware $method $path',
+          );
+        }
+        expect(file.existsSync(), isTrue);
+        await app.shutdown();
+      }
+      LogViewer.auth((_) => true);
       app = await boot(
         env: {
           'APP_ENV': 'production',

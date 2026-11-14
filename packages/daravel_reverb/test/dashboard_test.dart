@@ -66,6 +66,11 @@ Future<Application> booted(Application app) async {
 }
 
 void main() {
+  // APP_ENV=testing opens nothing: these tests let every request in. The
+  // gate itself: test/dashboard_gate_test.dart.
+  setUp(() => ReverbDashboard.auth((_) => true));
+  tearDown(() => ReverbDashboard.auth(null));
+
   test('no routes with an empty dashboard path', () async {
     final app = await booted(appWith(dashboard: ''));
     final client = TestClient(app);
@@ -124,8 +129,9 @@ void main() {
     expect(apps.body, isNot(contains(secretB)));
   }, tags: 'security');
 
-  test('outside local and testing, 403 without middleware, mutations '
+  test('outside local, 403 without a callback or gate, mutations '
       'too', () async {
+    ReverbDashboard.auth(null);
     final app = await booted(
       appWith(
         env: {
@@ -145,10 +151,11 @@ void main() {
     expect(await signals.get(reverbRestartKey), isNull);
   }, tags: 'security');
 
-  test('the middleware decides', () async {
+  test('middleware runs before the gate and cannot open it', () async {
     final refused = await booted(appWith(middleware: [const _Refuse()]));
     expect((await TestClient(refused).get('/reverb')).status, 403);
-    final allowed = await booted(
+    ReverbDashboard.auth(null);
+    final passed = await booted(
       appWith(
         env: {
           'APP_ENV': 'production',
@@ -157,7 +164,7 @@ void main() {
         middleware: [const _Allow()],
       ),
     );
-    expect((await TestClient(allowed).get('/reverb')).status, 200);
+    expect((await TestClient(passed).get('/reverb')).status, 403);
   });
 
   test('api/restart puts the reverb:restart signal', () async {

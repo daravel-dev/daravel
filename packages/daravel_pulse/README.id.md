@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:edebc677ccce -->
+<!-- source: README.md sha256:195c1c17ab7a -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_pulse
@@ -18,7 +18,7 @@ dart pub add daravel_pulse
 import 'package:daravel_pulse/daravel_pulse.dart';
 
 Application createApp() => Application.configure(basePath: '.')
-    .withPulse(middleware: ['auth', 'can:viewPulse'])
+    .withPulse()
     // ...
     .create();
 // https://your-app/pulse
@@ -34,7 +34,12 @@ Application createApp() => Application.configure(basePath: '.')
   seluruh proses.
 - Key threshold Laravel Pulse (`PULSE_SLOW_QUERIES_THRESHOLD`, ...);
   halaman dengan Content-Security-Policy berbasis nonce tanpa aset
-  eksternal; menjawab 403 di luar local sampai diberi middleware.
+  eksternal.
+- Hanya terbuka di `APP_ENV=local`, seperti Laravel Pulse: di tempat lain
+  (termasuk `testing`) gate `viewPulse` yang memutuskan, atau
+  `Pulse.auth((request) => ...)` untuk aplikasi tanpa session (panggil di
+  dalam `createApp` supaya setiap worker isolate memilikinya). Middleware
+  tidak pernah membukanya.
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/pulse.md>.
 

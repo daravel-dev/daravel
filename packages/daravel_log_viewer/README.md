@@ -18,7 +18,7 @@ dart pub add daravel_log_viewer
 import 'package:daravel_log_viewer/daravel_log_viewer.dart';
 
 Application createApp() => Application.configure(basePath: '.')
-    .withLogViewer(middleware: ['auth', 'can:view-logs'])
+    .withLogViewer()
     // ...
     .create();
 // https://your-app/log-viewer
@@ -30,8 +30,11 @@ Application createApp() => Application.configure(basePath: '.')
   after a set amount of the file and offer to read on.
 - Hides secrets (`password`, `token`, `authorization`, ...) in context and
   text; opens only `.log` files of its folder; a page with a nonce-based
-  Content-Security-Policy and no external assets; 403 outside local until
-  it is given middleware.
+  Content-Security-Policy and no external assets.
+- Open in `APP_ENV=local` only: elsewhere (`testing` and staging too) every
+  route, download and delete included, answers 403 unless the
+  `viewLogViewer` gate or `LogViewer.auth((request) => ...)` allows it (call
+  it inside `createApp`). Middleware never opens it.
 - Download and (opt-in) delete; a JSON API for tools.
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/log-viewer.md>.

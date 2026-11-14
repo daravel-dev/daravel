@@ -339,7 +339,7 @@ the server's `/metrics` (`METRICS_ENABLED=true`; `--url`, `--token`,
 (not from `reverb:start`):
 
 ```dart
-.withReverb(middleware: ['auth', 'can:viewReverb']) // dashboard: '/reverb'
+.withReverb() // dashboard: '/reverb'
 ```
 
 ```dart
@@ -363,8 +363,11 @@ updates over server-sent events (`GET /reverb/api/stream`, every second);
 `GET /reverb/api/stats` is what `reverb:stats --json` prints, and
 `GET /reverb/api/apps` lists the applications.
 
-Outside `APP_ENV=local` and `testing`, every route of the dashboard answers
-`403` until `middleware:` guards it, the restart included;
+Outside `APP_ENV=local` (`testing` too), every route of the dashboard, the
+restart included, answers `403` unless `ReverbDashboard.auth` (per request,
+for applications without sessions; call it inside `createApp`) or the
+`viewReverb` gate allows the request. `middleware:` only runs before that
+decision (by default the `web` group when the application has sessions);
 `withReverb(dashboard: '')` serves none. The page carries its own
 Content-Security-Policy with a fresh nonce, loads nothing from another
 origin, and writes every value as text. Pulse's *Reverb* card links to it.
