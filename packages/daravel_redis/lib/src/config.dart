@@ -179,13 +179,7 @@ final class RedisConnectionConfig {
       username: user.length > 1 && user.first.isNotEmpty
           ? Uri.decodeComponent(user.first)
           : null,
-      password: switch (user) {
-        [_, final String password] => Uri.decodeComponent(password),
-        [final String password] when password.isNotEmpty => Uri.decodeComponent(
-          password,
-        ),
-        _ => null,
-      },
+      password: _password(user),
       database: path.isEmpty ? 0 : int.parse(path),
       tls: uri.scheme == 'rediss',
     );
@@ -227,13 +221,7 @@ final class RedisConnectionConfig {
       username: user.length > 1 && user.first.isNotEmpty
           ? Uri.decodeComponent(user.first)
           : null,
-      password: switch (user) {
-        [_, final String password] => Uri.decodeComponent(password),
-        [final String password] when password.isNotEmpty => Uri.decodeComponent(
-          password,
-        ),
-        _ => null,
-      },
+      password: _password(user),
       database: sentinel && segments.length > 1 ? int.parse(segments[1]) : 0,
       tls: scheme.startsWith('rediss'),
       mode: sentinel ? RedisMode.sentinel : RedisMode.cluster,
@@ -523,3 +511,13 @@ final class RedisConfig implements ConfigSection {
     },
   };
 }
+
+/// The password of a URL's user info split at `:`: everything after the
+/// first `:`, joined again (a password may hold `:`, as
+/// `ConnectionConfig` reads `DB_URL`), or the lone part, which Redis
+/// reads as the password (`redis://secret@host`); `null` for none.
+String? _password(List<String> user) => switch (user) {
+  [] => null,
+  [final String lone] => lone.isEmpty ? null : Uri.decodeComponent(lone),
+  [_, ...final rest] => Uri.decodeComponent(rest.join(':')),
+};

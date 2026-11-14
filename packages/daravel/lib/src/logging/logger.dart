@@ -12,6 +12,7 @@ import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
 import '../foundation/loggable.dart';
+import '../foundation/url_redaction.dart';
 
 /// RFC 5424 levels (ordered by severity).
 enum LogLevel {
@@ -96,7 +97,7 @@ final class LogRecord {
     'channel': channel,
     'message': message,
     if (context.isNotEmpty) 'context': context,
-    if (error != null) 'error': '$error',
+    if (error != null) 'error': _loggableString(error),
     if (stackTrace != null) 'trace': '$stackTrace',
   };
 }
@@ -112,13 +113,24 @@ abstract interface class LogHandler {
 
 String _encodeContext(Map<String, Object?> context) => _jsonLine(context);
 
+/// [value]'s `toString()`, or `[UNLOGGABLE: <type>]` when it throws: a
+/// value or error whose `toString()` fails must not cost the record (the
+/// JSON handlers wrote nothing for it, only a line to stderr).
+String _loggableString(Object? value) {
+  try {
+    return '$value';
+  } on Object {
+    return '[UNLOGGABLE: ${value.runtimeType}]';
+  }
+}
+
 /// [value] as one line of JSON. `jsonEncode` escapes C0 controls but writes
 /// DEL, the C1 controls (`\x9b` is a one-byte CSI on 8-bit terminals) and
 /// the Unicode line and paragraph separators as they are; line-based log
 /// readers split on the latter. They can only occur inside JSON strings, so
 /// they become `\uXXXX` escapes there.
 String _jsonLine(Object? value) {
-  final json = jsonEncode(value, toEncodable: (Object? value) => '$value');
+  final json = jsonEncode(value, toEncodable: _loggableString);
   if (!_jsonUnsafe.hasMatch(json)) {
     return json;
   }
@@ -351,7 +363,7 @@ final class ConsoleHandler implements LogHandler {
       ..write(record.level.name.toUpperCase())
       ..write('] ');
     if (showChannel) {
-      buffer.write('${record.channel}: ');
+      buffer.write('${_escapeControls(record.channel)}: ');
     }
     buffer.write(_escapeControls(record.message));
     if (record.context.isNotEmpty) {
@@ -362,7 +374,7 @@ final class ConsoleHandler implements LogHandler {
     if (record.error != null) {
       buffer
         ..write('\n  error: ')
-        ..write(_escapeControls('${record.error}'));
+        ..write(_escapeControls(_loggableString(record.error)));
     }
     if (record.stackTrace != null) {
       buffer
@@ -671,23 +683,7 @@ final class LoggingConfig implements ConfigSection {
 
   /// Context keys whose values are replaced by `[REDACTED]` (substring,
   /// whatever the case and `-`/`_`) — BLUEPRINT_V2 §7.6.5.
-  static const List<String> defaultRedactedKeys = <String>[
-    'password',
-    'passwd',
-    'pwd',
-    'token',
-    'authorization',
-    'bearer',
-    'cookie',
-    'secret',
-    'api_key',
-    'apikey',
-    'jwt',
-    'session_id',
-    'private_key',
-    'credentials',
-    'dsn',
-  ];
+  static const List<String> defaultRedactedKeys = sensitiveKeyNames;
 
   /// Default channel (`stack`, `console`, `json`, `daily`, `null`).
   final String channel;
@@ -1022,8 +1018,7 @@ final class Logger {
 
   /// Lower case without `-` and `_`, so `X-API-KEY`, `api_key` and `apiKey`
   /// are one name.
-  static String _normalizeKey(String key) =>
-      key.toLowerCase().replaceAll('-', '').replaceAll('_', '');
+  static String _normalizeKey(String key) => normalizeKeyName(key);
 
   /// Flushes and closes every handler of this logger and its channels.
   Future<void> close() async {

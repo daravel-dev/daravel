@@ -53,7 +53,7 @@ final class S3Client {
     this.retries = 3,
     this.retryDelay = const Duration(milliseconds: 100),
     HttpClient Function()? httpClient,
-  }) : endpoint = Uri.parse(
+  }) : endpoint = _endpoint(
          endpoint ?? 'https://s3.${signer.region}.amazonaws.com',
        ),
        _httpClient = httpClient ?? HttpClient.new;
@@ -517,5 +517,16 @@ final class S3Client {
   void close() {
     _client?.close(force: true);
     _client = null;
+  }
+}
+
+/// The endpoint URL parsed; a malformed one (`AWS_ENDPOINT`) is reported
+/// with its password and sensitive query values masked, since
+/// `Uri.parse`'s own error quotes it whole.
+Uri _endpoint(String url) {
+  try {
+    return Uri.parse(url);
+  } on FormatException {
+    throw ConfigException('Malformed S3 endpoint: "${redactUrl(url)}".');
   }
 }

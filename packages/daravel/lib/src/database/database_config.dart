@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 import '../foundation/config.dart';
 import '../foundation/config_validator.dart';
 import '../foundation/env.dart';
-import '../foundation/url_redaction.dart';
+import '../foundation/url_redaction.dart' as redact_url;
 
 /// A single named connection (`config/database.php` parity).
 final class ConnectionConfig {
@@ -74,11 +74,12 @@ final class ConnectionConfig {
     _ => int.tryParse(value) ?? double.tryParse(value) ?? value,
   };
 
-  /// [url] with its password masked, for messages: the error of a
-  /// malformed `DB_URL` reaches `doctor`'s output, the boot log and error
-  /// trackers, where `user:secret@` must not. It needs no valid URL; see
-  /// [redactUrlPassword].
-  static String redactUrl(String url) => redactUrlPassword(url);
+  /// [url] with its password and sensitive query values masked
+  /// (`?password=`, `?sslpassword=`; see `redactUrl`), for messages: the
+  /// error of a malformed `DB_URL` reaches `doctor`'s output, the boot
+  /// log and error trackers, where `user:secret@` must not. It needs no
+  /// valid URL.
+  static String redactUrl(String url) => redact_url.redactUrl(url);
 
   /// [url] parsed, or a [FormatException] that names it only redacted:
   /// `Uri.parse`'s own message quotes the whole URL, password included.

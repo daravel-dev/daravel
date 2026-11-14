@@ -48,10 +48,14 @@ void main() {
           (checks['redis']! as Map<String, Object?>).keys,
           unorderedEquals(['ok', 'ms']),
         );
-        expect(
-          logs.matching(LogLevel.warning, 'Readiness check [redis] failed'),
-          hasLength(1),
+        final logged = logs.matching(
+          LogLevel.warning,
+          'Readiness check [redis] failed',
         );
+        expect(logged, hasLength(1));
+        // HC-1 (RSEQ 53 #10): the logged error is redacted too.
+        expect('${logged.single.context['error']}', isNot(contains('pass123')));
+        expect('${logged.single.context['error']}', contains('10.0.5.9'));
       },
     );
 

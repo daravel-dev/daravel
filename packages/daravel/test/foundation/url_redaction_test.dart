@@ -17,9 +17,19 @@ void main() {
       ('mysql+ssl://u:$secret@h/db', 'mysql+ssl://u:***@h/db'),
       ('redis://:$secret@host', 'redis://:***@host'), // no user
       ('postgres://u:$secret@[::1/db', 'postgres://u:***@[::1/db'),
-      ('pgsql:u:$secret@h/db', 'pgsql:u:***@h/db'), // no `//`
+      // No `//`: the scheme cannot be told from a user name, so the user
+      // is masked too (more, never less).
+      ('pgsql:u:$secret@h/db', 'pgsql:***@h/db'),
       // An `@` in the query masks more, never less.
       ('pgsql://u:$secret@h/db?a=b@c', 'pgsql://u:***@c'),
+      // RSEQ 53 #6: no valid scheme, and a password holding `:`.
+      ('app:$secret@host/db', 'app:***@host/db'),
+      ('postgres//app:$secret@host/db', 'postgres//app:***@host/db'),
+      ('//app:$secret@bad host/db', '//app:***@bad host/db'),
+      ('app:P1:$secret@host:5432/db', 'app:***@host:5432/db'),
+      ('pgsql://app:P1:$secret@host/db', 'pgsql://app:***@host/db'),
+      // A `://` after the `@` (in the query) is not the scheme's.
+      ('app:$secret@host/?next=https://x', 'app:***@host/?next=https://x'),
     ]) {
       expect(redactUrlPassword(url), expected, reason: url);
     }

@@ -31,15 +31,24 @@ response.throwIfFailed();                // RequestException pada 4xx/5xx
   batas).
 - `retry(times, delay:, when:)` mencoba hingga `times` kali bila koneksi
   gagal atau respons 4xx/5xx, atau bila `when(response, error)`
-  menghendakinya, lalu mengembalikan respons terakhir. Koneksi yang tidak
-  bisa dibuat, atau timeout, melempar `ConnectionException`, termasuk
-  kegagalan TLS.
+  menghendakinya, lalu mengembalikan respons terakhir. `retry` di Laravel
+  melempar `RequestException` begitu percobaannya habis (argumen `throw`,
+  `true` secara default); di sini panggil `throwIfFailed()` pada responsnya
+  untuk hasil yang sama. Koneksi yang tidak bisa dibuat, atau timeout,
+  melempar `ConnectionException`, termasuk kegagalan TLS; pesannya
+  menampilkan URL dengan password dan nilai parameter query yang sensitif
+  (`token`, `api_key`, `signature`, ...) disamarkan, sedangkan request
+  tetap menyimpan URL-nya untuk kode.
   Seperti di Laravel, setiap respons gagal diulang secara default.
   `backoff:` menggantikan jeda tetap (`Http.exponentialBackoff()`, atau
   `Http.backoffSequence([...])` untuk `retry(3, [100, 200])` di Laravel),
   `jitter:` (0 sampai 1) menyebar jeda, dan
   `when: Http.retryOnConnectionOr5xx` (error koneksi, 429, dan 5xx) atau
-  `Http.retryOnConnectionOnly` membiarkan client error lainnya.
+  `Http.retryOnConnectionOnly` membiarkan client error lainnya. Keduanya
+  mengulang timeout hanya untuk method yang idempoten (`GET`, `HEAD`,
+  `OPTIONS`, `TRACE`, `PUT`, `DELETE`; RFC 9110): `POST` atau `PATCH` yang
+  jawabannya tidak datang tepat waktu mungkin sudah diproses, dan
+  mengirimnya lagi akan menjalankannya dua kali.
   `honorRetryAfter: true` menunggu sesuai `Retry-After` dari respons `429`
   atau `503`, paling lama `maxRetryAfter` (10 detik):
 
