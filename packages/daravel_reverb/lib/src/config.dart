@@ -330,11 +330,8 @@ final class ReverbConfig implements ConfigSection {
   );
 }
 
-/// [url] without its user info (`http://***@host`), for `toMap`.
-String? _masked(String? url) {
-  final uri = url == null ? null : Uri.tryParse(url);
-  if (uri == null || uri.userInfo.isEmpty) {
-    return url;
-  }
-  return uri.replace(userInfo: '***').toString();
-}
+/// [url] with its password and sensitive query values masked
+/// (`http://user:***@host`; `redactUrl`, which needs no valid URL: a value
+/// `Uri.tryParse` refused used to be shown whole), for `toMap`.
+String? _masked(String? url) =>
+    url == null ? null : redactUrl(url, loneUserIsPassword: true);

@@ -856,9 +856,7 @@ final class Application {
         upstreamUri = Uri.parse(url);
       } on FormatException {
         // Uri.parse's message quotes the URL, credentials included.
-        throw ConfigException(
-          'Malformed upstream URL: "${redactUrlPassword(url)}".',
-        );
+        throw ConfigException('Malformed upstream URL: "${redactUrl(url)}".');
       }
       final proxy = UpstreamProxy(
         upstreamUri,
@@ -1399,7 +1397,11 @@ final class Application {
             final check = value! as Map<String, Object?>;
             if (check['ok'] != true) {
               logger.warning('Readiness check [$key] failed', <String, Object?>{
-                'error': check['error'],
+                // A check's error often quotes its DSN or URL.
+                'error': switch (check['error']) {
+                  final String text => redactUrl(text),
+                  final other => other,
+                },
               });
             }
           }

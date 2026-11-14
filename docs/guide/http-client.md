@@ -30,14 +30,23 @@ response.throwIfFailed();                // RequestException on 4xx/5xx
   limit).
 - `retry(times, delay:, when:)` tries up to `times` times when the connection
   fails or the response is 4xx/5xx, or when `when(response, error)` says so,
-  and returns the last response. A connection that cannot be made, or a
-  timeout, throws `ConnectionException`, TLS failures included.
+  and returns the last response. Laravel's `retry` throws a
+  `RequestException` once its tries run out (its `throw` argument, `true` by
+  default); here call `throwIfFailed()` on the response for the same. A
+  connection that cannot be made, or a timeout, throws `ConnectionException`,
+  TLS failures included; its message shows the URL with the password and
+  the values of sensitive query parameters (`token`, `api_key`, `signature`,
+  ...) masked, and the request keeps the URL for code.
   As in Laravel, every failed response is retried by default.
   `backoff:` replaces the fixed delay (`Http.exponentialBackoff()`, or
   `Http.backoffSequence([...])` for Laravel's `retry(3, [100, 200])`),
   `jitter:` (0 to 1) spreads the waits, and `when: Http.retryOnConnectionOr5xx`
   (connection errors, 429 and 5xx) or `Http.retryOnConnectionOnly` leaves
-  the other client errors alone. `honorRetryAfter: true` waits what a
+  the other client errors alone. Both retry a timeout only for an idempotent
+  method (`GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE`; RFC 9110): a
+  `POST` or `PATCH` whose answer did not come in time may have been
+  processed, and sending it again would act twice. `honorRetryAfter: true`
+  waits what a
   `429` or `503` asks in `Retry-After`, at most `maxRetryAfter` (10 s):
 
   ```dart
