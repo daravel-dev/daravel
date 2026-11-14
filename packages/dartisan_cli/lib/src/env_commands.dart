@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
 
 import 'generator.dart';
+import 'source_text.dart';
 
 String _envFile(String root, String? environment) =>
     p.join(root, environment == null ? '.env' : '.env.$environment');
@@ -240,6 +241,11 @@ final class EnvObfuscateCommand extends Command<int> {
   @override
   Future<int> run() async {
     final args = argResults!;
+    final className = args['class'] as String;
+    if (!RegExp(r'^[A-Za-z][A-Za-z0-9]*$').hasMatch(className) ||
+        dartReservedNames.contains(className)) {
+      usageException('--class takes a class name: letters and digits.');
+    }
     final projectRoot = root ?? ProjectPaths.locate().root;
     final source = File(_envFile(projectRoot, args['env'] as String?));
     if (!source.existsSync()) {
@@ -255,7 +261,7 @@ final class EnvObfuscateCommand extends Command<int> {
     final output = File(p.join(projectRoot, args['output'] as String));
     output.parent.createSync(recursive: true);
     output.writeAsStringSync(
-      renderObfuscatedEnv(selected, className: args['class'] as String),
+      renderObfuscatedEnv(selected, className: className),
     );
     stdout.writeln(
       'Wrote ${selected.length} variable(s) to '
@@ -287,8 +293,15 @@ final class EnvObfuscateCommand extends Command<int> {
       )
       ..writeln('  );');
     final getters = <String, String>{};
+    // `toMap` is taken; two variables may give one name (`FOO_BAR`,
+    // `FOO__BAR`).
+    final used = <String>{'toMap'};
     for (final MapEntry(key: name, value: value) in values.entries) {
-      final getter = _camel(name);
+      final base = _camel(name);
+      var getter = base;
+      for (var n = 2; !used.add(getter); n++) {
+        getter = '$base$n';
+      }
       getters[name] = getter;
       final bytes = utf8.encode(value);
       final mask = [
@@ -310,7 +323,7 @@ final class EnvObfuscateCommand extends Command<int> {
       ..writeln('  /// `createApp(env: $className.toMap())`.')
       ..writeln('  static Map<String, String> toMap() => <String, String>{');
     for (final MapEntry(key: name, value: getter) in getters.entries) {
-      buffer.writeln("    '$name': $getter,");
+      buffer.writeln('    ${dartString(name)}: $getter,');
     }
     buffer
       ..writeln('  };')
@@ -327,11 +340,18 @@ final class EnvObfuscateCommand extends Command<int> {
         .split(RegExp('[^a-z0-9]+'))
         .where((part) => part.isNotEmpty)
         .toList();
+    if (parts.isEmpty) {
+      // `_`, `__`: no letter or digit to name it by.
+      return 'value';
+    }
     final camel = [
       parts.first,
       for (final part in parts.skip(1))
         '${part[0].toUpperCase()}${part.substring(1)}',
     ].join();
-    return RegExp(r'^[0-9]').hasMatch(camel) ? 'v$camel' : camel;
+    if (RegExp(r'^[0-9]').hasMatch(camel)) {
+      return 'v$camel';
+    }
+    return dartReservedNames.contains(camel) ? '${camel}Value' : camel;
   }
 }

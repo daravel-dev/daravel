@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import 'region_format.dart';
 import 'request_sync.dart';
+import 'source_text.dart';
 import 'stubs.dart';
 
 /// Locates a Daravel project (BLUEPRINT_V2 §8.3): a directory with a
@@ -493,7 +494,7 @@ final class Generator {
       'model',
       {
         'class': className,
-        'table': table ?? Naming.table(className),
+        'table': dartStringBody(table ?? Naming.table(className)),
         'softDeletes': softDeletes ? '\n    softDeletes: true,' : '',
       },
     );
@@ -542,7 +543,7 @@ final class Generator {
       {
         'class': className,
         'name': '${stamp}_$snake',
-        'table': create ?? table ?? '',
+        'table': dartStringBody(create ?? table ?? ''),
       },
     );
     _register(
@@ -959,7 +960,7 @@ final class Generator {
       'command',
       {
         'class': className,
-        'signature': signature ?? 'app:${Naming.kebab(base)}',
+        'signature': dartStringBody(signature ?? 'app:${Naming.kebab(base)}'),
       },
     );
     _register(
