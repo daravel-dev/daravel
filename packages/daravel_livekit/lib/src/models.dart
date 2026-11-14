@@ -14,7 +14,10 @@ Object? field(Map<String, Object?> json, String name) {
 /// A protobuf integer: a number, or a string for 64-bit ones.
 int intField(Map<String, Object?> json, String name) =>
     switch (field(json, name)) {
-      final num n => n.toInt(),
+      final int n => n,
+      // A number past what an int holds (1e400 decodes as infinity) reads
+      // as 0, like a missing one, rather than throwing.
+      final double n when n.isFinite && n.abs() < 9.2e18 => n.toInt(),
       final String s => int.tryParse(s) ?? 0,
       _ => 0,
     };

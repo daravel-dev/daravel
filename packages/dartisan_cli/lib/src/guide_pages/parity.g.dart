@@ -428,6 +428,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
+| `config('jwt.required_claims') (tymon/jwt-auth)` | `JWT_REQUIRED_CLAIMS=exp,... / JwtCodec(requiredClaims: [...])` | The JWT guard requires exp by default (jwt-auth requires iss, iat, exp, nbf, sub and jti); empty requires nothing. A token without a required claim is refused like any invalid one, and an exp, nbf or iat that is not a number always is, as firebase/php-jwt. |
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |
 | `Hash::make / check / needsRehash` | `await Hash.make / check, Hash.needsRehash` |  |
 | `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | **async**; Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM. |

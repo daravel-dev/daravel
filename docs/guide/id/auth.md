@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:0136fbb6015c -->
+<!-- source: auth.md sha256:0f15cc388925 -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -54,7 +54,15 @@ baik akunnya ada maupun tidak.
 `Auth.issueJwt(user)` menandatangani token HS256 dengan `JWT_SECRET` (atau
 `APP_KEY`), atau EdDSA dengan `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`.
 Verifikasi menolak `alg: none`, algoritma tanpa kunci yang dikonfigurasi,
-tanda tangan yang salah, dan token kedaluwarsa.
+tanda tangan yang salah, dan token kedaluwarsa. Token juga harus memuat
+klaim di `JWT_REQUIRED_CLAIMS` (dipisah koma, `exp` secara bawaan, seperti
+`required_claims` di tymon/jwt-auth; kosongkan agar tidak ada yang
+diwajibkan): token tanpa klaim itu ditolak seperti token tidak sah lainnya,
+sehingga token tanpa `exp` tidak lagi berlaku selamanya. `exp`, `nbf`, atau
+`iat` yang bukan bilangan selalu ditolak. Guard menulis `exp`, `iat`, `sub`,
+dan `jti` ke token buatannya sendiri, serta `nbf` dan `iss` bila keduanya
+diwajibkan; saat boot muncul peringatan untuk klaim wajib yang tidak ditulis
+guard.
 `Auth.jwtGuard().invalidate()` mencabut token sampai kedaluwarsa (ditambah
 leeway): denylist disimpan di cache store default, sehingga dengan
 `CACHE_STORE=database` (atau Redis) semua mesin menolak token itu. Bila

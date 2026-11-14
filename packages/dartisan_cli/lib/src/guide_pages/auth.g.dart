@@ -57,7 +57,14 @@ exists.
 `Auth.issueJwt(user)` signs HS256 tokens with `JWT_SECRET` (or `APP_KEY`),
 or EdDSA with `JWT_PUBLIC_KEY` / `JWT_PRIVATE_KEY`. Verification rejects
 `alg: none`, algorithms without a configured key, bad signatures and expired
-tokens. `Auth.jwtGuard().invalidate()` revokes a token until it expires (plus
+tokens. A token must also carry the claims in `JWT_REQUIRED_CLAIMS`
+(comma-separated, `exp` by default, as tymon/jwt-auth's `required_claims`;
+set it empty to require none): one without them is refused like any
+invalid token, so a token without `exp` no longer lasts for ever. An
+`exp`, `nbf` or `iat` that is not a number is always refused. The guard
+writes `exp`, `iat`, `sub` and `jti` into its own tokens, and `nbf` and
+`iss` when they are required; the boot warns about a required claim it
+does not write. `Auth.jwtGuard().invalidate()` revokes a token until it expires (plus
 the leeway): the denylist lives in the default cache store, so with
 `CACHE_STORE=database` (or Redis) every machine refuses the token. When
 the cache store is in memory (`memory` or `process`), the revoked ids get

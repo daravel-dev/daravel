@@ -1,3 +1,5 @@
+import 'package:daravel/daravel.dart' show JwtException;
+
 /// What a token lets its holder do in LiveKit (the `video` claim), with
 /// LiveKit's field names. A field left null is not sent, so the server's
 /// default applies (`canPublish` and `canSubscribe` default to true there).
@@ -22,27 +24,36 @@ final class VideoGrant {
     this.destinationRoom,
   });
 
-  /// A grant read from a token's claims.
-  factory VideoGrant.fromJson(Map<String, Object?> json) => VideoGrant(
-    roomJoin: json['roomJoin'] as bool?,
-    room: json['room'] as String?,
-    roomCreate: json['roomCreate'] as bool?,
-    roomList: json['roomList'] as bool?,
-    roomRecord: json['roomRecord'] as bool?,
-    roomAdmin: json['roomAdmin'] as bool?,
-    ingressAdmin: json['ingressAdmin'] as bool?,
-    canPublish: json['canPublish'] as bool?,
-    canSubscribe: json['canSubscribe'] as bool?,
-    canPublishData: json['canPublishData'] as bool?,
-    canPublishSources: (json['canPublishSources'] as List<Object?>?)
-        ?.map((s) => '$s')
-        .toList(),
-    canUpdateOwnMetadata: json['canUpdateOwnMetadata'] as bool?,
-    hidden: json['hidden'] as bool?,
-    recorder: json['recorder'] as bool?,
-    canSubscribeMetrics: json['canSubscribeMetrics'] as bool?,
-    destinationRoom: json['destinationRoom'] as String?,
-  );
+  /// A grant read from a token's claims; [JwtException] when a field holds
+  /// another type than LiveKit's (a token is signed, but by whoever holds
+  /// the secret).
+  factory VideoGrant.fromJson(Map<String, Object?> json) {
+    T? read<T>(String name) => switch (json[name]) {
+      null => null,
+      final T value => value,
+      _ => throw JwtException('The video grant [$name] has the wrong type.'),
+    };
+    return VideoGrant(
+      roomJoin: read<bool>('roomJoin'),
+      room: read<String>('room'),
+      roomCreate: read<bool>('roomCreate'),
+      roomList: read<bool>('roomList'),
+      roomRecord: read<bool>('roomRecord'),
+      roomAdmin: read<bool>('roomAdmin'),
+      ingressAdmin: read<bool>('ingressAdmin'),
+      canPublish: read<bool>('canPublish'),
+      canSubscribe: read<bool>('canSubscribe'),
+      canPublishData: read<bool>('canPublishData'),
+      canPublishSources: read<List<Object?>>('canPublishSources')
+          ?.map((s) => '$s')
+          .toList(),
+      canUpdateOwnMetadata: read<bool>('canUpdateOwnMetadata'),
+      hidden: read<bool>('hidden'),
+      recorder: read<bool>('recorder'),
+      canSubscribeMetrics: read<bool>('canSubscribeMetrics'),
+      destinationRoom: read<String>('destinationRoom'),
+    );
+  }
 
   /// Join [room].
   final bool? roomJoin;

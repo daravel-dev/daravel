@@ -29,14 +29,16 @@ final class LivekitWebhookEvent {
   /// The event id.
   String get id => stringField(json, 'id');
 
-  /// When the event happened.
+  /// When the event happened; null when absent, 0, or past what a
+  /// [DateTime] holds.
   DateTime? get createdAt => switch (intField(json, 'created_at')) {
-    0 => null,
-    final int seconds => DateTime.fromMillisecondsSinceEpoch(
-      seconds * 1000,
-      isUtc: true,
-    ),
+    final int seconds when seconds > 0 && seconds <= _maxSeconds =>
+      DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true),
+    _ => null,
   };
+
+  /// The latest second a [DateTime] holds.
+  static const int _maxSeconds = 8640000000000;
 
   /// The room, for room and participant events.
   LivekitRoom? get room => switch (field(json, 'room')) {
@@ -51,16 +53,20 @@ final class LivekitWebhookEvent {
   };
 
   /// The track, egress or ingress the event is about, as LiveKit sent it.
-  Map<String, Object?>? get track =>
-      field(json, 'track') as Map<String, Object?>?;
+  Map<String, Object?>? get track => _object('track');
 
   /// The egress details, for egress events.
-  Map<String, Object?>? get egressInfo =>
-      field(json, 'egress_info') as Map<String, Object?>?;
+  Map<String, Object?>? get egressInfo => _object('egress_info');
 
   /// The ingress details, for ingress events.
-  Map<String, Object?>? get ingressInfo =>
-      field(json, 'ingress_info') as Map<String, Object?>?;
+  Map<String, Object?>? get ingressInfo => _object('ingress_info');
+
+  /// The object [name]; [LivekitWebhookException] when it is another type.
+  Map<String, Object?>? _object(String name) => switch (field(json, name)) {
+    null => null,
+    final Map<String, Object?> object => object,
+    _ => throw LivekitWebhookException('The webhook $name is not an object.'),
+  };
 
   @override
   String toString() => 'LivekitWebhookEvent($event)';
@@ -87,11 +93,20 @@ final class LivekitWebhookReceiver {
   /// How old an event may be (`created_at` against `Clock.now()`, with
   /// 30 s of skew either way): a captured webhook can be replayed for as
   /// long as its token is valid, and LiveKit signs tokens for minutes, so
-  /// this closes the window at five minutes. `null` only checks the token.
+  /// this closes the window at five minutes. While it is set, an event
+  /// without an id or a readable `created_at` is refused. `null` only
+  /// checks the token. LiveKit's server SDKs check the token and the body's
+  /// checksum only; the age, the id and [Livekit.webhook]'s replay check
+  /// are this package's.
   final Duration? maxAge;
 
   /// Clock skew tolerated when checking [maxAge].
   static const Duration skew = Duration(seconds: 30);
+
+  /// How long an event is accepted for, from the first moment to the last:
+  /// from [skew] before its `created_at` to [maxAge] plus [skew] after it.
+  /// A replay check must remember an event at least this long.
+  static Duration acceptance(Duration maxAge) => maxAge + skew * 2;
 
   /// [body] as it arrived, and the `Authorization` header (with or without
   /// `Bearer `).
@@ -104,6 +119,7 @@ final class LivekitWebhookReceiver {
     // would be charged to LiveKit. (With an empty key, anyone who knows
     // the API key, the `iss` of every client token, could sign webhooks.)
     LivekitToken.requireSecret(apiSecret);
+    LivekitToken.requireKey(apiKey);
     final header = authorization?.trim() ?? '';
     if (header.isEmpty) {
       throw const LivekitWebhookException('Authorization header is empty.');
@@ -139,7 +155,16 @@ final class LivekitWebhookReceiver {
     final event = LivekitWebhookEvent(json);
     final limit = maxAge;
     final createdAt = event.createdAt;
-    if (limit != null && createdAt != null) {
+    if (limit != null) {
+      // The age and the replay checks need both; LiveKit sends both.
+      if (event.id.isEmpty) {
+        throw const LivekitWebhookException('The webhook has no id.');
+      }
+      if (createdAt == null) {
+        throw LivekitWebhookException(
+          'Webhook ${event.id} has no readable created_at.',
+        );
+      }
       final age = Clock.now().toUtc().difference(createdAt);
       if (age > limit + skew) {
         throw LivekitWebhookException(

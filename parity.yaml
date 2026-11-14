@@ -390,6 +390,7 @@ sections:
       - { php: "Auth::viaRemember()", dart: "guard.viaRemember", symbol: SessionGuard.viaRemember }
       - { php: "$user->createToken($name, $abilities)", dart: "await Auth.issueToken(user, name, abilities: [...])", symbol: Auth.issueToken, async: true }
       - { php: "$user->currentAccessToken()->delete()", dart: "await Auth.tokenGuard().revokeCurrent()", symbol: TokenGuard.revokeCurrent, async: true }
+      - { php: "config('jwt.required_claims') (tymon/jwt-auth)", dart: "JWT_REQUIRED_CLAIMS=exp,... / JwtCodec(requiredClaims: [...])", symbol: JwtCodec.requiredClaims, note: "The JWT guard requires exp by default (jwt-auth requires iss, iat, exp, nbf, sub and jti); empty requires nothing. A token without a required claim is refused like any invalid one, and an exp, nbf or iat that is not a number always is, as firebase/php-jwt." }
       - { php: "$user->tokenCan('posts:read')", dart: "await Auth.tokenGuard().tokenCan('posts:read')", symbol: TokenGuard.tokenCan, async: true }
       - { php: "Hash::make / check / needsRehash", dart: "await Hash.make / check, Hash.needsRehash", symbol: Hash.needsRehash }
       - { php: "Crypt::encryptString / decryptString", dart: "await Crypt.encryptString / decryptString", symbol: Crypt.decryptString, async: true, note: "Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM." }
