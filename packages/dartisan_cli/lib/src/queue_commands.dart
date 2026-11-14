@@ -290,9 +290,19 @@ final class QueueFlushCommand extends DaravelCommand {
   String get description => 'Flush all of the failed queue jobs.';
 
   @override
-  Future<int> run() => withApp((app) async {
+  Future<int> run() async {
+    // A given --hours that is not a whole number above zero deletes
+    // nothing: a typo must never widen the flush to every failed job.
+    final given = argResults!['hours'] as String?;
+    final hours = given == null ? null : int.tryParse(given.trim());
+    if (given != null && (hours == null || hours <= 0)) {
+      usageException('--hours takes a whole number of hours above 0.');
+    }
+    return _flush(hours);
+  }
+
+  Future<int> _flush(int? hours) => withApp((app) async {
     final provider = App.make<QueueManager>().processor.failedJobs;
-    final hours = int.tryParse(argResults!['hours'] as String? ?? '');
     final count = hours == null
         ? await provider.flush()
         : await provider.prune(Duration(hours: hours));
@@ -310,6 +320,7 @@ final class QueueClearCommand extends DaravelCommand {
       defaultsTo: 'default',
       help: 'Queue to clear.',
     );
+    addForceFlag(argParser);
   }
 
   @override
@@ -320,6 +331,10 @@ final class QueueClearCommand extends DaravelCommand {
 
   @override
   Future<int> run() => withApp((app) async {
+    // As artisan's queue:clear (ConfirmableTrait): --force in production.
+    if (refuseInProduction(app, argResults!, 'queue:clear')) {
+      return 1;
+    }
     final connection = argResults!.rest.isEmpty ? null : argResults!.rest.first;
     final count = await App.make<QueueManager>()
         .connection(connection)

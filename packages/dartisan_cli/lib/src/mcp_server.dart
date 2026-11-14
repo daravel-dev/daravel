@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:daravel/daravel.dart';
 import 'package:path/path.dart' as p;
@@ -17,8 +18,49 @@ const List<String> mcpProtocolVersions = [
   '2024-11-05',
 ];
 
-/// Commands `run_command` never starts: long-running or interactive.
-const Set<String> mcpRefusedCommands = {
+/// Commands `run_command` offers an agent, by their canonical name: reading
+/// the project, writing its code (every `make:*` command too), checks, and
+/// `migrate` (without `--seed` in production). Any other command is refused
+/// unless `mcp:serve --allow-command=<name>` opens it.
+const Set<String> mcpOfferedCommands = {
+  'about',
+  'doctor',
+  'list',
+  'help',
+  'route:list',
+  'route:diff',
+  'model:show',
+  'db:show',
+  'db:table',
+  'migrate:status',
+  'schedule:list',
+  'queue:failed',
+  'security:audit',
+  'model:sync',
+  'request:sync',
+  'names:sync',
+  'openapi:generate',
+  'stub:publish',
+  'lint',
+  'test',
+  'migrate',
+};
+
+/// Commands `run_command` offers an agent outside production only.
+const Set<String> mcpOfferedOutsideProduction = {
+  'migrate:fresh',
+  'migrate:reset',
+  'migrate:rollback',
+  'db:seed',
+  'cache:clear',
+  'storage:link',
+  'queue:retry',
+  'queue:forget',
+};
+
+/// Commands `--allow-command` cannot open: they run until stopped or read
+/// a terminal.
+const Set<String> mcpNeverOffered = {
   'serve',
   'mcp:serve',
   'tinker',
@@ -26,7 +68,35 @@ const Set<String> mcpRefusedCommands = {
   'schedule:work',
 };
 
+/// Commands `--allow-command` cannot open while `APP_ENV=production`:
+/// they change data or the deployment, which stays a terminal's job.
+const Set<String> mcpProductionOnlyInTerminal = {
+  ...mcpOfferedOutsideProduction,
+  'db:restore',
+  'db:transfer',
+  'db:replicate',
+  'queue:flush',
+  'queue:clear',
+  'key:generate',
+  'env:decrypt',
+  'env:encrypt',
+  'down',
+  'up',
+};
+
+/// Commands `run_command` never starts: long-running or interactive.
+@Deprecated(
+  'run_command offers mcpOfferedCommands (and mcpOfferedOutsideProduction '
+  'outside production) and refuses any other command; see mcpNeverOffered.',
+)
+const Set<String> mcpRefusedCommands = mcpNeverOffered;
+
 /// Commands `run_command` refuses when `APP_ENV=production`.
+@Deprecated(
+  'run_command offers mcpOfferedCommands (and mcpOfferedOutsideProduction '
+  'outside production) and refuses any other command; see '
+  'mcpProductionOnlyInTerminal.',
+)
 const Set<String> mcpProductionRefused = {
   'migrate:fresh',
   'migrate:reset',
@@ -98,8 +168,13 @@ List<McpTool> mcpToolsOf(CommandRunner<int>? runner) => [
 /// A Model Context Protocol server (JSON-RPC 2.0) that gives AI coding
 /// agents the project's routes, database schema, conventions and guide.
 ///
-/// Read-only unless [allowWrite]; then `run_command` runs dartisan commands
-/// (except [mcpRefusedCommands], and [mcpProductionRefused] in production).
+/// Read-only unless [allowWrite]; then `run_command` runs the dartisan
+/// commands in [mcpOfferedCommands] (and [mcpOfferedOutsideProduction]
+/// outside production) and those [allowedCommands] opens. It needs the
+/// [runner] the command runs with: the command is read with that runner's
+/// own parser before anything is decided, so global flags in front, `--`
+/// and aliases name the command that would really run. Without a runner,
+/// `run_command` refuses every command.
 final class McpServer {
   /// An MCP server over stdin and stdout for an AI assistant.
   McpServer(
@@ -107,7 +182,19 @@ final class McpServer {
     this.allowWrite = false,
     McpCommandRunner? runCommand,
     this.tools = const [],
-  }) : _runCommand = runCommand ?? _spawnDartisan;
+    this.runner,
+    Set<String> allowedCommands = const {},
+  }) : _runCommand = runCommand ?? _spawnDartisan,
+       allowedCommands = Set.unmodifiable(allowedCommands);
+
+  /// The runner `run_command`'s commands run with (the project's
+  /// `bin/dartisan.dart`).
+  final CommandRunner<int>? runner;
+
+  /// Commands the user opened beyond [mcpOfferedCommands]
+  /// (`mcp:serve --allow-command`); never [mcpNeverOffered], and never
+  /// [mcpProductionOnlyInTerminal] in production.
+  final Set<String> allowedCommands;
 
   /// Tools packages add ([McpToolSource]).
   final List<McpTool> tools;
@@ -302,9 +389,9 @@ final class McpServer {
     if (allowWrite)
       _tool(
         'run_command',
-        'Runs a dartisan command in the project (make:*, migrate, test, '
-            'lint, model:sync, ...) and returns its output. Long-running '
-            'commands are refused, and destructive ones in production.',
+        'Runs a dartisan command in the project and returns its output. '
+            'Offered: ${_offered.join(', ')}. Any other command is refused '
+            '(migrate --seed too, in production).',
         const {
           'command': {'type': 'string', 'description': 'e.g. make:model'},
           'arguments': {
@@ -470,19 +557,11 @@ final class McpServer {
         if (command is! String || command.isEmpty) {
           throw ArgumentError('Pass a command.');
         }
-        if (mcpRefusedCommands.contains(command)) {
-          throw StateError(
-            '$command runs until stopped; start it in a terminal instead.',
-          );
-        }
-        if (mcpProductionRefused.contains(command) &&
-            app.config.section<AppConfig>().isProduction) {
-          throw StateError('$command is refused when APP_ENV=production.');
-        }
         final arguments = [
           for (final value in args['arguments'] as List<Object?>? ?? const [])
             '$value',
         ];
+        _checkCommand(command, arguments);
         final result = await _runCommand(command, arguments);
         return {
           'exitCode': result.exitCode,
@@ -530,6 +609,85 @@ final class McpServer {
       if (route.summaryText != null) 'summary': route.summaryText,
       if (route.tagList.isNotEmpty) 'tags': route.tagList,
     };
+  }
+
+  bool get _production => app.config.section<AppConfig>().isProduction;
+
+  /// Whether `run_command` offers the command named [name] (canonical).
+  bool _offers(String name) {
+    if (mcpNeverOffered.contains(name)) {
+      return false;
+    }
+    if (_production && mcpProductionOnlyInTerminal.contains(name)) {
+      return false;
+    }
+    return mcpOfferedCommands.contains(name) ||
+        name.startsWith('make:') ||
+        mcpOfferedOutsideProduction.contains(name) ||
+        allowedCommands.contains(name);
+  }
+
+  /// The commands `run_command` offers here, for its description.
+  List<String> get _offered => [
+    for (final name in [
+      ...mcpOfferedCommands,
+      'make:*',
+      ...mcpOfferedOutsideProduction,
+      ...allowedCommands,
+    ])
+      if (name == 'make:*' || _offers(name)) name,
+  ];
+
+  /// Refuses [command] with [arguments] unless the runner's own parser
+  /// reads them as a command `run_command` offers.
+  void _checkCommand(String command, List<String> arguments) {
+    final runner = this.runner;
+    if (runner == null) {
+      throw StateError(
+        'run_command needs the dartisan runner; start the server with '
+        'dartisan mcp:serve --allow-write.',
+      );
+    }
+    if (command.startsWith('-')) {
+      throw ArgumentError(
+        'Pass the command name in command and its options in arguments.',
+      );
+    }
+    final ArgResults parsed;
+    try {
+      parsed = runner.argParser.parse([command, ...arguments]);
+    } on FormatException catch (error) {
+      throw ArgumentError(
+        'dartisan cannot read this command: ${error.message}',
+      );
+    }
+    final named = parsed.command;
+    final resolved = named == null ? null : runner.commands[named.name];
+    if (named == null || resolved == null) {
+      throw ArgumentError('dartisan reads no command here.');
+    }
+    final name = resolved.name;
+    if (!_offers(name)) {
+      throw StateError(
+        mcpNeverOffered.contains(name)
+            ? '$name runs until stopped; start it in a terminal instead.'
+            : _production && mcpProductionOnlyInTerminal.contains(name)
+            ? '$name is refused when APP_ENV=production; run it in a '
+                  'terminal.'
+            : '$name is not offered to agents; run it in a terminal, or '
+                  'start the server with --allow-command=$name.',
+      );
+    }
+    // migrate --seed is db:seed by another name.
+    if (name == 'migrate' &&
+        _production &&
+        named.options.contains('seed') &&
+        named['seed'] == true) {
+      throw StateError(
+        'migrate --seed is refused when APP_ENV=production; run it in a '
+        'terminal.',
+      );
+    }
   }
 
   static String _truncate(String text, [int max = 20000]) =>
@@ -863,6 +1021,15 @@ final class McpServeCommand extends DaravelCommand {
           'Also offer run_command (make:*, migrate, test, ...); destructive '
           'commands stay refused in production.',
     );
+    argParser.addMultiOption(
+      'allow-command',
+      splitCommas: false,
+      valueHelp: 'name',
+      help:
+          'With --allow-write, also offer this command (a project command); '
+          'repeat for more. Long-running commands, and in production the '
+          'ones that change data, stay refused.',
+    );
   }
 
   @override
@@ -876,6 +1043,22 @@ final class McpServeCommand extends DaravelCommand {
   Future<int> run() {
     final protocol = stdout;
     final allowWrite = argResults!['allow-write'] as bool;
+    final allowed = (argResults!['allow-command'] as List<String>).toSet();
+    if (allowed.isNotEmpty && !allowWrite) {
+      usageException('--allow-command needs --allow-write.');
+    }
+    for (final name in allowed) {
+      final command = runner?.commands[name];
+      if (command == null || command.name != name) {
+        usageException(
+          '--allow-command=$name: no dartisan command has that name'
+          '${command == null ? '' : ' (it is an alias of ${command.name})'}.',
+        );
+      }
+      if (mcpNeverOffered.contains(name)) {
+        usageException('--allow-command=$name: $name runs until stopped.');
+      }
+    }
     stderr.writeln('[mcp] Daravel MCP Server running on stdio (JSON-RPC 2.0).');
     stderr.writeln(
       '[mcp] Waiting for AI client messages (Cursor, Claude, Antigravity)...',
@@ -887,6 +1070,8 @@ final class McpServeCommand extends DaravelCommand {
           app,
           allowWrite: allowWrite,
           tools: mcpToolsOf(runner),
+          runner: runner,
+          allowedCommands: allowed,
         ).serve(stdin, protocol);
         return 0;
       }),

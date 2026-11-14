@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:6558de8b2df3 -->
+<!-- source: dartisan.md sha256:1e8726493c58 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -156,12 +156,28 @@ aplikasi sebagaimana adanya, bukan tebakan:
 | `run_command` | Menjalankan command dartisan (hanya dengan `--allow-write`) |
 
 Server ini read-only kecuali dijalankan dengan `--allow-write`. Bahkan
-dengan itu, `run_command` menolak command yang berjalan lama (`serve`,
-`queue:work`, `schedule:work`, `tinker`) dan, dengan `APP_ENV=production`,
-command yang destruktif (`migrate:fresh`, `migrate:reset`,
-`migrate:rollback`, `db:seed`, `queue:flush`, `queue:clear`,
-`key:generate`, `env:decrypt`, `env:encrypt`, `down`). Pesan protokol
-memakai stdout; log masuk ke stderr.
+dengan itu, `run_command` hanya menawarkan daftar tetap, dibaca dengan cara
+dartisan sendiri membaca baris perintah (termasuk flag global, `--` dan
+alias):
+
+- selalu: `about`, `doctor`, `list`, `help`, `route:list`, `route:diff`,
+  `model:show`, `db:show`, `db:table`, `migrate:status`, `schedule:list`,
+  `queue:failed`, `security:audit`, semua `make:*`, `model:sync`,
+  `request:sync`, `names:sync`, `openapi:generate`, `stub:publish`, `lint`,
+  `test`, dan `migrate` (tanpa `--seed` bila `APP_ENV=production`);
+- di luar production: `migrate:fresh`, `migrate:reset`, `migrate:rollback`,
+  `db:seed`, `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
+
+Command lain ditolak, termasuk command proyek Anda sendiri. Buka satu
+command dengan `mcp:serve --allow-write --allow-command=<nama>` (ulangi
+untuk command lain) di `.mcp.json`. Command yang berjalan lama (`serve`,
+`mcp:serve`, `tinker`, `queue:work`, `schedule:work`) tidak bisa dibuka.
+Dengan `APP_ENV=production`, command yang mengubah data atau deployment juga
+tidak bisa dibuka (`db:restore`, `db:transfer`, `db:replicate`,
+`queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`,
+`env:encrypt`, `down`, `up`, dan daftar di luar production). Deskripsi tool
+menyebut apa saja yang ditawarkan. Pesan protokol memakai stdout; log masuk
+ke stderr.
 
 Paket menambahkan tool lewat command yang mereka daftarkan: command yang
 merupakan `McpToolSource` membawa `McpTool`-nya. Dengan `redisCommands` di
