@@ -1,0 +1,190 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:daravel_excel/daravel_excel.dart';
+import 'package:daravel_excel/src/zip.dart';
+import 'package:test/test.dart';
+
+/// A cell reference past `XFD` (`ZZZZZ1`, `ZZZZZZ1`) made the reader fill
+/// the row with an empty cell per column before it: 786 bytes became
+/// twelve million cells and 225 MiB, `ZZZZZZ1` did not finish. Each
+/// workbook is read in a child process bounded in time and memory.
+void main() {
+  messageLengthTests();
+  // Compiled once: run from source, the child's own compiler took about
+  // 600 MiB and hid what the reading cost.
+  late String child;
+  setUpAll(() async {
+    final dir = Directory.systemTemp.createTempSync('daravel_excel_child');
+    child = '${dir.path}/xlsx_child${Platform.isWindows ? '.exe' : ''}';
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'exe',
+      'test/support/xlsx_child.dart',
+      '-o',
+      child,
+    ]);
+    if (compiled.exitCode != 0) {
+      throw StateError('${compiled.stdout}${compiled.stderr}');
+    }
+    addTearDown(() => dir.deleteSync(recursive: true));
+  });
+
+  /// The bytes of a one-sheet workbook whose sheet XML is [sheetData].
+  Future<Uint8List> workbook(String sheetData) async {
+    final base = await Excel.raw(
+      ListExport([
+        [1],
+      ]),
+      ExcelType.xlsx,
+    );
+    final zip = await ZipReader.open(RandomAccessSource.bytes(base));
+    final writer = ZipStreamWriter.buffered();
+    for (final name in zip.entries.keys) {
+      final entry = writer.entry(name);
+      if (name == 'xl/worksheets/sheet1.xml') {
+        entry.addString(
+          '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          '<worksheet xmlns="http://schemas.openxmlformats.org/'
+          'spreadsheetml/2006/main"><sheetData>$sheetData</sheetData>'
+          '</worksheet>',
+        );
+      } else {
+        entry.add(await zip.read(name).expand((c) => c).toList());
+      }
+      entry.close();
+    }
+    writer.finish();
+    return Uint8List.fromList([for (final chunk in writer.take()) ...chunk]);
+  }
+
+  /// Reads [bytes] in a child process: its first output line, and its peak
+  /// RSS; `hung` when it is still running after [limit].
+  Future<(String, int)> read(
+    Uint8List bytes, {
+    Duration limit = const Duration(seconds: 30),
+  }) async {
+    final dir = Directory.systemTemp.createTempSync('daravel_excel_bomb');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/book.xlsx')..writeAsBytesSync(bytes);
+    final process = await Process.start(child, [file.path]);
+    final output = process.stdout.transform(utf8.decoder).join();
+    unawaited(process.stderr.drain<void>());
+    try {
+      await process.exitCode.timeout(limit);
+    } on TimeoutException {
+      process.kill(ProcessSignal.sigkill);
+      return ('hung', 0);
+    }
+    final lines = const LineSplitter().convert(await output);
+    final rss = int.parse(lines.last.split(' ').last);
+    return (lines.first, rss);
+  }
+
+  const mib = 1024 * 1024;
+
+  for (final ref in ['ZZZZZ1', 'ZZZZZZ1', 'XFE1', 'AAAAAAAAAAAAAAAAAAAAAAA1']) {
+    test('a cell at $ref is refused, quickly and in bounded memory', () async {
+      final bytes = await workbook('<row r="1"><c r="$ref"><v>1</v></c></row>');
+      final (line, rss) = await read(bytes);
+      expect(line, 'error FormatException');
+      expect(rss, lessThan(400 * mib));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+  }
+
+  test('a row of cells without references past XFD is refused', () async {
+    final cells = '<c><v>1</v></c>' * (maxColumns + 1);
+    final (line, rss) = await read(await workbook('<row r="1">$cells</row>'));
+    expect(line, 'error FormatException');
+    expect(rss, lessThan(400 * mib));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('a full row of 16 384 columns and a lone XFD1 still read', () async {
+    final full = StringBuffer('<row r="1">');
+    for (var i = 0; i < maxColumns; i++) {
+      full.write('<c r="${columnLetter(i)}1"><v>$i</v></c>');
+    }
+    full.write('</row><row r="2"><c r="XFD2"><v>7</v></c></row>');
+    final (line, _) = await read(await workbook(full.toString()));
+    expect(line, 'ok 2 $maxColumns');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  // RSEQ 59 #1: each `r="A1"` set the column back to 0 and the cell was
+  // appended anyway: 300 000 of them made a row of 300 000 cells.
+  test('a reference given 300 000 times sets one cell', () async {
+    final cells = '<c r="A1"><v>1</v></c>' * 300000;
+    final (line, rss) = await read(await workbook('<row r="1">$cells</row>'));
+    expect(line, 'ok 1 1');
+    expect(rss, lessThan(400 * mib));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  Future<List<Object?>> firstRow(String sheetData) async {
+    final sheets = await Excel.toArray(
+      await workbook(sheetData),
+      type: ExcelType.xlsx,
+    );
+    final row = sheets.first.first;
+    return [for (var i = 0; i < row.length; i++) row['$i']];
+  }
+
+  test(
+    'a reference going back lands at its column; the last one wins',
+    () async {
+      expect(
+        await firstRow(
+          '<row r="1"><c r="B1"><v>2</v></c><c r="A1"><v>1</v></c>'
+          '<c r="B1"><v>3</v></c></row>',
+        ),
+        [1, 3],
+      );
+    },
+  );
+
+  // RSEQ 59 #2: digits were dropped wherever they were, and no letters
+  // meant column -1.
+  test(
+    'a cell reference is letters then digits, or a FormatException',
+    () async {
+      for (final ref in [
+        '',
+        '1',
+        'A',
+        '1A1',
+        '99XFD1',
+        '12A34B5',
+        'A1B',
+        'A-1',
+      ]) {
+        await expectLater(
+          firstRow('<row r="1"><c r="$ref"><v>1</v></c></row>'),
+          throwsA(isA<FormatException>()),
+          reason: '"$ref"',
+        );
+      }
+      expect(() => columnIndex(''), throwsFormatException);
+    },
+  );
+}
+
+final class ListExport implements FromCollection {
+  ListExport(this.rows);
+  final List<Object?> rows;
+
+  @override
+  List<Object?> collection() => rows;
+}
+
+void messageLengthTests() {
+  test('the refusal quotes at most 16 letters of the reference', () {
+    for (final letters in ['Z' * 1000000, '!${'A' * 1000000}']) {
+      try {
+        columnIndex(letters);
+        fail('accepted');
+      } on FormatException catch (error) {
+        expect(error.message.length, lessThan(120));
+      }
+    }
+  });
+}
