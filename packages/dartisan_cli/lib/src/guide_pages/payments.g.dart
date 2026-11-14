@@ -82,24 +82,29 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    the `x-callback-token` header must be your verification token. Stripe:
    a `v1` signature in `Stripe-Signature` must be the HMAC-SHA256 of
    `<timestamp>.<body>` with the endpoint secret, and the timestamp must
-   be within five minutes. Comparisons take constant time. A Midtrans
-   `transaction_status` must also agree with the signed `status_code`
-   (200 for `capture` and `settlement`, 202 for `expire` and `cancel`, as
-   in Midtrans' sample notifications), and a `fraud_status` other than
-   `accept` keeps `settlement` and `capture` from paying. Any other status
-   (`deny`, a refund, a chargeback, ...) is taken from Midtrans' status
-   API, not from the notification; when that API fails the answer is 5xx
-   and nothing changes. Anything else gets 401 and changes nothing. A paid notification whose amount or currency
-   cannot be read gets 400.
+   be within five minutes. Comparisons take constant time. Anything else
+   gets 401 and changes nothing. Midtrans signs `order_id`, `status_code`
+   and `gross_amount` only, so only a payment is taken from its
+   notification: `settlement` or `capture` with `status_code` 200 and a
+   `fraud_status` that is empty or `accept`. Every other Midtrans status
+   (`expire`, `cancel`, `deny`, a refund, a chargeback, a challenged card,
+   ...) is confirmed with Midtrans' status API, whose answer must be about
+   the same order; when that API fails the answer is 5xx and nothing
+   changes. The same notification posted again within a minute reuses the
+   API's answer. A notification without its `transaction_id`, or with a
+   field that should be text and is not, gets 400, as does a paid
+   notification whose amount or currency cannot be read.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
    gateway), in the same transaction as the change. Once a notification
    has moved the payment, a retry answers `{"status": "duplicate"}` and
    does nothing. One that moved nothing (`unknownOrder`, `unchanged`,
    `ignored`, `amountMismatch`) is looked at again when it comes back, so
    a notification that arrives before its order is stored applies on the
-   gateway's retry. A Midtrans id includes `fraud_status`: a card
-   `capture` held for review (`challenge`) and the same `capture` once
-   accepted are two notifications.
+   gateway's retry. A Midtrans id holds the order, the transaction, the
+   status and `fraud_status`: a card `capture` held for review
+   (`challenge`) and the same `capture` once accepted are two
+   notifications, and a notification of one order is never taken for
+   another's.
 3. **Checked.** The payment row is locked; a notification for another
    currency or another amount changes nothing and dispatches
    `PaymentAmountMismatch`. Without a currency, only the amount is
