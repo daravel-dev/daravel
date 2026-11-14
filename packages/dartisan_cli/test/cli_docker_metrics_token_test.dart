@@ -115,6 +115,34 @@ void main() {
         expect(seen, hasLength(1));
       },
     );
+
+    test('a redirect to another host does not carry the token', () async {
+      final other = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => other.close(force: true));
+      final atOther = <String?>[];
+      other.listen((request) async {
+        atOther.add(request.headers.value('authorization'));
+        request.response.statusCode = 404;
+        await request.response.close();
+      });
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final seen = <String?>[];
+      server.listen((request) async {
+        seen.add(request.headers.value('authorization'));
+        request.response
+          ..statusCode = 302
+          ..headers.set('location', 'http://localhost:${other.port}/metrics');
+        await request.response.close();
+      });
+      await run([
+        'coordinator:stats',
+        '--url=http://127.0.0.1:${server.port}/metrics',
+      ]);
+      expect(seen, ['Bearer metrics-secret']);
+      // Followed (another host name, the same machine), without the token.
+      expect(atOther, [null]);
+    });
   });
 }
 

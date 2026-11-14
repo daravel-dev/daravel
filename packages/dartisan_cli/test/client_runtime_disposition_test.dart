@@ -32,6 +32,14 @@ void main() {
     "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf",
     "attachment; filename*=UTF-8''%E0%A4; filename=x",
     'attachment; filename="..report.csv"',
+    // Spaces and dots around the name.
+    'attachment; filename=" .. "',
+    'attachment; filename="..."',
+    'attachment; filename="evil.exe. "',
+    'attachment; filename="  a.txt  "',
+    'attachment; filename=".env"',
+    // A known limit: Windows device names are not refused.
+    'attachment; filename="CON"',
   ];
 
   setUpAll(() async {
@@ -91,5 +99,14 @@ void main() {
     expect(results[headers[16]], 'résumé.pdf');
     expect(results[headers[17]], 'x');
     expect(results[headers[18]], '..report.csv');
+  });
+
+  test('leading spaces and trailing spaces and dots go; dots only is null', () {
+    expect(results[headers[19]], isNull);
+    expect(results[headers[20]], isNull);
+    expect(results[headers[21]], 'evil.exe');
+    expect(results[headers[22]], 'a.txt');
+    expect(results[headers[23]], '.env');
+    expect(results[headers[24]], 'CON');
   });
 }
