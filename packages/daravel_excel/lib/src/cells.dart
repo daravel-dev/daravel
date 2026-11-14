@@ -17,7 +17,15 @@ String columnLetter(int index) {
   return letters.toString();
 }
 
+/// The number of columns a worksheet holds (`A` to `XFD`), the limit of
+/// the file format (ECMA-376, and Excel's).
+const int maxColumns = 16384;
+
 /// `A` → `0`, `AA` → `26` (letters to zero-based index), ignoring case.
+///
+/// A column past `XFD` (index 16 383) is a [FormatException]: no workbook
+/// holds one, and a reader that took `ZZZZZZ1` at its word filled a row
+/// with hundreds of millions of empty cells before the first value.
 int columnIndex(String letters) {
   var n = 0;
   for (final unit in letters.toUpperCase().codeUnits) {
@@ -25,6 +33,12 @@ int columnIndex(String letters) {
       throw FormatException('Not a column: $letters');
     }
     n = n * 26 + (unit - 0x40);
+    if (n > maxColumns) {
+      throw FormatException(
+        'Column $letters is past XFD, the last of the $maxColumns columns a '
+        'worksheet holds.',
+      );
+    }
   }
   return n - 1;
 }

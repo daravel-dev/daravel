@@ -176,6 +176,14 @@ final class XlsxReader {
               column = ref == null
                   ? column
                   : columnIndex(ref.replaceAll(RegExp('[0-9]'), ''));
+              // Cells without `r` count on from the last: past XFD too, a
+              // row is longer than a worksheet allows.
+              if (column >= maxColumns) {
+                throw const FormatException(
+                  'A row holds more than the $maxColumns columns a worksheet '
+                  'allows.',
+                );
+              }
               type = _attr(event, 't');
               valueText = StringBuffer();
               inline = StringBuffer();
