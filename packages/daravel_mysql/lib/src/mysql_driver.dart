@@ -857,8 +857,9 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// that cannot change how text splits, by its first keyword: savepoints
   /// and transaction control, table locks, XA, `HANDLER`, `CHECK TABLE`
   /// and `HELP`. MySQL 8.4 answers 1295 for `SAVEPOINT`, `RELEASE
-  /// SAVEPOINT`, `ROLLBACK TO` and `START TRANSACTION`, so without this a
-  /// nested transaction would empty the cache. A 1295 text is one
+  /// SAVEPOINT`, `ROLLBACK TO` and `START TRANSACTION`: such a text is
+  /// remembered as checked rather than emptying the cache, or every nested
+  /// transaction would empty it and pay its checks again. A 1295 text is one
   /// statement: the server refuses a stack it starts as a syntax error
   /// (1064) before it gets that far. `BEGIN NOT ATOMIC` is caught by
   /// [changesSplitting] before the text is checked.
@@ -998,14 +999,17 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
       if (error.errorCode != 1295) {
         rethrow;
       }
-      // Not verified as one statement, so not remembered: it is asked
-      // about every time it runs. Unverified, it may also change how text
-      // splits, so the texts checked so far are checked again, unless it
-      // is a kind that cannot ([_keepsSplitting]).
+      // A 1295 text is one statement (a stack it starts is refused with
+      // 1064 first). Of a kind that cannot change how text splits
+      // ([_keepsSplitting]: a savepoint, transaction control, a lock), it
+      // is remembered like a prepared one, so a nested transaction pays
+      // its SAVEPOINT check once per connection. Any other may change the
+      // session: not remembered, asked about every time it runs, and the
+      // texts checked so far are checked again.
       if (!_keepsSplitting(sql)) {
         seen.clear();
+        return;
       }
-      return;
     }
     if (sql.length <= MySqlDriver.singleStatementMaxLength) {
       seen.add(sql, MySqlDriver.singleStatementCacheSize);

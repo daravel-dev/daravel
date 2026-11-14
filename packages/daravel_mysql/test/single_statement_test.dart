@@ -248,6 +248,29 @@ void main() {
     expect(await prepares() - afterPrepare, 1);
   });
 
+  test(
+    'a savepoint repeated on a connection is checked once per text, '
+    'whether the server prepares it (MariaDB) or answers 1295 (MySQL)',
+    () async {
+      await prepares(); // its own text, checked once
+      const text = 'SELECT COUNT(*) AS c FROM db1_single';
+      Future<void> nested() => db.transaction((tx) async {
+        await tx.execute('SAVEPOINT daravel_sp_2');
+        await tx.select(text);
+        await tx.execute('RELEASE SAVEPOINT daravel_sp_2');
+      });
+      final first = await prepares();
+      await nested();
+      // SAVEPOINT, the SELECT and RELEASE, each checked the first time.
+      expect(await prepares() - first, 3);
+      final later = await prepares();
+      for (var i = 0; i < 20; i++) {
+        await nested();
+      }
+      expect(await prepares() - later, 0, reason: 'all remembered');
+    },
+  );
+
   test('MariaDB: a compound statement outside a routine checks the texts '
       'again (a SET NAMES inside one stays)', () async {
     if ((Platform.environment['DARAVEL_TEST_MARIADB'] ?? '').isEmpty) {
