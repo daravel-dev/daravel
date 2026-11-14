@@ -1084,7 +1084,7 @@ final class ModelQuery<T extends Model> {
       items: models,
       total: rows.total,
       perPage: size,
-      currentPage: current,
+      currentPage: rows.currentPage,
       path: base,
       pageName: pageName,
       query: query,
@@ -1113,7 +1113,7 @@ final class ModelQuery<T extends Model> {
     return SimplePaginator<T>(
       items: await _hydrateAll(rows.items),
       perPage: size,
-      currentPage: current,
+      currentPage: rows.currentPage,
       hasMorePages: rows.hasMorePages,
       path: base,
       pageName: pageName,

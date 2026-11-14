@@ -828,9 +828,32 @@ final class QueryBuilder {
   /// Laravel's alias of [offset].
   QueryBuilder skip(int value) => offset(value);
 
-  /// The rows of page [page] (from 1) of [perPage] rows.
+  /// The rows of page [page] (from 1) of [perPage] rows. A page so far that
+  /// its offset would not fit in an integer reads past the end (no rows)
+  /// instead of wrapping around to the first page.
   QueryBuilder forPage(int page, [int perPage = 15]) =>
-      offset((page - 1) * perPage).limit(perPage);
+      offset(_pageOffset(page, perPage)).limit(perPage);
+
+  /// `(page - 1) * perPage`, without overflowing: past the largest integer
+  /// it stays there, an offset beyond any table.
+  static int _pageOffset(int page, int perPage) {
+    if (page <= 1 || perPage <= 0) {
+      return 0;
+    }
+    const largest = 0x7fffffffffffffff;
+    return page - 1 > largest ~/ perPage ? largest : (page - 1) * perPage;
+  }
+
+  /// [page], or 1 below it (Laravel's paginators take an invalid page as 1).
+  static int _validPage(int page) => page < 1 ? 1 : page;
+
+  /// Refuses a page size below 1, before any query: Laravel uses its default
+  /// for 0 and drops the `LIMIT` for a negative one (the whole table).
+  static void _checkPerPage(int perPage) {
+    if (perPage < 1) {
+      throw ArgumentError.value(perPage, 'perPage', 'must be at least 1');
+    }
+  }
 
   /// `FOR UPDATE`: locks the selected rows until the transaction ends.
   /// SQLite ignores it, as its writes lock the database.
@@ -1047,7 +1070,8 @@ final class QueryBuilder {
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
-    final current = page ?? Pagination.resolvePage(pageName);
+    _checkPerPage(perPage);
+    final current = _validPage(page ?? Pagination.resolvePage(pageName));
     final base = path ?? Pagination.resolvePath();
     final total = await count();
     final items = total == 0
@@ -1073,10 +1097,11 @@ final class QueryBuilder {
     String pageName = 'page',
     Map<String, String> query = const {},
   }) async {
-    final current = page ?? Pagination.resolvePage(pageName);
+    _checkPerPage(perPage);
+    final current = _validPage(page ?? Pagination.resolvePage(pageName));
     final base = path ?? Pagination.resolvePath();
     final rows = await clone()
-        .offset((current - 1) * perPage)
+        .offset(_pageOffset(current, perPage))
         .limit(perPage + 1)
         .get();
     final hasMore = rows.length > perPage;
@@ -1100,14 +1125,36 @@ final class QueryBuilder {
     String cursorName = 'cursor',
     Map<String, String> query = const {},
   }) async {
+    _checkPerPage(perPage);
     final base = path ?? Pagination.resolvePath();
-    final from = cursor ?? Pagination.resolveCursor(cursorName);
     if (_ast.orders.isEmpty || _ast.orders.any((o) => o.raw != null)) {
       throw StateError(
         'cursorPaginate() requires orderBy() on unique columns.',
       );
     }
     final columns = [for (final o in _ast.orders) '${o.column}'];
+    final jsonOrders = columns.where((c) => c.contains('->'));
+    if (jsonOrders.isNotEmpty) {
+      throw StateError(
+        'cursorPaginate() cannot order by a JSON path '
+        '(${jsonOrders.first}): the next page compares the cursor with it. '
+        'Order by a column.',
+      );
+    }
+    final given = cursor ?? Pagination.resolveCursor(cursorName);
+    // A cursor without a plain value for every order column (an empty or
+    // forged one) reads as no cursor, as an undecodable one does, instead
+    // of reaching the database as a type error.
+    final from =
+        given != null &&
+            columns.every(
+              (c) => switch (given.values[c]) {
+                String() || num() || bool() => true,
+                _ => false,
+              },
+            )
+        ? given
+        : null;
     final forward = from?.pointsToNext ?? true;
     final q = clone();
     if (from != null) {
