@@ -1,4 +1,4 @@
-<!-- source: excel.md sha256:acc2ccc1dbc1 -->
+<!-- source: excel.md sha256:1e901020af9c -->
 # Excel dan CSV
 
 `daravel_excel` mengekspor dan mengimpor spreadsheet dengan concern dari
@@ -187,6 +187,11 @@ membacanya, dan delimiter dideteksi di antara `,`, `;`, tab, dan `|`.
 
 `Excel.toArray(source, headingRow: true)` mengembalikan baris dari semua
 sheet.
+
+Sebuah worksheet memuat paling banyak 16 384 kolom (`A` sampai `XFD`,
+`maxColumns`), sesuai batas format dan Excel: sel di luar `XFD` membuat
+pembacaan gagal dengan `FormatException`, bukan mengisi baris sampai ke
+sana.
 
 ## Command
 

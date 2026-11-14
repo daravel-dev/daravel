@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:03833fe6de20 -->
+    r'''<!-- source: responses.md sha256:376b9e685c4e -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -451,13 +451,39 @@ mendengarkan sendiri dan membuang yang dikirim client, sehingga close atau
 kepergian client tetap mengakhiri sesi. Yang sudah dikirim client
 sebelumnya dan belum dibaca siapa pun ikut dibuang saat itu. `listen`
 sesudah itu mengambil alih pembacaan dan menerima yang tiba sejak saat
-itu; sesudah client menutup, ia hanya menerima akhirnya. Handler yang menunggu
-`socket.done` tanpa mendengarkan tidak pernah tahu client sudah pergi, dan
-sesinya bertahan sampai server berhenti; dengarkan saja, dengan
-`socket.listen((_) {})` bila pesannya tidak penting. Begitu pula handler
-yang menulis dalam loop: tanpa pendengar, `socket.readyState` maupun
-`socket.closeCode` tidak berubah saat client menutup atau pergi, jadi
-dengarkan juga, lalu berulang selama `socket.readyState == WebSocket.open`.
+itu; sesudah client menutup, ia hanya menerima akhirnya.
+
+Selama belum ada yang mendengarkan, server tetap membaca client dan
+menahan yang dikirimnya, berurutan, untuk pendengar yang akan datang:
+sampai 64 KiB (atau `maxPayloadBytes` rute, bila lebih kecil) ditambah
+satu pesan; sesudah itu TCP menahan client. Jadi handler yang menunggu
+`socket.done` tanpa mendengarkan, atau yang menulis dalam loop selama
+`socket.readyState == WebSocket.open`, tetap tahu client menutup atau
+pergi: 5 detik sesudahnya sesi berakhir, `socket.closeCode` berisi kode
+client (1006 bila client pergi tanpa close), dan yang tertahan dibuang.
+Bila yang tertahan sudah penuh dan 5 detik belum ada yang mendengarkan,
+server sendiri mengakhiri sesi dengan `1008` dan mencatat peringatan
+beserta path-nya: handler yang tidak pernah membaca tidak bisa memegang
+sesi, apa pun yang dikirim client. Kode penutupnya bergantung pada letak
+close client saat server menahan TCP: di dalam yang sudah dibaca, kode
+client; sesudahnya, masih menunggu di TCP, `1008`. `listen` sesudah itu
+hanya menerima akhirnya. Dengarkan bila bisa, dengan
+`socket.listen((_) {})` bila pesannya
+tidak penting.
+
+Setiap frame yang dikirim client diperiksa begitu tiba, entah handler
+membaca atau tidak: frame yang ditolak RFC 6455 (tanpa mask, opcode atau
+bit cadangan, frame kendali yang terfragmentasi atau lebih dari 125 byte,
+kode close yang tidak boleh dikirim client) menutup koneksi dengan `1002`,
+dan alasan close yang bukan UTF-8 dengan `1007`.
+
+Begitu ada yang mendengarkan, tidak ada yang dibuang: pendengar yang
+menjeda (`await for` yang lama mengerjakan tiap pesan) menerima semua pesan
+lalu close-nya saat ia membaca lagi, berapa pun lamanya; pendengar yang
+tidak pernah membaca lagi mempertahankan sesinya, seperti pembaca yang
+macet selama ini. Pesan terfragmentasi yang masih tiba saat server menahan
+client (lebih dari batas di atas menunggu) tetap menjalankan
+`assembleTimeout`-nya.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame
