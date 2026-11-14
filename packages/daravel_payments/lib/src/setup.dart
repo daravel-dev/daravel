@@ -8,19 +8,27 @@ extension PaymentsApplicationBuilder on ApplicationBuilder {
   /// [PaymentManager] and, unless [webhookPath] is null, registers
   /// `POST <webhookPath>/{gateway}` for the gateways' notifications. Add
   /// `CreatePaymentTables()` to `bootstrap/migrations.dart`.
+  /// [unknownOrderStatus] answers a notification for an order not stored
+  /// yet (see [Payment.webhookRoutes]).
   ApplicationBuilder withPayments({
     String? webhookPath = '/payments/webhook',
     List<Object> middleware = const [],
-  }) =>
-      withConfig<PaymentsConfig>(PaymentsConfig.fromEnv)
-          .withProviders([_PaymentsProvider(webhookPath, middleware)]);
+    int unknownOrderStatus = 409,
+  }) => withConfig<PaymentsConfig>(PaymentsConfig.fromEnv).withProviders([
+    _PaymentsProvider(webhookPath, middleware, unknownOrderStatus),
+  ]);
 }
 
 final class _PaymentsProvider extends ServiceProvider {
-  const _PaymentsProvider(this.webhookPath, this.middleware);
+  const _PaymentsProvider(
+    this.webhookPath,
+    this.middleware,
+    this.unknownOrderStatus,
+  );
 
   final String? webhookPath;
   final List<Object> middleware;
+  final int unknownOrderStatus;
 
   @override
   void register(Container container) => container.singleton<PaymentManager>(
@@ -35,6 +43,7 @@ final class _PaymentsProvider extends ServiceProvider {
         container.make<Router>(),
         path: path,
         middleware: middleware,
+        unknownOrderStatus: unknownOrderStatus,
       );
     }
   }

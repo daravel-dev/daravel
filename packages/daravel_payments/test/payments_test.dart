@@ -239,6 +239,7 @@ void main() {
           'status': 'PAID',
           'amount': 50000,
           'paid_amount': 50000,
+          'currency': 'IDR',
           'payment_channel': 'QRIS',
           'paid_at': '2026-10-29T08:00:00.000Z',
         });
@@ -373,8 +374,9 @@ void main() {
         (200, '{"status":"applied"}'),
       );
       expect((await record()).status, PaymentStatus.expired);
+      // 409, so the gateway sends it again once the order exists.
       expect(await notify(midtransNotification(orderId: 'ORDER-404')), (
-        200,
+        409,
         '{"status":"unknownOrder"}',
       ));
     });

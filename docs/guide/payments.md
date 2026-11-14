@@ -78,8 +78,12 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    the `x-callback-token` header must be your verification token. Stripe:
    a `v1` signature in `Stripe-Signature` must be the HMAC-SHA256 of
    `<timestamp>.<body>` with the endpoint secret, and the timestamp must
-   be within five minutes. Comparisons take constant time. Anything else
-   gets 401 and changes nothing.
+   be within five minutes. Comparisons take constant time. A Midtrans
+   `transaction_status` must also agree with the signed `status_code`
+   (200 for `capture` and `settlement`, 201 `pending`, 202 `deny`, 407
+   `expire`, from Midtrans' status codes reference). Anything else gets
+   401 and changes nothing. A paid notification whose amount or currency
+   cannot be read gets 400.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
    gateway), in the same transaction as the change. Once a notification
    has moved the payment, a retry answers `{"status": "duplicate"}` and
@@ -108,9 +112,14 @@ events
   ..listen<PaymentAmountMismatch>((e) => Log.critical('Amount mismatch', {'order': e.payment.orderId}));
 ```
 
-The answer is 200 in every other case (`applied`, `unchanged`, `ignored`,
-`unknownOrder`, `amountMismatch`), so the gateway stops retrying a
-notification there is nothing more to do with.
+A notification for an order not stored yet (`unknownOrder`) is answered
+409: Stripe, Midtrans and Xendit send a notification again only after a
+non-2xx answer, so it applies once the order exists. On a gateway account
+shared with another system, notifications for its orders are then retried
+until the gateway gives up, and show as failed in its dashboard; pass
+`withPayments(unknownOrderStatus: 200)` to answer them 200 as before. The
+answer is 200 in every other case (`applied`, `duplicate`, `unchanged`,
+`ignored`, `amountMismatch`), which another delivery would not change.
 
 ## Reconciling
 

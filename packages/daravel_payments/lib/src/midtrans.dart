@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 
 import 'secrets.dart';
 import 'types.dart';
+import 'webhook_checks.dart';
 
 /// Midtrans: Snap for paying (QRIS, virtual accounts, e-wallets, cards)
 /// and HTTP notifications for the result
@@ -155,8 +156,32 @@ final class MidtransGateway implements PaymentGateway {
         !constantTimeEquals(signature.toLowerCase(), signatureFor(body))) {
       throw const InvalidPaymentSignatureException();
     }
-    return _event(body);
+    // The signature covers status_code, not transaction_status: a status
+    // must agree with the code signed for it.
+    final expected = signedStatusCodes['${body['transaction_status']}'];
+    if (expected != null && '${body['status_code']}' != expected) {
+      throw const InvalidPaymentSignatureException(
+        'The Midtrans transaction_status does not match the signed '
+        'status_code.',
+      );
+    }
+    return requireAmountWhenPaid(_event(body));
   }
+
+  /// The `status_code` a `transaction_status` comes with, from Midtrans'
+  /// status codes reference (docs.midtrans.com/reference/status-codes):
+  /// 200 for a successful transaction (capture, settlement), 201 pending,
+  /// 202 denied, 407 expired. A notification whose status disagrees with
+  /// its signed code is refused. Statuses the reference pairs with a code
+  /// for cards only (`authorize`, `cancel`) or not at all (`failure`,
+  /// `refund`, `partial_refund`) are not checked.
+  static const Map<String, String> signedStatusCodes = {
+    'capture': '200',
+    'settlement': '200',
+    'pending': '201',
+    'deny': '202',
+    'expire': '407',
+  };
 
   /// `SHA512(order_id + status_code + gross_amount + ServerKey)`, as
   /// Midtrans signs its notifications.

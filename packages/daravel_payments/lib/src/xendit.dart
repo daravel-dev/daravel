@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 
 import 'secrets.dart';
 import 'types.dart';
+import 'webhook_checks.dart';
 
 /// Xendit invoices (payment links: virtual accounts, QRIS, e-wallets,
 /// retail outlets, cards) and their callbacks, which carry the merchant's
@@ -134,7 +135,7 @@ final class XenditGateway implements PaymentGateway {
     if (body is! Map<String, Object?> || body['external_id'] == null) {
       throw const BadRequestHttpException('Not a Xendit invoice callback.');
     }
-    return _event(body);
+    return requireAmountWhenPaid(_event(body));
   }
 
   PaymentEvent _event(Map<String, Object?> invoice, {String prefix = ''}) {
