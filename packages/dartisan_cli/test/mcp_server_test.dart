@@ -72,6 +72,7 @@ void main() {
   McpServer server({bool allowWrite = false}) => McpServer(
     app,
     allowWrite: allowWrite,
+    runner: DartisanRunner(() => app),
     runCommand: (command, arguments) async {
       ran.add([command, ...arguments]);
       return (exitCode: 0, stdout: 'ok', stderr: '');
