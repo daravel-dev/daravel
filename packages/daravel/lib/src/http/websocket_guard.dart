@@ -226,9 +226,10 @@ final class WebSocketGuard {
       // A close the client sent, else the guard's own, stands as the
       // session's code, not the abnormal end of the destroyed socket.
       _report(attached);
-      if (attached.closeCode == null) {
-        // Gone without a close anyone read (a reset, a failed write while
-        // what the client sent was held): 1006, as RFC 6455 §7.1.5.
+      if (attached.closeCode == null && attached.readyState == WebSocket.open) {
+        // Gone while open, without a close anyone read (a reset, a failed
+        // write while what the client sent was held): 1006, as RFC 6455
+        // §7.1.5. A socket this side was closing keeps what it reported.
         attached.peerClosed(1006, null);
       }
       attached.abandon();

@@ -136,6 +136,34 @@ void main() {
               }
               into.add('done:${socket.closeCode}');
             }, compress: false)
+            ..ws('/self-close', (socket, request) async {
+              // Closes itself; the client never answers.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              socket.listen((_) {});
+              await socket.close(4001, 'bye');
+              await socket.done;
+              into.add('done:${socket.closeCode}');
+              await Future<void>.delayed(const Duration(seconds: 2));
+              into.add('later:${socket.closeCode}');
+            }, compress: false)
+            ..ws(
+              '/slow-code',
+              (socket, request) async {
+                final into = seen[request.uri.queryParameters['id']!] = [];
+                socket.listen((_) {});
+                while (socket.readyState == WebSocket.open) {
+                  socket.add(Uint8List(64 << 10));
+                  await Future<void>.delayed(Duration.zero);
+                }
+                await socket.done;
+                into.add('done:${socket.closeCode}');
+                await Future<void>.delayed(const Duration(seconds: 2));
+                into.add('later:${socket.closeCode}');
+              },
+              compress: false,
+              maxBufferedBytes: 1 << 20,
+              slowClientCode: 4100,
+            )
             ..ws('/returns-after', (socket, request) async {
               // Returns after `ms` without ever listening: the server's
               // drain starts 5 s after that.
@@ -411,6 +439,27 @@ void main() {
       expectNoErrors();
     },
   );
+
+  group('a socket this side closed and the client never answered', () {
+    // closeCode is the code the client sent: none here. The end of the
+    // connection afterwards does not make it 1006.
+    for (final (route, why) in [
+      ('self-close', 'the application closed with 4001'),
+      ('slow-code', 'closed as a slow client with 4100'),
+    ]) {
+      test('$why: no code, before and after the connection ends', () async {
+        final client = await open('/$route?id=$route');
+        client.pauseReading();
+        final deadline = DateTime.now().add(const Duration(seconds: 15));
+        while ((seen[route]?.length ?? 0) < 2 &&
+            DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(seen[route], ['done:null', 'later:null']);
+        client.socket.destroy();
+      }, timeout: const Timeout(Duration(seconds: 30)));
+    }
+  });
 
   group('slow clients end their session with the 1 s grace', () {
     test('the application\'s queue overflows', () async {
