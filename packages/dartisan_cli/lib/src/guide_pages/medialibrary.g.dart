@@ -122,8 +122,10 @@ result of the one before, as in Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP or TIFF instead of JPEG |
 | `greyscale()`, `blur(10)` | Filters |
 
-JPEG, PNG, GIF, WebP, BMP and TIFF files are converted, after their EXIF
-rotation is applied. WebP and AVIF cannot be written: `package:image` has
+JPEG, PNG (APNG too), GIF, WebP and BMP files are converted, after their
+EXIF rotation is applied; the format is told from the content, not the
+name. TIFF is not converted in this version: a TIFF keeps its original and gets
+no conversions. WebP and AVIF cannot be written: `package:image` has
 no encoder for them.
 
 The size of an image is read from its header before it is decoded: one
@@ -131,7 +133,10 @@ that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
 width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
 (1 000) is not converted (`ImageTooLargeException`), and the original stays
 stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
-takes gigabytes to decode.
+takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
+sample), and an animated WebP frame whose bitstream size differs from its
+frame header is refused. A conversion refused this way fails its job
+at once, without retries.
 
 Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on

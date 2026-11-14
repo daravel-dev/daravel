@@ -17,8 +17,18 @@ final class MediaLibraryConfig implements ConfigSection {
   });
 
   /// The settings in `MEDIA_*`.
+  ///
+  /// `MEDIA_MAX_IMAGE_PIXELS` or `MEDIA_MAX_IMAGE_FRAMES` below 1 stops the
+  /// boot with a [ConfigException] instead of refusing every image; one
+  /// that is not a number does already ([EnvException]).
   factory MediaLibraryConfig.fromEnv(Env env) {
     final queue = env.maybeString('MEDIA_QUEUE');
+    for (final key in ['MEDIA_MAX_IMAGE_PIXELS', 'MEDIA_MAX_IMAGE_FRAMES']) {
+      final value = env.integer(key, 1);
+      if (value < 1) {
+        throw ConfigException('$key is at least 1, not $value.');
+      }
+    }
     return MediaLibraryConfig(
       diskName: env.string('MEDIA_DISK', 'public'),
       maxFileSize: env.integer('MEDIA_MAX_FILE_SIZE', 10 * 1024 * 1024),
@@ -105,5 +115,7 @@ final class MediaLibraryConfig implements ConfigSection {
     'prefix': prefix,
     'version_urls': versionUrls,
     'disallowed_extensions': disallowedExtensions,
+    'max_image_pixels': maxImagePixels,
+    'max_image_frames': maxImageFrames,
   };
 }

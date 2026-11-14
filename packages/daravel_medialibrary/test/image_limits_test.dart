@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:daravel/daravel.dart' show ConfigException, Env, EnvException;
+import 'package:daravel_medialibrary/daravel_medialibrary.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
 
@@ -12,6 +14,7 @@ import 'package:test/test.dart';
 /// in a compiled child process bounded in time, which reports its peak
 /// RSS.
 void main() {
+  followUpTests();
   late Directory dir;
   late String child;
   setUpAll(() async {
@@ -50,6 +53,9 @@ void main() {
     final lines = const LineSplitter().convert(await output);
     return (lines.first, int.parse(lines.last.split(' ').last));
   }
+
+  containerTests((bytes) => convert(bytes));
+  tiffAndBudgetTests();
 
   const mib = 1024 * 1024;
 
@@ -213,4 +219,235 @@ Uint8List _hugeLosslessWebp(int width, int height) {
     ...ascii.encode('WEBP'),
     ...chunk,
   ]);
+}
+
+void followUpTests() {
+  test('MEDIA_MAX_IMAGE_PIXELS or _FRAMES below 1 stops the boot', () {
+    for (final key in ['MEDIA_MAX_IMAGE_PIXELS', 'MEDIA_MAX_IMAGE_FRAMES']) {
+      for (final value in ['0', '-1']) {
+        expect(
+          () => MediaLibraryConfig.fromEnv(Env.fromMap({key: value})),
+          throwsA(isA<ConfigException>()),
+          reason: '$key=$value',
+        );
+      }
+      expect(
+        () => MediaLibraryConfig.fromEnv(Env.fromMap({key: 'lots'})),
+        throwsA(isA<EnvException>()),
+        reason: '$key=lots',
+      );
+    }
+    final config = MediaLibraryConfig.fromEnv(
+      Env.fromMap({
+        'MEDIA_MAX_IMAGE_PIXELS': '1000',
+        'MEDIA_MAX_IMAGE_FRAMES': '2',
+      }),
+    );
+    expect([config.maxImagePixels, config.maxImageFrames], [1000, 2]);
+  });
+
+  test('formats other than JPEG, PNG, GIF, WebP, TIFF and BMP are not '
+      'decoded, whatever the name', () {
+    final pixel = img.Image(width: 1, height: 1);
+    for (final bytes in [img.encodeTga(pixel), img.encodeIco(pixel)]) {
+      expect(
+        () => convertImageSync(bytes, {
+          'width': [1],
+        }),
+        throwsA(
+          isA<ImageConversionException>().having(
+            (e) => e.message,
+            'message',
+            contains('not a JPEG, PNG, GIF, WebP or BMP'),
+          ),
+        ),
+      );
+    }
+  });
+}
+
+/// An APNG whose canvas (`IHDR`) is 1 x 1 and whose second frame (`fcTL`)
+/// declares [width] x [height], with its rows of zeros in `fdAT`.
+Uint8List _apngWithHugeFrame(int width, int height) {
+  ByteData u32s(List<int> values) {
+    final data = ByteData(values.length * 4);
+    for (var i = 0; i < values.length; i++) {
+      data.setUint32(i * 4, values[i]);
+    }
+    return data;
+  }
+
+  List<int> fctl(int sequence, int w, int h) => [
+    ...u32s([sequence, w, h, 0, 0]).buffer.asUint8List(),
+    0, 1, 0, 1, // delay 1/1
+    0, 0, // dispose, blend
+  ];
+
+  final out = BytesBuilder(copy: false)
+    ..add([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  final ihdr = ByteData(13)
+    ..setUint32(0, 1)
+    ..setUint32(4, 1)
+    ..setUint8(8, 8)
+    ..setUint8(9, 6);
+  out
+    ..add(_chunk('IHDR', ihdr.buffer.asUint8List()))
+    ..add(_chunk('acTL', u32s([2, 0]).buffer.asUint8List()))
+    ..add(_chunk('fcTL', fctl(0, 1, 1)))
+    ..add(_chunk('IDAT', ZLibEncoder().convert([0, 0, 0, 0, 0])));
+  final compressed = BytesBuilder(copy: false);
+  final sink = ZLibEncoder().startChunkedConversion(
+    ByteConversionSink.withCallback(compressed.add),
+  );
+  final row = Uint8List(1 + width * 4);
+  for (var y = 0; y < height; y++) {
+    sink.add(row);
+  }
+  sink.close();
+  out
+    ..add(_chunk('fcTL', fctl(1, width, height)))
+    ..add(
+      _chunk('fdAT', [
+        ...u32s([2]).buffer.asUint8List(),
+        ...compressed.takeBytes(),
+      ]),
+    )
+    ..add(_chunk('IEND', const []));
+  return out.takeBytes();
+}
+
+/// An animated WebP whose canvas (`VP8X`) and single frame (`ANMF`) are
+/// [frame] x [frame], holding a lossless (`VP8L`) bitstream of [bitstream] x
+/// [bitstream].
+Uint8List _animatedWebp({required int frame, required int bitstream}) {
+  List<int> le24(int v) => [v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF];
+  List<int> chunk(String type, List<int> data) => [
+    ...ascii.encode(type),
+    ...(ByteData(
+      4,
+    )..setUint32(0, data.length, Endian.little)).buffer.asUint8List(),
+    ...data,
+    if (data.length.isOdd) 0,
+  ];
+  final bits = (bitstream - 1) | ((bitstream - 1) << 14);
+  final vp8l = chunk('VP8L', [
+    0x2F,
+    bits & 0xFF,
+    (bits >> 8) & 0xFF,
+    (bits >> 16) & 0xFF,
+    (bits >> 24) & 0xFF,
+    // A minimal valid lossless image: one colour throughout.
+    0x88, 0x88, 0x08,
+    ...List.filled(16, 0),
+  ]);
+  final body = [
+    ...ascii.encode('WEBP'),
+    // Animation flag; canvas [frame] x [frame].
+    ...chunk('VP8X', [0x02, 0, 0, 0, ...le24(frame - 1), ...le24(frame - 1)]),
+    ...chunk('ANIM', [0, 0, 0, 0, 0, 0]),
+    // Offset 0,0; frame [frame] x [frame]; duration 1; no flags.
+    ...chunk('ANMF', [
+      ...le24(0),
+      ...le24(0),
+      ...le24(frame - 1),
+      ...le24(frame - 1),
+      ...le24(1),
+      0,
+      ...vp8l,
+    ]),
+  ];
+  return Uint8List.fromList([
+    ...ascii.encode('RIFF'),
+    ...(ByteData(
+      4,
+    )..setUint32(0, body.length, Endian.little)).buffer.asUint8List(),
+    ...body,
+  ]);
+}
+
+void containerTests(Future<(String, int)> Function(List<int>) convert) {
+  const mib = 1024 * 1024;
+  test('an APNG frame larger than its canvas is refused', () async {
+    final (line, rss) = await convert(_apngWithHugeFrame(16000, 16000));
+    expect(line, 'error ImageTooLargeException');
+    expect(rss, lessThan(300 * mib));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('an animated WebP frame whose bitstream size differs from its frame '
+      'header is refused', () async {
+    final (line, _) = await convert(_animatedWebp(frame: 2, bitstream: 1));
+    expect(line, 'error ImageConversionException');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'an animated WebP whose frames match their bitstreams converts',
+    () async {
+      final (line, _) = await convert(_animatedWebp(frame: 2, bitstream: 2));
+      expect(line, startsWith('ok '));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+}
+
+void tiffAndBudgetTests() {
+  test('TIFF is not converted in this version', () {
+    expect(canConvert(mimeType: 'image/tiff'), isFalse);
+    expect(canConvert(extension: 'tif'), isFalse);
+    expect(canConvert(extension: 'tiff'), isFalse);
+    expect(canConvert(mimeType: 'image/png'), isTrue);
+    expect(
+      () => convertImageSync(img.encodeTiff(img.Image(width: 4, height: 4)), {
+        'width': [2],
+      }),
+      throwsA(
+        isA<ImageConversionException>().having(
+          (e) => e.message,
+          'message',
+          contains('TIFF is not converted'),
+        ),
+      ),
+    );
+  });
+
+  test('a 16-bit PNG counts two bytes per sample against the budget', () {
+    Uint8List png(img.Format format) => img.encodePng(
+      img.Image(width: 8, height: 8, format: format, numChannels: 4),
+    );
+    // 64 pixels: under a limit of 100, but not under half of it.
+    expect(
+      convertImageSync(png(img.Format.uint8), {
+        'width': [4],
+      }, maxPixels: 100),
+      isNotEmpty,
+    );
+    expect(
+      () => convertImageSync(png(img.Format.uint16), {
+        'width': [4],
+      }, maxPixels: 100),
+      throwsA(isA<ImageTooLargeException>()),
+    );
+  });
+
+  test('limits below 1 and images of no width are refused', () {
+    final png = img.encodePng(img.Image(width: 2, height: 2));
+    for (final (pixels, frames) in [(0, 1), (1, 0), (-5, 10)]) {
+      expect(
+        () => convertImageSync(
+          png,
+          {
+            'width': [1],
+          },
+          maxPixels: pixels,
+          maxFrames: frames,
+        ),
+        throwsArgumentError,
+      );
+    }
+    expect(
+      () => convertImageSync(_hugeRleBmp(-5, 5), {
+        'width': [1],
+      }),
+      throwsA(isA<ImageConversionException>()),
+    );
+  });
 }

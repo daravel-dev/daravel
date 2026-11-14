@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:54715e410fa5 -->
+<!-- source: medialibrary.md sha256:742ccbfa93c4 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -120,8 +120,10 @@ masing-masing pada hasil manipulasi sebelumnya, seperti di Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP, atau TIFF sebagai ganti JPEG |
 | `greyscale()`, `blur(10)` | Filter |
 
-File JPEG, PNG, GIF, WebP, BMP, dan TIFF bisa dikonversi, setelah rotasi
-EXIF-nya diterapkan. WebP dan AVIF tidak bisa ditulis: `package:image` tidak
+File JPEG, PNG (termasuk APNG), GIF, WebP, dan BMP bisa dikonversi, setelah
+rotasi EXIF-nya diterapkan; formatnya ditentukan dari isi, bukan dari nama.
+TIFF tidak dikonversi di versi ini: TIFF tetap menyimpan file aslinya
+tanpa konversi. WebP dan AVIF tidak bisa ditulis: `package:image` tidak
 memiliki encoder untuk keduanya.
 
 Ukuran gambar dibaca dari header-nya sebelum didekode: gambar yang akan
@@ -129,7 +131,10 @@ menjadi lebih dari `MEDIA_MAX_IMAGE_PIXELS` piksel (40 juta, lebar x tinggi x
 frame) atau memuat lebih dari `MEDIA_MAX_IMAGE_FRAMES` frame (1 000) tidak
 dikonversi (`ImageTooLargeException`), dan file aslinya tetap tersimpan.
 File berukuran satu megabyte bisa menyatakan 16 000 x 16 000 piksel, yang
-butuh gigabyte untuk didekode.
+butuh gigabyte untuk didekode. PNG 16-bit dihitung dua kali (dua byte per
+sampel), dan frame WebP animasi yang ukuran bitstream-nya berbeda dari
+header frame-nya ditolak. Konversi yang ditolak dengan cara ini
+langsung menggagalkan job-nya, tanpa diulang.
 
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau

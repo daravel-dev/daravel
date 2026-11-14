@@ -252,8 +252,9 @@ final class ImageTooLargeException extends ImageConversionException {
   const ImageTooLargeException(super.message);
 }
 
-/// Whether `package:image` can decode files of [mimeType] or with
-/// [extension] (JPEG, PNG, GIF, WebP, BMP, TIFF).
+/// Whether files of [mimeType] or with [extension] are converted (JPEG,
+/// PNG, GIF, WebP, BMP). TIFF is not, in this version: its conversions are
+/// skipped and the original kept.
 bool canConvert({String? mimeType, String? extension}) {
   const mimes = {
     'image/jpeg',
@@ -262,14 +263,16 @@ bool canConvert({String? mimeType, String? extension}) {
     'image/webp',
     'image/bmp',
     'image/x-ms-bmp',
-    'image/tiff',
   };
   if (mimeType != null && mimes.contains(mimeType.toLowerCase())) {
     return true;
   }
-  return extension != null &&
-      (ImageFormat.fromExtension(extension) != null ||
-          extension.toLowerCase() == 'webp');
+  if (extension == null) {
+    return false;
+  }
+  final format = ImageFormat.fromExtension(extension);
+  return (format != null && format != ImageFormat.tiff) ||
+      extension.toLowerCase() == 'webp';
 }
 
 /// Applies [manipulations] (from [Conversion.manipulations]) to the image
@@ -302,25 +305,43 @@ Uint8List convertImageSync(
   int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
   int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
 }) {
-  final decoder = img.findDecoderForData(bytes);
-  final info = decoder?.startDecode(bytes);
+  if (maxPixels < 1 || maxFrames < 1) {
+    throw ArgumentError('maxPixels and maxFrames are at least 1.');
+  }
+  // A 16-bit PNG decodes to two bytes per sample: the same budget in
+  // bytes (maxPixels x 4) holds half as many of its pixels.
+  final pixels = _pngBitDepth(bytes) > 8 ? maxPixels ~/ 2 : maxPixels;
+  final decoder = _decoderFor(bytes, math.max(1, pixels));
+  if (decoder is img.WebPDecoder) {
+    _checkWebpFrames(bytes);
+  }
+  final info = decoder == null
+      ? null
+      : _guarded(() => decoder.startDecode(bytes));
   if (decoder == null || info == null) {
-    throw const ImageConversionException('The file is not a known image.');
+    throw const ImageConversionException(
+      'The file is not a JPEG, PNG, GIF, WebP or BMP image (TIFF is not '
+      'converted in this version).',
+    );
   }
   final frames = math.max(1, info.numFrames);
-  // Each factor first, so the product cannot overflow.
-  if (frames > maxFrames ||
-      info.width > maxPixels ||
-      info.height > maxPixels ||
-      info.width * info.height > maxPixels ~/ frames) {
+  if (info.width < 1 || info.height < 1) {
+    throw ImageConversionException(
+      'The image declares ${info.width} x ${info.height} pixels; it was not '
+      'converted.',
+    );
+  }
+  // Divisions only: width x height x frames <= pixels, without a product
+  // that could overflow.
+  if (frames > maxFrames || info.width > pixels ~/ frames ~/ info.height) {
     throw ImageTooLargeException(
       'The image is ${info.width} x ${info.height} pixels in $frames '
-      'frame(s), past the limit of $maxPixels pixels and $maxFrames frames '
+      'frame(s), past the limit of $pixels pixels and $maxFrames frames '
       '(MEDIA_MAX_IMAGE_PIXELS, MEDIA_MAX_IMAGE_FRAMES); it was not '
       'converted.',
     );
   }
-  final decoded = decoder.decode(bytes);
+  final decoded = _guarded(() => decoder.decode(bytes));
   if (decoded == null) {
     throw const ImageConversionException('The file is not a known image.');
   }
@@ -531,4 +552,122 @@ img.Image _crop(img.Image image, int width, int height, CropPosition position) {
     CropPosition.bottomRight => (dx, dy),
   };
   return img.copyCrop(image, x: x, y: y, width: w, height: h);
+}
+
+/// The decoder of [bytes] among the formats [canConvert] names (JPEG, PNG,
+/// GIF, WebP, BMP; detected from the content in
+/// `findDecoderForData`'s order), holding its decode to [maxPixels]
+/// across all frames or pages; `null` for any other content.
+/// `findDecoderForData` would also take TIFF, PSD, EXR, PNM, TGA, ICO and
+/// PVR whatever the file's name; only the formats this library limits
+/// and tests are decoded.
+img.Decoder? _decoderFor(Uint8List bytes, int maxPixels) {
+  final candidates = <img.Decoder>[
+    img.JpegDecoder(maxPixels: maxPixels),
+    img.PngDecoder(maxPixels: maxPixels),
+    img.GifDecoder()..maxPixels = maxPixels,
+    img.WebPDecoder()..maxPixels = maxPixels,
+    img.BmpDecoder(maxPixels: maxPixels),
+  ];
+  for (final decoder in candidates) {
+    if (decoder.isValidFile(bytes)) {
+      return decoder;
+    }
+  }
+  return null;
+}
+
+/// [body], with `package:image`'s errors as this library's: its pixel
+/// budget (checked per frame and over all frames or pages, with our
+/// limit) as [ImageTooLargeException], a damaged file as
+/// [ImageConversionException].
+T _guarded<T>(T Function() body) {
+  try {
+    return body();
+  } on img.ImageException catch (error) {
+    throw error.message.contains('exceed the maximum')
+        ? ImageTooLargeException('${error.message}; it was not converted.')
+        : ImageConversionException(error.message);
+  }
+}
+
+/// For an animated WebP, refuses a frame whose bitstream (`VP8L` or
+/// `VP8 `) declares another size than its `ANMF` header. Not a WebP, or
+/// not animated: nothing to do.
+void _checkWebpFrames(Uint8List bytes) {
+  int le(int at, int length) {
+    var value = 0;
+    for (var i = length - 1; i >= 0; i--) {
+      value = (value << 8) | bytes[at + i];
+    }
+    return value;
+  }
+
+  bool fourcc(int at, String code) =>
+      at + 4 <= bytes.length && String.fromCharCodes(bytes, at, at + 4) == code;
+
+  if (!fourcc(0, 'RIFF') || !fourcc(8, 'WEBP')) {
+    return;
+  }
+  const malformed = ImageConversionException(
+    'An animated WebP frame is malformed or its bitstream does not match '
+    'its frame size; it was not converted.',
+  );
+  var at = 12;
+  while (at + 8 <= bytes.length) {
+    final size = le(at + 4, 4);
+    final data = at + 8;
+    final end = data + size;
+    if (end > bytes.length) {
+      throw malformed;
+    }
+    if (fourcc(at, 'ANMF')) {
+      if (size < 16) {
+        throw malformed;
+      }
+      final width = le(data + 6, 3) + 1;
+      final height = le(data + 9, 3) + 1;
+      var sub = data + 16;
+      while (sub + 8 <= end) {
+        final subSize = le(sub + 4, 4);
+        final payload = sub + 8;
+        if (payload + subSize > end) {
+          throw malformed;
+        }
+        (int, int)? declared;
+        if (fourcc(sub, 'VP8L')) {
+          if (subSize < 5 || bytes[payload] != 0x2F) {
+            throw malformed;
+          }
+          final bits = le(payload + 1, 4);
+          declared = ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1);
+        } else if (fourcc(sub, 'VP8 ')) {
+          if (subSize < 10) {
+            throw malformed;
+          }
+          declared = (le(payload + 6, 2) & 0x3FFF, le(payload + 8, 2) & 0x3FFF);
+        }
+        if (declared != null && declared != (width, height)) {
+          throw malformed;
+        }
+        sub = payload + subSize + (subSize.isOdd ? 1 : 0);
+      }
+    }
+    at = end + (size.isOdd ? 1 : 0);
+  }
+}
+
+/// The bit depth a PNG's `IHDR` declares (byte 24), or 0 when [bytes] is
+/// not a PNG.
+int _pngBitDepth(Uint8List bytes) {
+  const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  if (bytes.length < 25) {
+    return 0;
+  }
+  for (var i = 0; i < signature.length; i++) {
+    if (bytes[i] != signature[i]) {
+      return 0;
+    }
+  }
+  return bytes[24];
 }
