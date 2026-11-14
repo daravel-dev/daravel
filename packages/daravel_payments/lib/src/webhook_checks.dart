@@ -7,6 +7,11 @@ import 'types.dart';
 /// read: `PaymentManager.apply` compares only what an event carries, so a
 /// built-in gateway never hands it a paid event without them. Events an
 /// application builds itself are not checked here.
+///
+/// The gateways send both: Xendit's invoice callback requires `amount` and
+/// `currency` (`InvoiceCallback`, xendit-php 7.0.0), Midtrans' amount is
+/// `gross_amount` in IDR, and a Stripe Checkout Session created in payment
+/// mode carries the `currency` of its line items.
 PaymentEvent requireAmountWhenPaid(PaymentEvent event) {
   final currency = event.currency;
   if (event.status == PaymentStatus.paid &&
