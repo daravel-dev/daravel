@@ -123,6 +123,14 @@ final class WebSocketGuard {
   /// guarded socket.
   HttpRequest wrap(HttpRequest request) => _GuardedRequest(request, this);
 
+  /// The upgrade took the connection's socket over (`detachSocket`): an
+  /// upgrade that fails after that has no HTTP response left to answer
+  /// with, only the socket to [abort].
+  bool get detached => _socket != null;
+
+  /// Destroys the socket an upgrade took over, if it did.
+  void abort() => _socket?.destroy();
+
   /// The WebSocket a violation closes with its code, so the close frame is
   /// written between frames. Called twice per connection:
   /// 1. by the engine's `_upgrade` with the upgraded WebSocket, as soon as
@@ -1156,10 +1164,22 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         // own read for a handler that never listens does, so its close or
         // its going away still ends the session. Frames are still checked.
         _readerGone = true;
+        // What the client said before the cancel and nobody read: its
+        // close, or the end of its TCP stream (no more will arrive). The
+        // session ends now with its code.
+        final ended = _held.isNotEmpty && _held.last is _TcpEnd;
         _held.clear();
         _heldBytes = 0;
         _unreadWait?.cancel();
         _unreadWait = null;
+        if (ended || _closeRead) {
+          _guard._closedUnread(
+            _guard._clientCloseCode,
+            _guard._clientCloseReason,
+            clientGone: ended,
+          );
+          return null;
+        }
         if (_tcpHeldBack) {
           _tcpHeldBack = false;
           _reading?.resume();
