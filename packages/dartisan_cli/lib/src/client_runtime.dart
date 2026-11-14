@@ -105,6 +105,10 @@ final class ApiFile {
 
 /// The file name of a `Content-Disposition` header: `filename*` (RFC 5987,
 /// UTF-8) when present, else `filename`; `null` when there is neither.
+///
+/// Only a name to save under is returned: what follows the last `/` or
+/// `\`, without control characters, and `null` when nothing is left or
+/// only `.` or `..` is.
 String? dispositionFilename(String? header) {
   if (header == null) {
     return null;
@@ -121,7 +125,7 @@ String? dispositionFilename(String? header) {
       final quote = value.indexOf("''");
       if (quote >= 0) {
         try {
-          return Uri.decodeComponent(value.substring(quote + 2));
+          return _fileNameOnly(Uri.decodeComponent(value.substring(quote + 2)));
         } on FormatException {
           // Not UTF-8 (`%E0%A4`): fall back to `filename`.
         } on ArgumentError {
@@ -137,7 +141,19 @@ String? dispositionFilename(String? header) {
       plain = value;
     }
   }
-  return plain;
+  return plain == null ? null : _fileNameOnly(plain);
+}
+
+/// [name] without directories or control characters; `null` when that
+/// leaves nothing, `.` or `..`.
+String? _fileNameOnly(String name) {
+  final visible = name.replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '');
+  final base = visible.substring(visible.lastIndexOf(RegExp(r'[/\\]')) + 1);
+  final trimmed = base.trim();
+  if (trimmed.isEmpty || trimmed == '.' || trimmed == '..') {
+    return null;
+  }
+  return base;
 }
 
 /// A page from Laravel's `paginate()`. Named `ApiPage`, not `Page`, so it

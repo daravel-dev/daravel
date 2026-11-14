@@ -1094,22 +1094,30 @@ final class BuildCommand extends Command<int> {
     final paths = ProjectPaths.locate();
     final r = argResults!;
     if (r['docker'] as bool) {
-      final dockerfile = File(p.join(paths.root, 'Dockerfile'));
-      if (dockerfile.existsSync() && !(r['force'] as bool)) {
-        stdout.writeln('Dockerfile exists (use --force to overwrite).');
-      } else {
-        final connection =
-            projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite';
-        dockerfile.writeAsStringSync(
-          dockerfileTemplate(
-            sqlite: connection == 'sqlite',
-            distroless: r['distroless'] as bool,
-          ),
-        );
-        File(p.join(paths.root, '.dockerignore'))
-            .writeAsStringSync(dockerignoreTemplate);
+      // Each file is written when it is new or with --force: a project's
+      // own .dockerignore may keep secrets out of the image.
+      final files = <String, String Function()>{
+        'Dockerfile': () => dockerfileTemplate(
+          sqlite:
+              (projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite') ==
+              'sqlite',
+          distroless: r['distroless'] as bool,
+        ),
+        '.dockerignore': () => dockerignoreTemplate,
+      };
+      final written = <String>[];
+      for (final MapEntry(key: name, value: contents) in files.entries) {
+        final file = File(p.join(paths.root, name));
+        if (file.existsSync() && !(r['force'] as bool)) {
+          stdout.writeln('$name exists (use --force to overwrite).');
+          continue;
+        }
+        file.writeAsStringSync(contents());
+        written.add(name);
+      }
+      if (written.isNotEmpty) {
         stdout.writeln(
-          'Wrote Dockerfile and .dockerignore.\n'
+          'Wrote ${written.join(' and ')}.\n'
           '  docker build -t ${paths.packageName} .\n'
           '  docker run -p 8080:8080 -e APP_KEY=... ${paths.packageName}',
         );

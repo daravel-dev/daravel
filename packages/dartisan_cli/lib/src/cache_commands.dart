@@ -82,7 +82,12 @@ final class CoordinatorStatsCommand extends DaravelCommand {
             "The server's metrics endpoint (METRICS_ENABLED=true), e.g. "
             'http://127.0.0.1:8000/metrics.',
       )
-      ..addOption('token', help: 'Its METRICS_TOKEN; the app\'s by default.')
+      ..addOption(
+        'token',
+        help:
+            "Its METRICS_TOKEN; the app's by default, sent on its own only "
+            "to APP_URL's host or a loopback address.",
+      )
       ..addFlag('json', negatable: false, help: 'Print the raw numbers.');
   }
 
@@ -114,9 +119,26 @@ final class CoordinatorStatsCommand extends DaravelCommand {
       }
       return 0;
     }
-    final token =
-        results['token'] as String? ??
-        app.config.section<MetricsConfig>().token;
+    final given = results['token'] as String?;
+    final configured = app.config.section<MetricsConfig>().token;
+    final String? token;
+    if (given != null) {
+      token = given;
+    } else if (configured == null || configured.isEmpty) {
+      token = null;
+    } else if (metricsTokenHostTrusted(
+      url,
+      app.config.section<AppConfig>().url,
+    )) {
+      token = configured;
+    } else {
+      // The application's token goes, on its own, only where the
+      // application itself serves.
+      usageException(
+        '$url is not on APP_URL\'s host or a loopback address: pass '
+        '--token to send a METRICS_TOKEN there.',
+      );
+    }
     var request = Http.timeout(const Duration(seconds: 10));
     if (token != null && token.isNotEmpty) {
       request = request.withToken(token);
@@ -234,4 +256,23 @@ final class StaticHashCommand extends DaravelCommand {
     }
     return 0;
   });
+}
+
+/// Whether `coordinator:stats` sends the application's `METRICS_TOKEN` to
+/// [url] without `--token`: when its host is [appUrl]'s host or a loopback
+/// address (`localhost`, `127.0.0.0/8`, `::1`).
+bool metricsTokenHostTrusted(String url, String appUrl) {
+  final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+  if (host.isEmpty) {
+    return false;
+  }
+  if (host == 'localhost' || host.endsWith('.localhost')) {
+    return true;
+  }
+  final address = InternetAddress.tryParse(host);
+  if (address != null && address.isLoopback) {
+    return true;
+  }
+  final configured = Uri.tryParse(appUrl)?.host.toLowerCase() ?? '';
+  return configured.isNotEmpty && host == configured;
 }

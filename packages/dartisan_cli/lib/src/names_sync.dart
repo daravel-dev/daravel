@@ -16,6 +16,7 @@ library;
 import 'package:daravel/daravel.dart' show RadixTree;
 
 import 'region_format.dart';
+import 'source_text.dart';
 
 /// One named route: its [name], HTTP [methods], [path] and parameters.
 typedef NamedRoute = ({String name, List<String> methods, String path});
@@ -46,83 +47,6 @@ const List<String> policyAbilities = [
 const String _start = '// <dartisan:names>';
 const String _end = '// </dartisan:names>';
 
-const Set<String> _reserved = {
-  'abstract',
-  'as',
-  'assert',
-  'async',
-  'await',
-  'base',
-  'break',
-  'case',
-  'catch',
-  'class',
-  'const',
-  'continue',
-  'covariant',
-  'default',
-  'deferred',
-  'do',
-  'dynamic',
-  'else',
-  'enum',
-  'export',
-  'extends',
-  'extension',
-  'external',
-  'factory',
-  'false',
-  'final',
-  'finally',
-  'for',
-  'Function',
-  'get',
-  'hide',
-  'if',
-  'implements',
-  'import',
-  'in',
-  'interface',
-  'is',
-  'late',
-  'library',
-  'mixin',
-  'new',
-  'null',
-  'of',
-  'on',
-  'operator',
-  'part',
-  'required',
-  'rethrow',
-  'return',
-  'sealed',
-  'set',
-  'show',
-  'static',
-  'super',
-  'switch',
-  'sync',
-  'this',
-  'throw',
-  'true',
-  'try',
-  'type',
-  'typedef',
-  'var',
-  'void',
-  'when',
-  'while',
-  'with',
-  'yield',
-  'hashCode',
-  'runtimeType',
-  'toString',
-  'noSuchMethod',
-  'query',
-  'absolute',
-};
-
 /// A Dart name for [raw] (`posts.show` → `postsShow`, `update-post` →
 /// `updatePost`), not one of [taken]: a name that is a keyword gets
 /// `Name`, a clash gets `2`, `3`, ... and a [warnings] line.
@@ -140,7 +64,7 @@ String dartName(String raw, Set<String> taken, List<String> warnings) {
   if (RegExp('^[0-9]').hasMatch(name)) {
     name = 'n$name';
   }
-  if (_reserved.contains(name)) {
+  if (dartReservedNames.contains(name)) {
     name = '${name}Name';
   }
   var candidate = name;
@@ -191,8 +115,7 @@ String? _column(String segment) {
   return colon == -1 ? null : inner.substring(colon + 1);
 }
 
-String _literal(String value) =>
-    "'${value.replaceAll(r'\', r'\\').replaceAll("'", r"\'").replaceAll(r'$', r'\$')}'";
+String _literal(String value) => dartString(value);
 
 /// The `<dartisan:names>` region for [names], and what it had to rename.
 ({String code, List<String> warnings}) namesRegion(AppNames names) {
@@ -247,12 +170,13 @@ String _literal(String value) =>
         ),
     ];
     out.writeln(
-      '  /// `${route.methods.join('|')} ${route.path}` (`${route.name}`).',
+      '  /// `${route.methods.join('|')} ${commentText(route.path)}` '
+      '(`${commentText(route.name)}`).',
     );
     for (final a in args) {
       if (a.column != null) {
         out.writeln(
-          '  ///\n  /// [${a.dart}]: the `${a.column}` of the model.',
+          '  ///\n  /// [${a.dart}]: the `${commentText(a.column)}` of the model.',
         );
       } else if (a.wildcard) {
         out.writeln(
