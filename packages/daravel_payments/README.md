@@ -33,8 +33,10 @@ events.listen<PaymentPaid>((paid) => fulfil(paid.payment.orderId));
 - **Stripe** Checkout; webhooks checked with the `v1` HMAC-SHA256 of the
   timestamped body, five minutes of tolerance.
 - **Exactly once:** an idempotency log keyed on the notification, the payment
-  row locked, the amount compared with the order's, status moves that only
-  go forward (a late `pending` never undoes `paid`), events after commit.
+  row locked, the currency and amount compared with the order's, status
+  moves that only go forward (a late `pending` never undoes `paid`), events
+  after commit. A notification that moved nothing is looked at again when
+  the gateway retries it.
 - `Payment.fake()` for tests, `dartisan payment:check <order>` for a missed
   webhook.
 

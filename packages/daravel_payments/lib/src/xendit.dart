@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
 
+import 'secrets.dart';
 import 'types.dart';
 
 /// Xendit invoices (payment links: virtual accounts, QRIS, e-wallets,
@@ -12,13 +13,15 @@ import 'types.dart';
 /// calls legacy next to its Payment Sessions; it remains the payment link
 /// most Xendit merchants use.
 final class XenditGateway implements PaymentGateway {
-  /// Xendit invoices, with the secret key from `XENDIT_SECRET_KEY`.
+  /// Xendit invoices, with the secret key from `XENDIT_SECRET_KEY`; an
+  /// empty or blank key or callback token is an [ArgumentError].
   XenditGateway({
-    required this.secretKey,
-    required this.callbackToken,
+    required String secretKey,
+    required String callbackToken,
     this.name = 'xendit',
     this.baseUrl = 'https://api.xendit.co',
-  });
+  }) : secretKey = requireSecret(secretKey, 'secretKey'),
+       callbackToken = requireSecret(callbackToken, 'callbackToken');
 
   @override
   final String name;

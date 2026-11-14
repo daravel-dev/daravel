@@ -1,4 +1,4 @@
-<!-- source: payments.md sha256:a68530a8c96e -->
+<!-- source: payments.md sha256:587ddc2db091 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -84,10 +84,19 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    dan timestamp-nya paling jauh lima menit. Perbandingannya memakai waktu
    konstan. Selain itu dijawab 401 dan tidak mengubah apa pun.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
-   gateway) dalam transaksi yang sama dengan perubahannya. Pengiriman ulang
-   dijawab `{"status": "duplicate"}` dan tidak melakukan apa pun.
-3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan jumlah lain
-   tidak mengubah apa pun dan mengirim event `PaymentAmountMismatch`.
+   gateway) dalam transaksi yang sama dengan perubahannya. Setelah sebuah
+   notifikasi menggerakkan pembayaran, pengiriman ulangnya dijawab
+   `{"status": "duplicate"}` dan tidak melakukan apa pun. Notifikasi yang
+   tidak menggerakkan apa pun (`unknownOrder`, `unchanged`, `ignored`,
+   `amountMismatch`) diperiksa lagi saat dikirim ulang, sehingga notifikasi
+   yang tiba sebelum order-nya tersimpan diterapkan pada pengiriman ulang
+   oleh gateway. Id Midtrans memuat `fraud_status`: `capture` kartu yang
+   ditahan untuk ditinjau (`challenge`) dan `capture` yang sama setelah
+   diterima adalah dua notifikasi.
+3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan mata uang
+   lain atau jumlah lain tidak mengubah apa pun dan mengirim event
+   `PaymentAmountMismatch`. Tanpa mata uang, hanya jumlahnya yang
+   dibandingkan.
 4. **Hanya bergerak maju.** `pending` → `paid`, `failed`, `expired`;
    `failed` atau `expired` → `paid` (pelunasan yang terlambat); `paid` →
    `refunded`. `pending` yang terlambat setelah `paid` diabaikan.

@@ -25,9 +25,10 @@ final class PaymentsConfig implements ConfigSection {
 
   /// The settings in `PAYMENT_*`, `MIDTRANS_*`, `XENDIT_*` and `STRIPE_*`.
   factory PaymentsConfig.fromEnv(Env env) {
+    // An empty or blank key is no key.
     String? read(String key) {
       final value = env.maybeString(key);
-      return value == null || value.isEmpty ? null : value;
+      return value == null || value.trim().isEmpty ? null : value;
     }
 
     return PaymentsConfig(
@@ -204,11 +205,11 @@ final class PaymentRefunded {
   final PaymentEvent event;
 }
 
-/// A verified notification whose amount is not the order's: nothing was
-/// changed. Worth an alert.
+/// A verified notification whose currency or amount is not the order's:
+/// nothing was changed. Worth an alert.
 final class PaymentAmountMismatch {
-  /// Dispatched when a notification's amount differs from [payment]'s; the
-  /// payment is left as it was.
+  /// Dispatched when a notification's currency or amount differs from
+  /// [payment]'s; the payment is left as it was.
   const PaymentAmountMismatch(this.payment, this.event);
 
   /// The payment.
@@ -223,7 +224,8 @@ enum PaymentOutcome {
   /// The payment moved to the event's status.
   applied,
 
-  /// This event was handled before (the idempotency log has it).
+  /// This event moved the payment before (the idempotency log has it
+  /// as handled).
   duplicate,
 
   /// The payment is in that status already.
@@ -236,7 +238,7 @@ enum PaymentOutcome {
   /// No payment with that order id and gateway.
   unknownOrder,
 
-  /// The amount is not the order's; nothing changed.
+  /// The amount or currency is not the order's; nothing changed.
   amountMismatch,
 }
 
@@ -360,33 +362,43 @@ final class PaymentManager {
   }
 
   /// Applies a verified event, exactly once: in one transaction, the event
-  /// id goes into the idempotency log (a second delivery stops there),
-  /// the payment row is locked, its amount compared with the event's, and
-  /// its status moved when the move is possible. Events are dispatched
-  /// after the commit.
+  /// id goes into the idempotency log, the payment row is locked, its
+  /// currency and amount compared with the event's, and its status moved
+  /// when the move is possible. Only an event that moved the payment counts
+  /// as handled: a second delivery of it is a [PaymentOutcome.duplicate],
+  /// while one that found no order, no change or another amount is looked
+  /// at again when it comes back (a notification can arrive before its
+  /// order is stored). An event without a currency is compared by amount
+  /// only. Deliveries of one event at once wait for each other on the log
+  /// row; should the database still report a deadlock or a serialization
+  /// failure, the transaction runs again, up to three times. Events are
+  /// dispatched after the commit.
   Future<PaymentOutcome> apply(PaymentEvent event) => DB.transaction(() async {
     final now = Clock.now().toUtc();
+    QueryBuilder log() => DB
+        .table(webhookLogTable)
+        .where('gateway', event.gateway)
+        .where('event_id', event.eventId);
     try {
-      // A savepoint: a duplicate fails only this insert.
+      // A savepoint: a known event fails only this insert.
       await DB.transaction(
         () => DB.table(webhookLogTable).insert({
           'gateway': event.gateway,
           'event_id': event.eventId,
           'order_id': event.orderId,
           'payload': jsonEncode(event.raw),
-          'processed': true,
+          'processed': false,
           'created_at': now,
           'updated_at': now,
         }),
       );
     } on UniqueConstraintViolationException {
-      return PaymentOutcome.duplicate;
+      final seen = await log().lockForUpdate().first();
+      if (seen == null || _isTrue(seen['processed'])) {
+        return PaymentOutcome.duplicate;
+      }
+      await log().update({'payload': jsonEncode(event.raw), 'updated_at': now});
     }
-    Future<void> unprocessed() => DB
-        .table(webhookLogTable)
-        .where('gateway', event.gateway)
-        .where('event_id', event.eventId)
-        .update({'processed': false});
 
     final row = await DB
         .table(transactionsTable)
@@ -395,7 +407,6 @@ final class PaymentManager {
         .lockForUpdate()
         .first();
     if (row == null) {
-      await unprocessed();
       return PaymentOutcome.unknownOrder;
     }
     final payment = PaymentRecord.fromRow(row);
@@ -404,10 +415,12 @@ final class PaymentManager {
       return PaymentOutcome.ignored;
     }
     final amount = event.amount;
-    if (amount != null &&
-        toMinorUnits(amount, payment.currency) !=
-            toMinorUnits(payment.amount, payment.currency)) {
-      await unprocessed();
+    final currency = event.currency;
+    if ((currency != null &&
+            currency.toUpperCase() != payment.currency.toUpperCase()) ||
+        (amount != null &&
+            toMinorUnits(amount, payment.currency) !=
+                toMinorUnits(payment.amount, payment.currency))) {
       await Event.dispatchAfterCommit(PaymentAmountMismatch(payment, event));
       return PaymentOutcome.amountMismatch;
     }
@@ -417,6 +430,7 @@ final class PaymentManager {
     if (!payment.status.canMoveTo(next)) {
       return PaymentOutcome.ignored;
     }
+    await log().update({'processed': true});
     final paidAt = next == PaymentStatus.paid
         ? (event.occurredAt ?? now).toUtc()
         : payment.paidAt;
@@ -454,8 +468,12 @@ final class PaymentManager {
       PaymentStatus.pending => Future<void>.value(),
     };
     return PaymentOutcome.applied;
-  });
+  }, attempts: 3);
 }
+
+/// A boolean column as the drivers return it (`true`, or `1` from SQLite
+/// and MySQL).
+bool _isTrue(Object? value) => value == true || value == 1;
 
 /// The payments facade.
 abstract final class Payment {

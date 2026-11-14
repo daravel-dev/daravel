@@ -81,10 +81,18 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    be within five minutes. Comparisons take constant time. Anything else
    gets 401 and changes nothing.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
-   gateway), in the same transaction as the change. A retry answers
-   `{"status": "duplicate"}` and does nothing.
+   gateway), in the same transaction as the change. Once a notification
+   has moved the payment, a retry answers `{"status": "duplicate"}` and
+   does nothing. One that moved nothing (`unknownOrder`, `unchanged`,
+   `ignored`, `amountMismatch`) is looked at again when it comes back, so
+   a notification that arrives before its order is stored applies on the
+   gateway's retry. A Midtrans id includes `fraud_status`: a card
+   `capture` held for review (`challenge`) and the same `capture` once
+   accepted are two notifications.
 3. **Checked.** The payment row is locked; a notification for another
-   amount changes nothing and dispatches `PaymentAmountMismatch`.
+   currency or another amount changes nothing and dispatches
+   `PaymentAmountMismatch`. Without a currency, only the amount is
+   compared.
 4. **Moved forward only.** `pending` → `paid`, `failed`, `expired`;
    `failed` or `expired` → `paid` (a late settlement); `paid` →
    `refunded`. A late `pending` after `paid` is ignored.

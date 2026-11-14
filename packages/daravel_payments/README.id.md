@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:abb23bbfb1f1 -->
+<!-- source: README.md sha256:fe4e8420ca93 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_payments
@@ -34,8 +34,10 @@ events.listen<PaymentPaid>((paid) => fulfil(paid.payment.orderId));
 - **Stripe** Checkout; webhook diperiksa dengan HMAC-SHA256 `v1` atas body
   bertimestamp, dengan toleransi lima menit.
 - **Tepat sekali:** log idempotensi per notifikasi, baris pembayaran dikunci,
-  jumlah dibandingkan dengan pesanan, status hanya bergerak maju
-  (`pending` yang terlambat tidak membatalkan `paid`), event setelah commit.
+  mata uang dan jumlah dibandingkan dengan pesanan, status hanya bergerak
+  maju (`pending` yang terlambat tidak membatalkan `paid`), event setelah
+  commit. Notifikasi yang tidak menggerakkan apa pun diperiksa lagi saat
+  gateway mengirimnya ulang.
 - `Payment.fake()` untuk testing, `dartisan payment:check <order>` untuk
   webhook yang terlewat.
 
