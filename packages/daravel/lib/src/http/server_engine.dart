@@ -727,9 +727,29 @@ final class ServerEngine {
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
-  /// Upgrades [httpRequest] (its middleware has passed); null when it is
-  /// not a WebSocket request, which gets `426 Upgrade Required`, or the
-  /// upgrade fails.
+  /// What upgrades a WebSocket request in place of
+  /// [WebSocketTransformer.upgrade], for tests of an upgrade that fails
+  /// before or after it took the connection over.
+  @visibleForTesting
+  static Future<WebSocket> Function(
+    HttpRequest request, {
+    CompressionOptions compression,
+    int? maxPayloadLength,
+  })?
+  webSocketUpgradeOverride;
+
+  /// The 400 a handshake that cannot be upgraded gets ([_refuseHandshake]),
+  /// as `kernel.terminate` sees it.
+  static Response get _handshakeRefused =>
+      Response.text('Bad Request', status: 400);
+
+  /// Upgrades [httpRequest] (its middleware has passed): the socket, or
+  /// none and what was answered instead, for `kernel.terminate`. Not a
+  /// WebSocket request: `426 Upgrade Required`. A handshake that does not
+  /// read as one, or an upgrade that fails: 400. An upgrade that fails
+  /// after it took the connection over answers nothing (the socket is
+  /// destroyed); terminate sees that 400 too, the answer the handshake
+  /// failed with.
   ///
   /// A WebSocket request read while the server stops (accepted just before
   /// it stopped accepting) is upgraded too, and closed `goingAway` within
@@ -738,7 +758,7 @@ final class ServerEngine {
   /// tells a client asking for an upgrade that it must upgrade: Pusher
   /// clients took that as a failure, and a rolling restart refused the
   /// connections that landed on the worker going down.
-  Future<WebSocket?> _upgrade(
+  Future<({WebSocket? socket, Response? answered})> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
@@ -752,7 +772,7 @@ final class ServerEngine {
         <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
       );
       await _refuseHandshake(httpRequest);
-      return null;
+      return (socket: null, answered: _handshakeRefused);
     }
     if (ask == _UpgradeAsk.none) {
       final refusal = Response.json(const <String, Object?>{
@@ -763,8 +783,7 @@ final class ServerEngine {
       } catch (_) {
         // Client gone.
       }
-      await kernel.terminate(request, refusal);
-      return null;
+      return (socket: null, answered: refusal);
     }
     // The server reads the frames itself (WebSocketGuard): a message is
     // limited as a whole, fragments are assembled before the WebSocket
@@ -793,18 +812,19 @@ final class ServerEngine {
       },
     );
     try {
-      final socket = await WebSocketTransformer.upgrade(
-        guard.wrap(httpRequest),
-        compression: response.webSocketCompression
-            ? CompressionOptions.compressionDefault
-            : CompressionOptions.compressionOff,
-        // With the guard's assembly, the limit of a whole message (and of
-        // what a compressed one inflates to).
-        maxPayloadLength: response.webSocketMaxPayloadBytes,
-      );
+      final socket =
+          await (webSocketUpgradeOverride ?? WebSocketTransformer.upgrade)(
+            guard.wrap(httpRequest),
+            compression: response.webSocketCompression
+                ? CompressionOptions.compressionDefault
+                : CompressionOptions.compressionOff,
+            // With the guard's assembly, the limit of a whole message (and
+            // of what a compressed one inflates to).
+            maxPayloadLength: response.webSocketMaxPayloadBytes,
+          );
       guard.attach(socket);
       _guards[socket] = guard;
-      return socket;
+      return (socket: socket, answered: null);
     } catch (error) {
       logger.warning(
         'WebSocket upgrade failed for request $id: $error',
@@ -813,10 +833,10 @@ final class ServerEngine {
       if (guard.detached) {
         // The socket was taken over: nothing to answer with.
         guard.abort();
-        return null;
+      } else {
+        await _refuseHandshake(httpRequest);
       }
-      await _refuseHandshake(httpRequest);
-      return null;
+      return (socket: null, answered: _handshakeRefused);
     }
   }
 
@@ -1271,12 +1291,24 @@ final class ServerEngine {
                 }
                 final onSocket = response.webSocket;
                 if (onSocket != null) {
-                  final socket = await _upgrade(raw!, request, response, id);
+                  final (:socket, :answered) = await _upgrade(
+                    raw!,
+                    request,
+                    response,
+                    id,
+                  );
                   raw = null;
                   request.detachBody();
-                  release();
                   if (socket != null) {
+                    release();
+                    // The session terminates the request when it ends.
                     await _session(socket, request, response, onSocket, id);
+                  } else {
+                    // Answered without a socket (426, 400): terminated
+                    // once, with what was answered, as a plain request is
+                    // (kernel.terminate logs what fails in it and goes on).
+                    await kernel.terminate(request, answered!);
+                    release();
                   }
                   return;
                 }
