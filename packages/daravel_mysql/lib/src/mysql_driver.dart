@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show SecurityContext, stderr;
+import 'dart:io' show File, FileSystemException, SecurityContext, stderr;
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
@@ -47,6 +47,8 @@ final class MySqlDriver
     this.verifyServerCertificate = true,
     this.securityContext,
     this.sslCa,
+    this.serverPublicKey,
+    this.allowPublicKeyRetrieval,
     this.collation = 'utf8mb4_unicode_ci',
     this.timeZone,
     this.connectTimeout = const Duration(seconds: 10),
@@ -98,6 +100,15 @@ final class MySqlDriver
       secure: ssl.secure,
       verifyServerCertificate: ssl.verify,
       sslCa: ca,
+      serverPublicKey: _serverPublicKeyOf(
+        connection.options['server_public_key'],
+      ),
+      allowPublicKeyRetrieval:
+          switch (connection.options['public_key_retrieval']) {
+            false || 'false' || '0' => false,
+            true || 'true' || '1' => true,
+            _ => null,
+          },
       onWarning: onWarning,
       collation:
           (connection.options['collation'] as String?) ?? 'utf8mb4_unicode_ci',
@@ -137,6 +148,23 @@ final class MySqlDriver
     );
   }
 
+  /// The PEM text of the file `DB_MYSQL_SERVER_PUBLIC_KEY` names; `null`
+  /// for none. A file that cannot be read is a [ConfigException] naming
+  /// the setting.
+  static String? _serverPublicKeyOf(Object? path) {
+    if (path is! String || path.trim().isEmpty) {
+      return null;
+    }
+    try {
+      return File(path.trim()).readAsStringSync();
+    } on FileSystemException catch (error) {
+      throw ConfigException(
+        'DB_MYSQL_SERVER_PUBLIC_KEY "${path.trim()}" cannot be read: '
+        '${error.message}',
+      );
+    }
+  }
+
   /// The server host.
   final String host;
 
@@ -173,6 +201,24 @@ final class MySqlDriver
   /// (`DB_SSLROOTCERT`, `MYSQL_ATTR_SSL_CA`), trusted beside the system
   /// roots when [securityContext] is null.
   final String? sslCa;
+
+  /// The server's RSA public key (PEM) for `caching_sha2_password` and
+  /// `sha256_password` over a connection without TLS
+  /// (`DB_MYSQL_SERVER_PUBLIC_KEY`, as PDO's
+  /// `MYSQL_ATTR_SERVER_PUBLIC_KEY`): the password is encrypted to this key
+  /// instead of one the server sends, which an active attacker could
+  /// replace. With it, the key is not fetched from the server.
+  final String? serverPublicKey;
+
+  /// Over a connection without TLS, whether the client may ask the server
+  /// for its RSA key when the account's password is not cached on the
+  /// server yet (the first login after a restart, `FLUSH PRIVILEGES` or a
+  /// password change). `null`, the default: yes unless [serverPublicKey]
+  /// is set; MySQL 8's `caching_sha2_password` refuses those logins
+  /// otherwise. A fetched key is open to an active attacker, who can read
+  /// the password: use TLS or [serverPublicKey] on a network you do not
+  /// trust. `DB_MYSQL_PUBLIC_KEY_RETRIEVAL=false` turns it off.
+  final bool? allowPublicKeyRetrieval;
 
   /// How `DB_SSLMODE` (any case, `-` or `_`) and a CA map to TLS, the same
   /// as the PostgreSQL driver and libpq, with MySQL's `--ssl-mode` names:
@@ -524,7 +570,9 @@ final class MySqlDriver
       securityContext: tlsContext(),
       collation: collation,
       timeoutMs: connectTimeout.inMilliseconds,
-      allowPublicKeyRetrieval: !secure,
+      allowPublicKeyRetrieval:
+          !secure && (allowPublicKeyRetrieval ?? serverPublicKey == null),
+      serverPublicKey: serverPublicKey,
       timeZone: timeZone,
       onConnectionOpen: _configure,
     );
