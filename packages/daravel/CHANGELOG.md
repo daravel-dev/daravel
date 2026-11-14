@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.27.5
+
+A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: WebSocket messages are limited as a whole, all their fragments together (`maxPayloadBytes`, `1009`), and must arrive within `assembleTimeout` (`1008`); PING and PONG frames are rate limited per connection (`controlFrameBurst`, `controlFramesPerSecond`; `1008`); what waits to be written, control frames included, counts toward `maxBufferedBytes` (since 1.14.0 for fragmented messages, 1.6.0 for control frames).
+- Security: `Encrypter` refuses a payload whose `mac` or `tag` is not a string with a `DecryptException` instead of a type error, so a cookie of that shape no longer makes every `web` request fail (since 1.0.0).
+- Security: on a model with `guarded` columns and no `fillable`, mass assignment no longer accepts a guarded column through a key spelled differently (spaces, letter case, a table prefix, a JSON path); `ModelDefinition.isFillable` decides as Laravel's `GuardsAttributes::isFillable` (since 1.0.0).
+- A WebSocket session ends when its client goes away, also when the handler never wrote, never closed or returned without listening; for the last, the server reads for it 5 s after it returned, and a later listen takes over (since 1.6.0).
+
 ## 1.27.4
 
 A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).

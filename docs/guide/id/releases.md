@@ -1,4 +1,4 @@
-<!-- source: releases.md sha256:92d8595ba5e8 -->
+<!-- source: releases.md sha256:ce1001513cd1 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Kedua belas paket (`daravel`,
@@ -12,6 +12,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.27.5` | Perbaikan keamanan: pesan WebSocket dibatasi sebagai satu kesatuan dan bingkai kontrol dibatasi lajunya per koneksi; Encrypter memeriksa tipe kolom payload; RedisEventStream membaca Last-Event-ID dengan aman; mass assignment mencocokkan kolom guarded seperti Laravel |
 | `1.27.4` | Perbaikan keamanan: mail Markdown dan alamat mail dibaca dalam satu lintasan; aturan validasi numerik dalam waktu linear |
 | `1.27.3` | Perbaikan keamanan: URL permintaan dari baris permintaan, Host yang sah dan listener; header terusan hanya dari proxy tepercaya; garis miring dan token bearer dibaca dalam satu lintasan; host paling panjang 253 karakter |
 | `1.27.2` | Perbaikan keamanan: nama channel broadcast dan pola channel berwaktu linear, distinct berwaktu linear; sum dan avg di PostgreSQL dan MySQL; publish berurutan |

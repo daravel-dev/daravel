@@ -110,7 +110,10 @@ Daravel's tests compare the result with Laravel's own:
   `mysql2` means `mysql`, and `sqlite3` means `sqlite`.
 - The host, port, user, password and database the URL contains replace the
   `DB_*` values. Parts it leaves out keep them (`DB_PORT`, `DB_DATABASE`,
-  ...). User and password are URL-decoded, so write `@` as `%40`.
+  ...). A user without a password (`app@db`) keeps `DB_PASSWORD`, as in
+  Laravel; `app:@db` sets an empty one. User and password are URL-decoded,
+  so write `@` as `%40`. A malformed URL stops the boot with an error that
+  shows it with the password masked.
 - The query string adds options (`sslmode`, `charset`, `timezone`, ...);
   `true`, `false`, `null` and numbers are read as such.
 

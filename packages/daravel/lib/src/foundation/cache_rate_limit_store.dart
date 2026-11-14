@@ -67,21 +67,40 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     String key,
     int maxAttempts,
     Duration decay,
-  ) => _guard(maxAttempts, decay, () => _attempt(key, maxAttempts, decay));
+  ) => _guard(key, maxAttempts, decay, () => _attempt(key, maxAttempts, decay));
+
+  /// Keys whose counter the database could not read as a number (a value
+  /// another writer stored under the key): reported once each ([_guard]).
+  /// Bounded, oldest first.
+  final Set<String> _unreadable = <String>{};
 
   /// Runs [count], failing open (or closed, with [failClosed]) when the
   /// cache store throws: a database or Redis blip must not turn every
   /// throttled route into a 500. The result is then
   /// [RateLimitResult.degraded], so a [Limit.failClosed] limit refuses it.
+  ///
+  /// A counter the database cannot convert to a number (PostgreSQL's
+  /// `22P02`, MySQL's `1292`: something else is stored under the key) takes
+  /// the same path, but [onError] hears of it once per key, not on every
+  /// request.
   Future<RateLimitResult> _guard(
+    String key,
     int maxAttempts,
     Duration decay,
     Future<RateLimitResult> Function() count,
   ) async {
     try {
-      return await count();
+      final result = await count();
+      // Counting again: a later unreadable value is reported again.
+      _unreadable.remove(key);
+      return result;
     } on Exception catch (error) {
-      onError?.call(error);
+      if (!await _isUnreadableCounter(error, key) || _unreadable.add(key)) {
+        if (_unreadable.length > 1000) {
+          _unreadable.remove(_unreadable.first);
+        }
+        onError?.call(error);
+      }
       return failClosed
           ? RateLimitResult.refusedUncounted(maxAttempts)
           : RateLimitResult(
@@ -92,6 +111,18 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
               degraded: true,
             );
     }
+  }
+
+  /// Whether [error] is the database store refusing the counter of [key] as
+  /// a number (a data exception), not the database failing. A window key
+  /// longer than the `key` column (255 characters) makes a data exception
+  /// too ("too long"), reported every time: it is not the counter's value.
+  Future<bool> _isUnreadableCounter(Exception error, String key) async {
+    final store = _resolved;
+    return error is QueryException &&
+        store is DatabaseStore &&
+        _windowKey(key).runes.length <= 255 &&
+        await store.db.isDataException(error, connection: store.connection);
   }
 
   Future<RateLimitResult> _attempt(
@@ -162,6 +193,7 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
     int maxAttempts,
     Duration decay,
   ) => _guard(
+    key,
     maxAttempts,
     decay,
     () => _attemptWith(algorithm, key, maxAttempts, decay),
@@ -235,6 +267,7 @@ final class CacheRateLimitStore implements AlgorithmRateLimitStore {
 
   @override
   Future<void> clear(String key) async {
+    _unreadable.remove(key);
     await store.forget('$prefix$key');
     await store.forget('$prefix$key:timer');
     await store.forget(_windowKey(key));

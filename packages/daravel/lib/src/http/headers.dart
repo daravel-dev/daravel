@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import '../foundation/loggable.dart';
+
 /// Case-insensitive, multi-value HTTP header collection.
-final class Headers {
+final class Headers implements Loggable {
   /// Creates headers from a map whose values are `String` or `List<String>`.
   Headers([Map<String, Object>? initial]) {
     initial?.forEach((name, value) {
@@ -107,4 +109,12 @@ final class Headers {
 
   @override
   String toString() => _values.toString();
+
+  /// The headers as a map for the logger, which redacts `authorization`,
+  /// `cookie` and the other sensitive names before writing them.
+  @override
+  Object? toLogValue() => <String, Object?>{
+    for (final MapEntry(:key, :value) in _values.entries)
+      key: value.length == 1 ? value.single : value,
+  };
 }

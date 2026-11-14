@@ -247,4 +247,79 @@ void redactionTests() {
       'pgsql://u:***@h/d',
     );
   });
+
+  // DB-1 (Reviewer RSEQ 49): the regex only matched a lower-case scheme
+  // without `+` and a password without `@` or `/`, and `withUrl` let
+  // `Uri.parse`'s FormatException out, which quotes the whole URL.
+  group('a password never reaches a message', () {
+    const secret = 'S3cr3tPW';
+    const urls = [
+      'pgsql://u:$secret@ss@new/db', // `@` in the password
+      'pgsql://u:$secret/ss@new/db', // `/`
+      'pgsql://u:$secret?x@new/db', // `?`
+      'pgsql://u:$secret#x@new/db', // `#`
+      'PGSQL://u:$secret@h/db', // upper-case scheme
+      'Postgres://u:$secret@h/db',
+      'mysql+ssl://u:$secret@h/db', // `+` in the scheme
+      'postgres://u:$secret@[::1/db', // malformed host
+      'pgsql://:$secret@h/db', // no user
+      'pgsql://u:$secret@h/db?application_name=a@b', // `@` in the query
+      'pgsql:u:$secret@h/db', // no `//`
+    ];
+
+    test('redactUrl masks every shape', () {
+      for (final url in urls) {
+        final redacted = ConnectionConfig.redactUrl(url);
+        expect(redacted, isNot(contains(secret)), reason: url);
+        expect(redacted, contains('***'), reason: url);
+      }
+    });
+
+    test('fromUrl, withUrl and DB_URL errors never quote the password', () {
+      const base = ConnectionConfig(
+        driver: 'pgsql',
+        database: 'd',
+        host: 'old',
+        password: 'old',
+      );
+      final parsers = <String, Object? Function(String)>{
+        'fromUrl': ConnectionConfig.fromUrl,
+        'withUrl': base.withUrl,
+        'DB_URL': (url) => DatabaseConfig.fromEnv(
+          Env.fromMap({'DB_URL': url}),
+          basePath: '/srv',
+        ),
+      };
+      var failures = 0;
+      for (final url in urls) {
+        for (final MapEntry(key: name, value: parse) in parsers.entries) {
+          try {
+            parse(url);
+          } on Object catch (error) {
+            failures++;
+            expect(error, isA<FormatException>(), reason: '$name $url');
+            expect('$error', isNot(contains(secret)), reason: '$name $url');
+          }
+        }
+      }
+      expect(failures, greaterThan(10), reason: 'the malformed shapes fail');
+    });
+  });
+
+  test(
+    'a URL user without a password keeps the configured password, as '
+    "Laravel 13's ConfigurationUrlParser (array_filter drops a null pass)",
+    () {
+      const base = ConnectionConfig(
+        driver: 'pgsql',
+        database: 'd',
+        host: 'old',
+        username: 'olduser',
+        password: 'OLDPW',
+      );
+      expect(base.withUrl('pgsql://u@new/db').password, 'OLDPW');
+      expect(base.withUrl('pgsql://u:@new/db').password, '');
+      expect(base.withUrl('pgsql://new/db').username, 'olduser');
+    },
+  );
 }

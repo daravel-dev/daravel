@@ -37,6 +37,7 @@ final class MySqlDriver
         SessionTerminatingDriver,
         RetryableErrors,
         QueryErrors,
+        DataExceptionErrors,
         UnpreparedExecutor {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
@@ -508,6 +509,15 @@ final class MySqlDriver
   @override
   bool isUniqueConstraintError(Object error) =>
       error is MySQLServerException && error.errorCode == 1062;
+
+  /// The server refusing a value as its column's or expression's type:
+  /// out of range (1264, 1690), a truncated incorrect value (1292, a
+  /// `CAST` of text that is not a number in strict mode), an incorrect
+  /// value (1366) and data too long (1406).
+  @override
+  bool isDataException(Object error) =>
+      error is MySQLServerException &&
+      const {1264, 1292, 1366, 1406, 1690}.contains(error.errorCode);
 
   /// The roots the server certificate is checked against: [securityContext],
   /// or the system roots plus [sslCa]; null (the system roots) without
