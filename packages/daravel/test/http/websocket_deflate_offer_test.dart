@@ -140,4 +140,26 @@ void main() {
       expect(works, isTrue);
     });
   }
+
+  // Forms where a reader may differ from the handshake's own: whatever is
+  // decided, it is never agreed to and then broken.
+  for (final offer in [
+    'permessage-deflate; server_max_window_bits="10"',
+    'permessage-deflate; server_max_window_bits="1,0"',
+    'permessage-deflate; server_max_window_bits="1;0"',
+    'PERMESSAGE-DEFLATE; SERVER_MAX_WINDOW_BITS=16',
+    'permessage-deflate; Server_Max_Window_Bits=10',
+    'permessage-deflate; server_max_window_bits = 10',
+    'permessage-deflate; server_max_window_bits\t=\t10',
+    'permessage-deflate; =16',
+    'permessage-deflate; server_max_window_bits=10, '
+        'permessage-deflate; server_max_window_bits=16',
+    'permessage-deflate; server_max_window_bits=16, permessage-deflate',
+  ]) {
+    test('"$offer": the connection works after a round trip', () async {
+      final (extensions, works) = await handshake(offer);
+      print('"$offer" -> ${extensions ?? 'declined'}');
+      expect(works, isTrue);
+    });
+  }
 }
