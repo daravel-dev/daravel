@@ -148,6 +148,22 @@ void main() {
               await socket.done;
               into.add('done:${socket.closeCode}');
             }, compress: false)
+            ..ws('/pause-cancel', (socket, request) async {
+              // Pauses at the first message, then cancels 1 s later
+              // without closing the socket.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              late final StreamSubscription<dynamic> sub;
+              sub = socket.listen((message) {
+                into.add(message as String);
+                sub.pause();
+                unawaited(
+                  Future<void>.delayed(const Duration(seconds: 1))
+                      .then((_) => sub.cancel()),
+                );
+              });
+              await socket.done;
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
             ..ws('/cancel-write', (socket, request) async {
               // Cancels its subscription at the first message, and goes on
               // sending ("send only").
@@ -516,6 +532,28 @@ void main() {
       expect(seen['c2'], ['first', 'done:4000']);
       client.socket.destroy();
     }, timeout: const Timeout(Duration(seconds: 30)));
+
+    for (final fin in [true, false]) {
+      test('paused, the client closes (CLOSE(4000)${fin ? ' and FIN' : ''}), '
+          "then the cancel: the session ends at once with the client's "
+          'code', () async {
+        final id = 'pc-$fin';
+        final client = await open('/pause-cancel?id=$id');
+        client.send(0x1, utf8.encode('first'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        client.send(0x8, const [0x0F, 0xA0]);
+        await client.socket.flush();
+        if (fin) {
+          await client.socket.close();
+        }
+        // The handler cancels 1 s after its pause.
+        final ms = await sessionEndsWithin(const Duration(seconds: 9));
+        expect(engine.openWebSockets, 0, reason: 'the session ended');
+        expect(ms, lessThan(3000));
+        expect(seen[id], ['first', 'done:4000']);
+        client.socket.destroy();
+      });
+    }
 
     test('frames are still checked after the cancel: an unmasked frame is '
         '1002', () async {

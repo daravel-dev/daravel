@@ -796,7 +796,27 @@ final class ServerEngine {
       _guards[socket] = guard;
       return socket;
     } catch (error) {
-      logger.warning('WebSocket upgrade failed for request $id: $error');
+      logger.warning(
+        'WebSocket upgrade failed for request $id: $error',
+        <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
+      );
+      if (guard.detached) {
+        // The socket was taken over: nothing to answer with.
+        guard.abort();
+        return null;
+      }
+      // The connection is still HTTP: answered and closed, not left to
+      // its idle timeout.
+      try {
+        httpRequest.response
+          ..statusCode = HttpStatus.badRequest
+          ..persistentConnection = false
+          ..headers.contentType = ContentType.text
+          ..write('Bad Request');
+        await httpRequest.response.close();
+      } on Object {
+        // Answered already, or gone: closed either way.
+      }
       return null;
     }
   }

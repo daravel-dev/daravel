@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -76,4 +77,30 @@ void main() {
     expect(await client.closeFrame(), 1002);
     client.socket.destroy();
   });
+
+  for (final path in ['/default', '/compressed']) {
+    test('$path: a handshake whose upgrade fails (two extension headers) is '
+        'answered 400 and closed, at once', () async {
+      final socket = await Socket.connect('127.0.0.1', engine.port!);
+      addTearDown(socket.destroy);
+      socket.add(
+        latin1.encode(
+          'GET $path HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n'
+          'Connection: Upgrade\r\n'
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+          'Sec-WebSocket-Version: 13\r\n'
+          'Sec-WebSocket-Extensions: permessage-deflate\r\n'
+          'Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n',
+        ),
+      );
+      final answer = StringBuffer();
+      var closed = false;
+      await socket
+          .timeout(const Duration(seconds: 3))
+          .forEach((chunk) => answer.write(latin1.decode(chunk)))
+          .then((_) => closed = true, onError: (Object _) {});
+      expect(answer.toString(), startsWith('HTTP/1.1 400'));
+      expect(closed, isTrue, reason: 'the connection is closed');
+    });
+  }
 }
