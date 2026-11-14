@@ -75,5 +75,5 @@ void main() {
     client.send(0x1, Uint8List.fromList([0xF2, 0x48, 0xCD, 0xC9]), rsv1: true);
     expect(await client.closeFrame(), 1002);
     client.socket.destroy();
-  }, skip: 'needs the frame checks of the unread-handlers change (#400)');
+  });
 }

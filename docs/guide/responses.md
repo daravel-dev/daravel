@@ -462,6 +462,10 @@ and then the close when it reads on, however long it took; one that never
 reads on keeps its session, as a stalled reader always did. A fragmented
 message that is still arriving while the server holds the client back
 (more than the bound above waiting) keeps its `assembleTimeout` running.
+A handler that cancels its subscription and keeps the socket counts as
+one that does not read: what it sends goes out as before, the client's
+close or its going away ends the session at once, and more than the
+bound sent unread ends it with `1008` after 5 s.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
