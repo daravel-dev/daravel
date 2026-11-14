@@ -188,11 +188,18 @@ void main() {
         convert(_scansOnly(64, 48, 17, comment: _frameHeader(8000, 5000)), {}),
         refused,
       );
-      // Bytes that only look like a frame header (no valid components)
-      // are not counted.
-      final notAFrame = _frameHeader(8000, 5000)..[9] = 0;
+      // Bytes that only look like a frame header (no components) count
+      // too: they only tighten the budget, and 16 scans or fewer always
+      // pass, since no candidate is larger than the pixel limit.
+      final lookAlike = _frameHeader(8000, 5000)..[9] = 0;
+      expect(convert(_scansOnly(64, 48, 17, comment: lookAlike), {}), refused);
       expect(
-        convert(_scansOnly(64, 48, 17, comment: notAFrame), {}),
+        convert(_scansOnly(64, 48, 16, comment: lookAlike), {}),
+        isNot(refused),
+      );
+      // A candidate past the pixel limit is not one.
+      expect(
+        convert(_scansOnly(64, 48, 17, comment: _frameHeader(9000, 5000)), {}),
         isNot(refused),
       );
     });

@@ -752,13 +752,14 @@ const int _growthDivisor = 4;
 ///   an upper bound on those a decoder can see (an EXIF thumbnail's and
 ///   other data count too).
 /// - The frame is the largest of [width] x [height] (the decoder's own
-///   reading) and of every frame header found anywhere in the bytes that
-///   the decoder would take: `FF C0`, `FF C1` or `FF C2`, then a height and
-///   width of at least 1 whose product is at most [maxPixels] (the decoder
-///   is held to it, so a larger frame is refused when read), and 1 to 4
-///   components of distinct ids with sampling factors from 1 to 4. Other
-///   bytes that only look like a frame header (as in camera maker notes)
-///   are left out: counting them refused real photos.
+///   reading) and of every frame header candidate anywhere in the bytes:
+///   each `FF Cn` (n from 0 to 15 but 4, 8 and 12) whose 16-bit height and
+///   width, at their fixed place after it, are at least 1 with a product
+///   of at most [maxPixels]. The decoder is held to [maxPixels], so a
+///   larger frame is refused when it is read. A candidate in other data
+///   (camera maker notes hold some) only tightens the budget, and since no
+///   candidate passes [maxPixels], a file of 16 `FF DA` or fewer is never
+///   refused by one.
 /// - At most `16 x maxPixels` scanned pixels, counted in whole 8 x 8 blocks
 ///   of that frame: 16 scans for 40 MP, 64 for 10 MP. Measured, the worst
 ///   file at the limit took about 3.4 s whatever its size; real
@@ -775,11 +776,21 @@ void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
     final marker = bytes[i + 1];
     if (marker == 0xDA) {
       scans++;
-    } else if (marker >= 0xC0 && marker <= 0xC2) {
-      final frame = _frameAt(bytes, i, maxPixels);
-      // Both sides at most 65 535: the products fit.
-      if (frame != null && frame.$1 * frame.$2 > frameWidth * frameHeight) {
-        (frameWidth, frameHeight) = frame;
+    } else if (marker >= 0xC0 &&
+        marker <= 0xCF &&
+        marker != 0xC4 &&
+        marker != 0xC8 &&
+        marker != 0xCC &&
+        i + 8 < n) {
+      final h = (bytes[i + 5] << 8) | bytes[i + 6];
+      final w = (bytes[i + 7] << 8) | bytes[i + 8];
+      // Both at most 65 535: the products fit.
+      if (w >= 1 &&
+          h >= 1 &&
+          w <= maxPixels ~/ h &&
+          w * h > frameWidth * frameHeight) {
+        frameWidth = w;
+        frameHeight = h;
       }
     }
   }
@@ -796,41 +807,6 @@ void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
       'pixels, more than its size allows; it was not converted.',
     );
   }
-}
-
-/// The width and height of a frame header the decoder would take at [at]
-/// (`FF C0` to `FF C2`; see [_checkJpegFrames]), or null.
-(int, int)? _frameAt(Uint8List bytes, int at, int maxPixels) {
-  final n = bytes.length;
-  if (at + 9 >= n) {
-    return null;
-  }
-  final height = (bytes[at + 5] << 8) | bytes[at + 6];
-  final width = (bytes[at + 7] << 8) | bytes[at + 8];
-  if (width < 1 || height < 1 || width > maxPixels ~/ height) {
-    return null;
-  }
-  final components = bytes[at + 9];
-  if (at + 9 + 3 * components >= n) {
-    return null;
-  }
-  // By id: a repeated id replaces the earlier one.
-  final sampling = <int, int>{};
-  for (var k = 0; k < components; k++) {
-    final entry = at + 10 + 3 * k;
-    sampling[bytes[entry]] = bytes[entry + 1];
-  }
-  if (sampling.isEmpty || sampling.length > 4) {
-    return null;
-  }
-  for (final factors in sampling.values) {
-    final h = factors >> 4;
-    final v = factors & 0x0F;
-    if (h < 1 || h > 4 || v < 1 || v > 4) {
-      return null;
-    }
-  }
-  return (width, height);
 }
 
 /// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
