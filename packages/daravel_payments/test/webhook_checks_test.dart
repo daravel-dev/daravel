@@ -307,7 +307,7 @@ void main() {
       expect(settled.eventId, 'tx-1:settlement');
     });
 
-    // RSEQ 64 C: the signature covers status_code, not transaction_status.
+    // The signature covers status_code, not transaction_status.
     test('a Midtrans status that disagrees with its signed code is refused '
         '(401) and changes nothing', () async {
       await order();
@@ -324,7 +324,7 @@ void main() {
       expect(await status(), PaymentStatus.pending);
     });
 
-    // RSEQ 64 B: a paid event from a built-in gateway carries its amount.
+    // A paid event from a built-in gateway carries its amount.
     test('a paid Midtrans notification whose amount cannot be read is '
         'refused (400) and logged as a warning without its payload', () async {
       await order();
@@ -355,9 +355,9 @@ void main() {
       );
     });
 
-    // RSEQ 73: the signed status table comes from Midtrans' sample
+    // The signed status table comes from Midtrans' sample
     // notifications, and every other status from its status API.
-    group('Midtrans statuses (RSEQ 73)', () {
+    group('Midtrans statuses', () {
       Future<Response> post(Object? body, {List<int>? bytes}) => app.handle(
         Request.fake(
           method: 'POST',
@@ -528,7 +528,7 @@ void main() {
     });
   });
 
-  // RSEQ 64 A: the answer to an order not stored yet.
+  // The answer to an order not stored yet.
   test('unknownOrderStatus outside 200 to 599 is refused when the route '
       'is registered', () {
     for (final status in [0, 199, 600, -1]) {
@@ -572,7 +572,7 @@ void main() {
     expect(await response.bodyText(), '{"status":"unknownOrder"}');
   });
 
-  group('a paid event without its amount or currency (RSEQ 64 B)', () {
+  group('a paid event without its amount or currency', () {
     Request post(String body, {Map<String, String> headers = const {}}) =>
         Request.fake(method: 'POST', path: '/x', headers: headers, body: body);
 
@@ -626,7 +626,7 @@ void main() {
     });
   });
 
-  // RSEQ 73 #4: a body that is not UTF-8, sent as raw bytes through a real
+  // A body that is not UTF-8, sent as raw bytes through a real
   // server (Request.fake would encode it), never reaches a 500.
   test('a body that is not UTF-8 is refused as unsigned (401)', () async {
     Future<Object?> parse(
