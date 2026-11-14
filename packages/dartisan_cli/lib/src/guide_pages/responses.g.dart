@@ -420,10 +420,13 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 
 A plain HTTP request to that path gets `426 Upgrade Required`. On shutdown
 open sockets are closed with `1001` (going away). This is a raw WebSocket;
-Laravel Echo connects through [Broadcasting](broadcasting.md). Clients that
-ask for permessage-deflate get it; `r.ws(path, handler, compress: false)`
-turns it off, which saves CPU and memory per connection when one message
-goes to many sockets.
+Laravel Echo connects through [Broadcasting](broadcasting.md).
+permessage-deflate is off unless a route asks for it with
+`r.ws(path, handler, compress: true)`; clients that offer it connect
+uncompressed otherwise. Compression keeps zlib state per connection, and
+a small compressed message can inflate to its route's `maxPayloadBytes`:
+turn it on for known clients sending large, repetitive text, not for
+public endpoints.
 
 The server sees a client leave only while something listens to its
 socket. Listen before the handler returns, or within 5 s after: a handler

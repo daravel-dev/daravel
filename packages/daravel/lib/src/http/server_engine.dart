@@ -770,7 +770,7 @@ final class ServerEngine {
       ),
       onViolation: (code, reason) => logger.warning(
         'WebSocket closed ($code): $reason',
-        <String, Object?>{'request_id': id},
+        <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
       ),
       onSlowClient: () {
         app.container.tryMake<SlowClients>()?.record(SlowClients.webSocket);
@@ -778,7 +778,7 @@ final class ServerEngine {
           'WebSocket closed: the client read too slowly '
           '(more than ${response.webSocketMaxBufferedBytes} bytes waiting '
           'to be written)',
-          <String, Object?>{'request_id': id},
+          <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
         );
       },
     );
@@ -822,7 +822,7 @@ final class ServerEngine {
         logger.warning(
           'WebSocket closed: the client read too slowly '
           '(more than ${response.webSocketMaxBufferedBytes} bytes waiting)',
-          <String, Object?>{'request_id': id},
+          <String, Object?>{'request_id': id, 'path': request.path},
         );
       },
     );
@@ -877,7 +877,7 @@ final class ServerEngine {
         'WebSocket handler failed for request $id',
         error: error,
         stackTrace: stackTrace,
-        context: <String, Object?>{'request_id': id},
+        context: <String, Object?>{'request_id': id, 'path': request.path},
       );
       await socket.close(WebSocketStatus.internalServerError);
     } finally {

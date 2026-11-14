@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:ff50b9e98902 -->
+    r'''<!-- source: responses.md sha256:03833fe6de20 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -436,10 +436,12 @@ r.ws('/ws/rooms/{room}', (socket, request) async {
 Request HTTP biasa ke path itu mendapat `426 Upgrade Required`. Saat
 shutdown, socket yang terbuka ditutup dengan `1001` (going away). Ini
 WebSocket mentah; Laravel Echo terhubung melalui
-[Broadcasting](broadcasting.md). Client yang meminta permessage-deflate
-mendapatkannya; `r.ws(path, handler, compress: false)` mematikannya, yang
-menghemat CPU dan memori per koneksi saat satu pesan dikirim ke banyak
-socket.
+[Broadcasting](broadcasting.md). permessage-deflate mati kecuali rute
+memintanya dengan `r.ws(path, handler, compress: true)`; client yang
+menawarkannya tetap terhubung tanpa kompresi. Kompresi menyimpan state
+zlib per koneksi, dan pesan terkompresi yang kecil bisa mengembang sampai
+`maxPayloadBytes` rutenya: nyalakan untuk client yang dikenal dan
+mengirim teks besar yang berulang, bukan untuk endpoint publik.
 
 Server hanya tahu client pergi selama ada yang mendengarkan socket-nya.
 Dengarkan sebelum handler kembali, atau paling lambat 5 detik sesudahnya:
