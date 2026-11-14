@@ -163,9 +163,15 @@ command line (global flags, `--` and aliases included):
   `model:show`, `db:show`, `db:table`, `migrate:status`, `schedule:list`,
   `queue:failed`, `security:audit`, every `make:*`, `model:sync`,
   `request:sync`, `names:sync`, `openapi:generate`, `stub:publish`, `lint`,
-  `test`, and `migrate` (without `--seed` when `APP_ENV=production`);
-- outside production: `migrate:fresh`, `migrate:reset`, `migrate:rollback`,
-  `db:seed`, `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
+  and `migrate` (without `--seed` when `APP_ENV=production`);
+- outside production: `test` (the tests use the database their setup
+  picks), `migrate:fresh`, `migrate:reset`, `migrate:rollback`, `db:seed`,
+  `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
+
+Options that would take an offered command outside the project are
+refused: `route:diff --laravel` (it runs `php`; pass `--laravel-json`),
+`security:audit --target` (it audits `APP_URL`), and an `--output` or
+`--laravel-json` path outside the project directory.
 
 Any other command is refused, the project's own commands too. Open one with
 `mcp:serve --allow-write --allow-command=<name>` (repeat it for more) in
@@ -175,7 +181,9 @@ Any other command is refused, the project's own commands too. Open one with
 (`db:restore`, `db:transfer`, `db:replicate`, `queue:flush`, `queue:clear`,
 `key:generate`, `env:decrypt`, `env:encrypt`, `down`, `up` and the
 outside-production list). The tool's description names what is offered.
-Protocol messages use stdout; logs go to stderr.
+Whether it is production is read from the configuration `mcp:serve` booted
+with: after changing `APP_ENV` in `.env`, restart the server. Protocol
+messages use stdout; logs go to stderr.
 
 Packages add tools through the commands they register: a command that is an
 `McpToolSource` brings its `McpTool`s. With `redisCommands` in

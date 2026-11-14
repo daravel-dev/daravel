@@ -22,6 +22,12 @@ const List<String> mcpProtocolVersions = [
 /// the project, writing its code (every `make:*` command too), checks, and
 /// `migrate` (without `--seed` in production). Any other command is refused
 /// unless `mcp:serve --allow-command=<name>` opens it.
+///
+/// Options that would take an offered command outside the project are
+/// refused: `route:diff --laravel` (runs `php` in another directory),
+/// `security:audit --target` (it audits `APP_URL`), and an `--output` of
+/// `openapi:generate` or `security:audit`, or `route:diff --laravel-json`,
+/// outside the project directory.
 const Set<String> mcpOfferedCommands = {
   'about',
   'doctor',
@@ -42,12 +48,14 @@ const Set<String> mcpOfferedCommands = {
   'openapi:generate',
   'stub:publish',
   'lint',
-  'test',
   'migrate',
 };
 
-/// Commands `run_command` offers an agent outside production only.
+/// Commands `run_command` offers an agent outside production only. `test`
+/// is one: the project's tests run with the database their setup picks,
+/// which on a production machine is production's.
 const Set<String> mcpOfferedOutsideProduction = {
+  'test',
   'migrate:fresh',
   'migrate:reset',
   'migrate:rollback',
@@ -687,6 +695,44 @@ final class McpServer {
         'migrate --seed is refused when APP_ENV=production; run it in a '
         'terminal.',
       );
+    }
+    _checkOptions(name, named);
+  }
+
+  /// Options of offered commands that name a path, kept inside the project.
+  static const Map<String, List<String>> _pathOptions = {
+    'openapi:generate': ['output'],
+    'security:audit': ['output'],
+    'route:diff': ['laravel-json'],
+  };
+
+  /// Refuses options that would take the offered command [name] outside
+  /// the project: another program, another server, a path elsewhere.
+  void _checkOptions(String name, ArgResults options) {
+    String? given(String option) =>
+        options.options.contains(option) ? options[option] as String? : null;
+    final refusal = switch (name) {
+      'route:diff' when given('laravel') != null =>
+        '--laravel runs php in another directory; pass --laravel-json',
+      'security:audit' when given('target') != null =>
+        '--target audits another server; run_command audits APP_URL',
+      _ => null,
+    };
+    if (refusal != null) {
+      throw StateError('$name: $refusal.');
+    }
+    final root = p.normalize(p.absolute(app.basePath));
+    for (final option in _pathOptions[name] ?? const <String>[]) {
+      final value = given(option);
+      if (value == null) {
+        continue;
+      }
+      final path = p.normalize(p.absolute(p.join(root, value)));
+      if (!p.isWithin(root, path)) {
+        throw StateError(
+          '$name: --$option must name a path inside the project.',
+        );
+      }
     }
   }
 

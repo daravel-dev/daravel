@@ -166,6 +166,9 @@ void main() {
     ('db:transfer', []),
     ('pub:add', ['http']),
     ('self-update', []),
+    ('test', []),
+    ('route:diff', ['--laravel=../laravel-app']),
+    ('security:audit', ['--target=http://192.168.0.1']),
     ('probe', []),
     ('probe-alias', []),
     ('migrate', ['--no-such-option']),
@@ -185,7 +188,6 @@ void main() {
       ('migrate', ['--force']),
       ('migrate', <String>[]),
       ('route:list', <String>[]),
-      ('test', <String>[]),
       ('help', ['migrate:fresh']),
     ]) {
       expect(await refused(s, command, args), isFalse, reason: command);
@@ -195,7 +197,6 @@ void main() {
       ['migrate', '--force'],
       ['migrate'],
       ['route:list'],
-      ['test'],
       ['help', 'migrate:fresh'],
     ]);
   });
@@ -204,7 +205,7 @@ void main() {
       'migrate --seed are offered; db:transfer and project commands are '
       'not', () async {
     final s = await server(env: 'local');
-    for (final command in ['migrate:fresh', 'db:seed', 'cache:clear']) {
+    for (final command in ['migrate:fresh', 'db:seed', 'cache:clear', 'test']) {
       expect(await refused(s, command), isFalse, reason: command);
     }
     expect(await refused(s, 'migrate', ['--seed']), isFalse);
@@ -234,6 +235,33 @@ void main() {
       expect(await refused(prod, 'migrate:fresh', ['--force']), isTrue);
     },
   );
+
+  test('options that take an offered command outside the project are '
+      'refused; paths inside it are handed on', () async {
+    final s = await server(env: 'local');
+    final outside = p.join(p.dirname(root.path), 'elsewhere.json');
+    for (final (command, args) in [
+      ('route:diff', ['--laravel=.']),
+      ('route:diff', ['--laravel-json=../routes.json']),
+      ('route:diff', ['--laravel-json=$outside']),
+      ('openapi:generate', ['--output=../openapi.json']),
+      ('openapi:generate', ['--output=$outside']),
+      ('openapi:generate', ['--output=docs/../../openapi.json']),
+      ('security:audit', ['--target=https://example.com']),
+      ('security:audit', ['--output=../report.json']),
+    ]) {
+      expect(await refused(s, command, args), isTrue, reason: '$args');
+    }
+    for (final (command, args) in [
+      ('route:diff', ['--laravel-json=routes.json']),
+      ('openapi:generate', ['--output=docs/openapi.json']),
+      ('openapi:generate', <String>[]),
+      ('security:audit', ['--output=build/report.json']),
+      ('security:audit', <String>[]),
+    ]) {
+      expect(await refused(s, command, args), isFalse, reason: '$args');
+    }
+  });
 
   test('without the runner, run_command refuses every command', () async {
     final s = await server(env: 'local', withRunner: false);

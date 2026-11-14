@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:1e8726493c58 -->
+<!-- source: dartisan.md sha256:1b47110e5383 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -164,9 +164,15 @@ alias):
   `model:show`, `db:show`, `db:table`, `migrate:status`, `schedule:list`,
   `queue:failed`, `security:audit`, semua `make:*`, `model:sync`,
   `request:sync`, `names:sync`, `openapi:generate`, `stub:publish`, `lint`,
-  `test`, dan `migrate` (tanpa `--seed` bila `APP_ENV=production`);
-- di luar production: `migrate:fresh`, `migrate:reset`, `migrate:rollback`,
-  `db:seed`, `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
+  dan `migrate` (tanpa `--seed` bila `APP_ENV=production`);
+- di luar production: `test` (test memakai database yang dipilih setup-nya),
+  `migrate:fresh`, `migrate:reset`, `migrate:rollback`, `db:seed`,
+  `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
+
+Option yang membawa command yang ditawarkan keluar dari proyek ditolak:
+`route:diff --laravel` (menjalankan `php`; pakai `--laravel-json`),
+`security:audit --target` (yang diaudit adalah `APP_URL`), serta path
+`--output` atau `--laravel-json` di luar direktori proyek.
 
 Command lain ditolak, termasuk command proyek Anda sendiri. Buka satu
 command dengan `mcp:serve --allow-write --allow-command=<nama>` (ulangi
@@ -176,8 +182,9 @@ Dengan `APP_ENV=production`, command yang mengubah data atau deployment juga
 tidak bisa dibuka (`db:restore`, `db:transfer`, `db:replicate`,
 `queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`,
 `env:encrypt`, `down`, `up`, dan daftar di luar production). Deskripsi tool
-menyebut apa saja yang ditawarkan. Pesan protokol memakai stdout; log masuk
-ke stderr.
+menyebut apa saja yang ditawarkan. Status production dibaca dari
+konfigurasi saat `mcp:serve` di-boot: setelah mengubah `APP_ENV` di `.env`,
+jalankan ulang server. Pesan protokol memakai stdout; log masuk ke stderr.
 
 Paket menambahkan tool lewat command yang mereka daftarkan: command yang
 merupakan `McpToolSource` membawa `McpTool`-nya. Dengan `redisCommands` di
