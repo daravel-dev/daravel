@@ -12,6 +12,7 @@ import 'package:test/test.dart';
 /// twelve million cells and 225 MiB, `ZZZZZZ1` did not finish. Each
 /// workbook is read in a child process bounded in time and memory.
 void main() {
+  messageLengthTests();
   // Compiled once: run from source, the child's own compiler took about
   // 600 MiB and hid what the reading cost.
   late String child;
@@ -117,4 +118,17 @@ final class ListExport implements FromCollection {
 
   @override
   List<Object?> collection() => rows;
+}
+
+void messageLengthTests() {
+  test('the refusal quotes at most 16 letters of the reference', () {
+    for (final letters in ['Z' * 1000000, '!${'A' * 1000000}']) {
+      try {
+        columnIndex(letters);
+        fail('accepted');
+      } on FormatException catch (error) {
+        expect(error.message.length, lessThan(120));
+      }
+    }
+  });
 }
