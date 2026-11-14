@@ -96,7 +96,7 @@ void main() {
           .withEnv({
             'APP_ENV': 'testing',
             'DB_DATABASE': '${dir.path}/app.sqlite',
-            'LOG_LEVEL': 'error',
+            'LOG_LEVEL': 'warning',
             'MIDTRANS_SERVER_KEY': serverKey,
           })
           .withPayments()
@@ -326,8 +326,9 @@ void main() {
 
     // RSEQ 64 B: a paid event from a built-in gateway carries its amount.
     test('a paid Midtrans notification whose amount cannot be read is '
-        'refused (400)', () async {
+        'refused (400) and logged as a warning without its payload', () async {
       await order();
+      final logs = await app.run(() async => Log.spy());
       final response = await app.handle(
         Request.fake(
           method: 'POST',
@@ -338,6 +339,20 @@ void main() {
       );
       expect(response.status, 400);
       expect(await status(), PaymentStatus.pending);
+      final warned = logs.matching(
+        LogLevel.warning,
+        'Payment notification refused',
+      );
+      expect(warned, hasLength(1));
+      expect(Map.of(warned.single.context)..remove('request_id'), {
+        'gateway': 'midtrans',
+        'event_id': 'tx-1:settlement',
+        'order_id': 'ORDER-42',
+      });
+      expect(
+        '${warned.single.message} ${warned.single.context}',
+        isNot(contains('signature')),
+      );
     });
   });
 
