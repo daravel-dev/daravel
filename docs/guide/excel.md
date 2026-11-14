@@ -184,6 +184,10 @@ it, and the delimiter is detected among `,`, `;`, tab and `|`.
 
 `Excel.toArray(source, headingRow: true)` returns every sheet's rows.
 
+A worksheet holds at most 16 384 columns (`A` to `XFD`, `maxColumns`), as
+the format and Excel allow: a cell past `XFD` makes the read fail with a
+`FormatException` instead of padding the row up to it.
+
 ## Commands
 
 ```dart

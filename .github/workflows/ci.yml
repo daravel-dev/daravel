@@ -251,6 +251,39 @@ jobs:
       - name: Resolve workspace
         run: dart pub get
 
+      # DB_SSLROOTCERT (DB-1): a second server whose certificate a throwaway
+      # CA signed for `localhost` only, so verify-full is tested both ways
+      # (postgres_tls_test.dart).
+      - name: Start PostgreSQL with a test CA
+        run: |
+          tls="$RUNNER_TEMP/tls"
+          mkdir -p "$tls" && cd "$tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+            -keyout ca-key.pem -out ca.pem -subj "/CN=Daravel CI test CA"
+          openssl req -newkey rsa:2048 -nodes \
+            -keyout server-key.pem -out server.csr -subj "/CN=localhost"
+          printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem \
+            -CAcreateserial -days 2 -extfile server.ext -out server.pem
+          chmod 644 ./*.pem
+          # The server refuses a key file others can read: copy it in.
+          docker run -d --name tlspg -p 5433:5432 -v "$tls:/tls:ro" \
+            -e POSTGRES_USER=daravel -e POSTGRES_PASSWORD=secret \
+            -e POSTGRES_DB=daravel_test --entrypoint sh postgres:16 -c '
+              cp /tls/server.pem /tls/server-key.pem /var/lib/postgresql/ &&
+              chown postgres /var/lib/postgresql/server*.pem &&
+              chmod 600 /var/lib/postgresql/server-key.pem &&
+              exec docker-entrypoint.sh postgres -c ssl=on \
+                -c ssl_cert_file=/var/lib/postgresql/server.pem \
+                -c ssl_key_file=/var/lib/postgresql/server-key.pem'
+          for _ in $(seq 1 60); do
+            docker exec -e PGPASSWORD=secret tlspg psql -h 127.0.0.1 -U daravel -d daravel_test -tAc 'show ssl' 2>/dev/null | grep -q on && break
+            sleep 1
+          done
+          docker exec -e PGPASSWORD=secret tlspg psql -h 127.0.0.1 -U daravel -d daravel_test -tAc 'show ssl' | grep -q on || { docker logs tlspg; exit 1; }
+          echo "DARAVEL_TEST_PG_TLS=postgres://daravel:secret@localhost:5433/daravel_test" >> "$GITHUB_ENV"
+          echo "DARAVEL_TEST_PG_TLS_CA=$tls/ca.pem" >> "$GITHUB_ENV"
+
       - name: Test against PostgreSQL
         run: |
           (cd packages/daravel && dart test --tags integration --reporter=expanded)

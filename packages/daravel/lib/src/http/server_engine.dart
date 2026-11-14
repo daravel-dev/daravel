@@ -770,7 +770,7 @@ final class ServerEngine {
       ),
       onViolation: (code, reason) => logger.warning(
         'WebSocket closed ($code): $reason',
-        <String, Object?>{'request_id': id},
+        <String, Object?>{'request_id': id, 'path': httpRequest.uri.path},
       ),
       onSlowClient: () {
         app.container.tryMake<SlowClients>()?.record(SlowClients.webSocket);

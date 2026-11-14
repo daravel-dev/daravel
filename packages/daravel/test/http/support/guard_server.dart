@@ -37,6 +37,9 @@ Future<void> main() async {
         web: (router) {
           router
             ..get('/rss', (_) => '${ProcessInfo.currentRss}')
+            // The highest resident memory so far: memory handed back to the
+            // system does not lower it.
+            ..get('/maxrss', (_) => '${ProcessInfo.maxRss}')
             ..get('/open', (_) => '${engine.openWebSockets}')
             ..get('/firehose-ended', (_) => '$firehoseEnded')
             ..ws(

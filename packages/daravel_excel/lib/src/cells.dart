@@ -17,17 +17,40 @@ String columnLetter(int index) {
   return letters.toString();
 }
 
+/// The number of columns a worksheet holds (`A` to `XFD`), the limit of
+/// the file format (ECMA-376, and Excel's).
+const int maxColumns = 16384;
+
 /// `A` → `0`, `AA` → `26` (letters to zero-based index), ignoring case.
+///
+/// A column past `XFD` (index 16 383) is a [FormatException]: no workbook
+/// holds one, and a reader that took `ZZZZZZ1` at its word filled a row
+/// with hundreds of millions of empty cells before the first value.
 int columnIndex(String letters) {
+  if (letters.isEmpty) {
+    // It used to answer -1.
+    throw const FormatException('Not a column: no letters');
+  }
   var n = 0;
   for (final unit in letters.toUpperCase().codeUnits) {
     if (unit < 0x41 || unit > 0x5A) {
-      throw FormatException('Not a column: $letters');
+      throw FormatException('Not a column: ${_quoted(letters)}');
     }
     n = n * 26 + (unit - 0x40);
+    if (n > maxColumns) {
+      throw FormatException(
+        'Column ${_quoted(letters)} is past XFD, the last of the $maxColumns '
+        'columns a worksheet holds.',
+      );
+    }
   }
   return n - 1;
 }
+
+/// [letters] for a message, at most 16 characters: a reference of a
+/// megabyte of letters must not become a megabyte of log line.
+String _quoted(String letters) =>
+    letters.length <= 16 ? letters : '${letters.substring(0, 16)}…';
 
 /// Excel's serial dates (the 1900 system, with its phantom 29 February
 /// 1900): what a date cell holds.

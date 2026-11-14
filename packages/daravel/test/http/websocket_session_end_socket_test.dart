@@ -236,7 +236,12 @@ void main() {
         client.send(0x1, 'before'.codeUnits);
         await Future<void>.delayed(const Duration(milliseconds: 200));
         client.send(0x1, 'after'.codeUnits);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        // Until both arrived (a loaded machine takes longer than 200 ms),
+        // or a loss shows.
+        final deadline = DateTime.now().add(const Duration(seconds: 3));
+        while (lateReceived.length < 2 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
         expect(lateReceived, ['before', 'after']);
         await client.close();
         await expectSessionEnded(within: const Duration(seconds: 2));

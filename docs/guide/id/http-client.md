@@ -1,4 +1,4 @@
-<!-- source: http-client.md sha256:9aef1c1d737c -->
+<!-- source: http-client.md sha256:4bf7b2fb94eb -->
 # HTTP client
 
 `Http` mengirim request keluar ke payment gateway, API pesan, dan layanan
