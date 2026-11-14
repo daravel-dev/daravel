@@ -381,7 +381,7 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
     ),
   );
 
-  // RSEQ 68: animated PNG and WebP are not converted in this version, told
+  // Animated PNG and WebP are not converted in this version, told
   // from the decoder's own reading of the file.
   test('an APNG is not converted, however large its frames', () async {
     final (line, rss) = await convert(_apngWithHugeFrame(16000, 16000));
@@ -503,7 +503,7 @@ void tiffAndBudgetTests() {
     );
   });
 
-  // RSEQ 70: a WebP counts against half the pixel limit.
+  // A WebP counts against half the pixel limit.
   test('a WebP counts against half the pixel limit', () {
     // 64 pixels: under half of 130, not under half of 100.
     expect(
