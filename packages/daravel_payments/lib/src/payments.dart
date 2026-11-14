@@ -394,7 +394,16 @@ final class PaymentManager {
       );
     } on UniqueConstraintViolationException {
       final seen = await log().lockForUpdate().first();
-      if (seen == null || _isTrue(seen['processed'])) {
+      if (seen == null) {
+        // The row that clashed is not this event's (the delivery that wrote
+        // it rolled back, or another unique index): not applied, so not a
+        // duplicate. An error answers 5xx and the gateway sends it again.
+        throw StateError(
+          'The webhook log has no row for ${event.gateway} event '
+          '${event.eventId} after a unique violation; not applied.',
+        );
+      }
+      if (_isTrue(seen['processed'])) {
         return PaymentOutcome.duplicate;
       }
       await log().update({'payload': jsonEncode(event.raw), 'updated_at': now});
