@@ -42,6 +42,21 @@ void main() {
       if (c.status == CheckStatus.notice) c.title,
   ];
 
+  test('names the .env lines whose unquoted value now ends at #, never '
+      'the value', () async {
+    File(p.join(root.path, '.env'))
+        .writeAsStringSync('MAIL_PASSWORD=abc#123\nSAFE="x#y"\n');
+    final checks = await diagnose(const {});
+    final warning = checks.singleWhere(
+      (c) => c.title.contains('MAIL_PASSWORD'),
+    );
+    expect(warning.status, CheckStatus.warning);
+    expect(warning.title, contains('.env line 1'));
+    expect(warning.title, isNot(contains('abc')));
+    expect(warning.title, isNot(contains('123')));
+    expect(checks.where((c) => c.title.contains('SAFE')), isEmpty);
+  });
+
   test('notes a SQLite file shared by several isolates', () async {
     final checks = await diagnose({'APP_ISOLATES': '4'});
     expect(notices(checks), contains('SQLite file shared by 4 isolates'));

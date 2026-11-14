@@ -50,7 +50,28 @@ final class ConfigValidator {
   final List<ConfigCheck> _checks;
 
   /// The framework's built-in checks.
-  static final List<ConfigCheck> defaultChecks = [_debugInProduction, _appKey];
+  static final List<ConfigCheck> defaultChecks = [
+    _debugInProduction,
+    _appKey,
+    _unquotedHashComments,
+  ];
+
+  /// A warning per `.env` line whose unquoted value now ends at its first
+  /// `#`, as Laravel (phpdotenv) reads it, where Daravel 1.27 read on:
+  /// the file, the key and the line, never the value. Removed after the
+  /// 1.28 series.
+  static Iterable<ConfigIssue> _unquotedHashComments(
+    Env env,
+    ConfigRepository config,
+  ) => [
+    for (final change in env.commentChanges)
+      ConfigIssue(
+        ConfigIssueLevel.warning,
+        '${change.file} line ${change.line}: the value of ${change.key} now '
+        'ends at its first #, as Laravel reads it (Daravel 1.27 read on); '
+        'quote the value if the # belongs to it.',
+      ),
+  ];
 
   /// Runs every check and returns all issues (errors first).
   List<ConfigIssue> validate(Env env, ConfigRepository config) {

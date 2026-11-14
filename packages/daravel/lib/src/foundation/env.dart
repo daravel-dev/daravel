@@ -13,12 +13,19 @@ typedef EnvDecrypter = Future<String> Function(String contents, String key);
 ///
 /// Precedence (highest first): explicit overrides → OS environment → `.env`.
 final class Env {
-  Env._(this._values);
+  Env._(this._values, [this.commentChanges = const []]);
 
   /// Creates an [Env] from an in-memory map (tests, CLI).
   factory Env.fromMap(Map<String, String> values) => Env._(Map.of(values));
 
   final Map<String, String> _values;
+
+  /// The lines of the loaded files whose unquoted value Daravel 1.27 read
+  /// differently: a `#` without a space before it now starts a comment, as
+  /// in phpdotenv (`DB_PASSWORD=abc#123` is `abc`). Reported at boot by
+  /// `ConfigValidator` with the file, the key and the line, never the
+  /// value; this notice is removed after the 1.28 series.
+  final List<EnvCommentChange> commentChanges;
 
   static final RegExp _keyPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
   // phpdotenv 5 (Laravel) resolves only `${NAME}`; a bare `$` is literal.
@@ -55,10 +62,18 @@ final class Env {
     }
     final key = found;
     final values = <String, String>{};
+    final changes = <EnvCommentChange>[];
     Future<void> loadLevel(String name, Map<String, String> context) async {
       final plain = File(p.join(basePath, name));
       if (await plain.exists()) {
-        values.addAll(parse(await plain.readAsString(), context: context));
+        values.addAll(
+          parse(
+            await plain.readAsString(),
+            context: context,
+            onCommentChange: (k, line) =>
+                changes.add(EnvCommentChange(name, k, line)),
+          ),
+        );
       }
       final encrypted = File(p.join(basePath, '$name.encrypted'));
       if (decrypt != null &&
@@ -74,7 +89,14 @@ final class Env {
             '$error',
           );
         }
-        values.addAll(parse(contents, context: {...values, ...context}));
+        values.addAll(
+          parse(
+            contents,
+            context: {...values, ...context},
+            onCommentChange: (k, line) =>
+                changes.add(EnvCommentChange('$name.encrypted', k, line)),
+          ),
+        );
       }
     }
 
@@ -86,16 +108,25 @@ final class Env {
     }
     values.addAll(platform);
     values.addAll(overrides);
-    return Env._(values);
+    return Env._(values, List.unmodifiable(changes));
   }
 
-  /// Parses dotenv [contents] (Laravel/dotenv compatible subset: comments,
-  /// `export` prefix, single/double quotes, `\n`/`\t`/`\"`/`\\` escapes in
-  /// double quotes, `${VAR}` expansion (a bare `$VAR` stays literal, as in phpdotenv) in unquoted and double quoted
-  /// values, inline ` # comments` after unquoted values).
+  /// Parses dotenv [contents] as phpdotenv 5.8 (Laravel) reads them:
+  /// comments, the `export` prefix, single quotes (literal), double quotes
+  /// (escapes and `${VAR}` expansion, see [_parseValue]), unquoted values
+  /// (`${VAR}` expanded, a bare `$VAR` literal) that end at the first `#`.
+  ///
+  /// Where phpdotenv refuses a line Daravel is lenient: an unknown escape in
+  /// double quotes stays as written, and an unquoted value may hold spaces.
+  ///
+  /// [onCommentChange] is told the key and line of each unquoted value that
+  /// Daravel 1.27 read differently (it ended at ` #` only); [onLenient] the
+  /// key and line of each value phpdotenv refuses and Daravel reads.
   static Map<String, String> parse(
     String contents, {
     Map<String, String> context = const {},
+    void Function(String key, int line)? onCommentChange,
+    void Function(String key, int line)? onLenient,
   }) {
     final values = <String, String>{};
     final lines = contents.split('\n');
@@ -140,7 +171,19 @@ final class Env {
           }
         }
       }
-      values[key] = _parseValue(rawValue, values, context, startLine);
+      if (onCommentChange != null &&
+          !rawValue.startsWith('"') &&
+          !rawValue.startsWith("'") &&
+          _beforeComment(rawValue) != _beforeSpacedComment(rawValue)) {
+        onCommentChange(key, startLine);
+      }
+      values[key] = _parseValue(
+        rawValue,
+        values,
+        context,
+        startLine,
+        onLenient == null ? null : () => onLenient(key, startLine),
+      );
     }
     return values;
   }
@@ -161,12 +204,18 @@ final class Env {
     String raw,
     Map<String, String> values,
     Map<String, String> context,
-    int lineNumber,
-  ) {
+    int lineNumber, [
+    void Function()? onLenient,
+  ]) {
     if (raw.isEmpty) {
       return '';
     }
     if (raw.startsWith('"')) {
+      // As phpdotenv 5.8 (`EntryParser::processToken`): `\"`, `\\` and
+      // `\$` stand for the character itself, `\$` never starting a
+      // reference; `\f`, `\n`, `\r`, `\t` and `\v` are decoded; a
+      // `${NAME}` is expanded where it is read, so an escaped `$` is not.
+      // Any other escape stays as written (phpdotenv refuses it).
       final buffer = StringBuffer();
       var index = 1;
       var closed = false;
@@ -181,11 +230,15 @@ final class Env {
               buffer.write('\t');
             case 'r':
               buffer.write('\r');
-            case '"':
-              buffer.write('"');
-            case r'\':
-              buffer.write(r'\');
+            case 'f':
+              buffer.writeCharCode(12);
+            case 'v':
+              buffer.writeCharCode(11);
+            case '"' || r'\' || r'$':
+              buffer.write(next);
             default:
+              // phpdotenv refuses it: kept as written.
+              onLenient?.call();
               buffer
                 ..write(r'\')
                 ..write(next);
@@ -197,6 +250,16 @@ final class Env {
           closed = true;
           break;
         }
+        if (char == r'$') {
+          final reference = _expansionPattern.matchAsPrefix(raw, index);
+          if (reference != null) {
+            final name = reference.group(1)!;
+            // Unknown references stay as written, as in phpdotenv.
+            buffer.write(values[name] ?? context[name] ?? reference.group(0));
+            index = reference.end;
+            continue;
+          }
+        }
         buffer.write(char);
         index++;
       }
@@ -205,7 +268,7 @@ final class Env {
           'Unterminated double quote on .env line $lineNumber.',
         );
       }
-      return _expand(buffer.toString(), values, context);
+      return buffer.toString();
     }
     if (raw.startsWith("'")) {
       final end = raw.indexOf("'", 1);
@@ -216,12 +279,27 @@ final class Env {
       }
       return raw.substring(1, end);
     }
-    var value = raw;
-    final commentIndex = value.indexOf(' #');
-    if (commentIndex != -1) {
-      value = value.substring(0, commentIndex).trimRight();
+    final value = _beforeComment(raw);
+    if (onLenient != null && value.contains(RegExp(r'\s'))) {
+      // phpdotenv refuses whitespace in an unquoted value: kept.
+      onLenient();
     }
     return _expand(value, values, context);
+  }
+
+  /// An unquoted [raw] value up to its first `#`, as phpdotenv's
+  /// `UNQUOTED_STATE` reads it (a `#` starts a comment, a space before it
+  /// or not).
+  static String _beforeComment(String raw) {
+    final hash = raw.indexOf('#');
+    return hash < 0 ? raw : raw.substring(0, hash).trimRight();
+  }
+
+  /// [raw] as Daravel 1.27 read it: up to ` #` only. For
+  /// [commentChanges]; removed after the 1.28 series.
+  static String _beforeSpacedComment(String raw) {
+    final hash = raw.indexOf(' #');
+    return hash < 0 ? raw : raw.substring(0, hash).trimRight();
   }
 
   static String _expand(
@@ -386,4 +464,22 @@ final class Env {
 
   /// An unmodifiable snapshot of all values.
   Map<String, String> toMap() => Map.unmodifiable(_values);
+}
+
+/// A line of a `.env` file whose unquoted value Daravel 1.27 read
+/// differently ([Env.commentChanges]): the file, the key and the line,
+/// never the value.
+final class EnvCommentChange {
+  /// The line [line] of [file], setting [key].
+  const EnvCommentChange(this.file, this.key, this.line);
+
+  /// The file name (`.env`, `.env.production`, `.env.encrypted`).
+  final String file;
+
+  /// The variable the line sets.
+  final String key;
+
+  /// The line number in [file] (in the decrypted contents of an
+  /// encrypted file).
+  final int line;
 }

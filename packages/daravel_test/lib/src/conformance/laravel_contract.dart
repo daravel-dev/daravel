@@ -226,6 +226,49 @@ abstract final class LaravelContract {
   static String debouncedJobFirstDispatch(String jobClass, String debounceId) =>
       '${debouncedJobKey(jobClass, debounceId)}:first_dispatched_at';
 
+  // -- .env (vlucas/phpdotenv v5.8.0) --------------------------------------
+
+  /// How phpdotenv v5.8.0, the `.env` reader of Laravel, reads a line after
+  /// `A=one`: the line and the value of `V`. From `src/Parser/EntryParser.php`
+  /// (`splitStringIntoParts`, `parseName`, `parseValue`, `processToken`) and
+  /// `src/Loader/Resolver.php` (`resolveVariable`, an unknown `${NAME}` kept
+  /// as written).
+  static final List<(String line, String value)> dotenvValues = [
+    // SINGLE_QUOTED_STATE: literal, no escape, no reference.
+    (r"V='a${A}b'", r'a${A}b'),
+    (r"V='a#b'", 'a#b'),
+    // UNQUOTED_STATE: `$` starts a reference.
+    (r'V=a${A}b', 'aoneb'),
+    // DOUBLE_QUOTED_STATE: `$` starts a reference; Resolver keeps an
+    // unknown one.
+    (r'V="a${A}b"', 'aoneb'),
+    (r'V="${MISSING}"', r'${MISSING}'),
+    (r'V="a#b"', 'a#b'),
+    // ESCAPE_SEQUENCE_STATE: `\$` is a `$` that starts no reference; `\"`
+    // and `\\` the character; `\f \n \r \t \v` through stripcslashes.
+    (r'V="a\${A}b"', r'a${A}b'),
+    (r'V="a\"b\\c"', r'a"b\c'),
+    (r'V="x\fy\vz"', 'x${String.fromCharCode(12)}y${String.fromCharCode(11)}z'),
+    (r'V="l1\nl2\tt\rr"', 'l1${'\n'}l2${'\t'}t${'\r'}r'),
+    // UNQUOTED_STATE: `#` starts a comment, a space before it or not.
+    (r'V=a#b', 'a'),
+    (r'V=a #b', 'a'),
+    (r'V=#b', ''),
+    // splitStringIntoParts trims around `=`; parseName drops `export`.
+    (r'V=', ''),
+    (r'V = x', 'x'),
+    (r'export V=x', 'x'),
+  ];
+
+  /// Lines phpdotenv v5.8.0 refuses (`processToken`: "an unexpected escape
+  /// sequence", "unexpected whitespace") that Daravel reads, leniently, as
+  /// the value given: a known difference (CL-2, C2 and C3), not a format
+  /// Daravel writes.
+  static const List<(String line, String daravelValue)> dotenvRefused = [
+    (r'V="x\qy"', r'x\qy'),
+    (r'V=a b', 'a b'),
+  ];
+
   // -- Dates (Carbon::toJSON) ---------------------------------------------
 
   /// `2026-01-02T03:04:05.000000Z`: UTC with microseconds.

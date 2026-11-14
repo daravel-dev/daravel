@@ -135,7 +135,16 @@ final class AdoptCommand extends Command<int> {
       stderr.writeln('$laravel has no .env file.');
       return 1;
     }
-    final source = Env.parse(envFile.readAsStringSync());
+    // Read as Laravel reads it; the lines Laravel refuses, which Daravel
+    // reads leniently, are named (key and line, never the value).
+    final source = Env.parse(
+      envFile.readAsStringSync(),
+      onLenient: (key, line) => report.warn(
+        '.env line $line ($key): Laravel refuses this line',
+        'An unknown escape in double quotes, or spaces in an unquoted '
+            'value; Daravel read it as written. Quote the value.',
+      ),
+    );
     final adopted = <String, String>{
       for (final key in adoptedEnvKeys)
         if ((source[key] ?? '').isNotEmpty) key: source[key]!,
@@ -322,17 +331,47 @@ final class AdoptCommand extends Command<int> {
     }
   }
 
-  /// Quotes [value] for a `.env` file so it reads back unchanged: single
-  /// quotes when possible (no `$` expansion), double quotes otherwise.
-  static String _quote(String value) {
-    if (!RegExp(r'''[\s#"'\\$]''').hasMatch(value)) {
-      return value;
-    }
-    if (!value.contains("'") && !value.contains('\n')) {
-      return "'$value'";
-    }
-    return '"${value.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n')}"';
+  static String _quote(String value) => quoteEnvValue(value);
+}
+
+/// [value] as a `.env` value that Daravel and Laravel (phpdotenv 5.8) both
+/// read back as [value]: as it is when nothing in it is special; in single
+/// quotes (literal: no escape, no `${...}`) when it holds no `'` and no
+/// line break; else in double quotes, with `\`, `"` and `$` escaped (a `$`
+/// as `\$`, which starts no reference) and line breaks, tabs, form feeds
+/// and vertical tabs as `\n`, `\r`, `\t`, `\f`, `\v`.
+String quoteEnvValue(String value) {
+  if (!RegExp(r'''[\s#"'\\$]''').hasMatch(value)) {
+    return value;
   }
+  if (!value.contains("'") && !value.contains(RegExp('[\r\n]'))) {
+    return "'$value'";
+  }
+  final out = StringBuffer('"');
+  for (final unit in value.codeUnits) {
+    switch (unit) {
+      case 0x5C:
+        out.write(r'\\');
+      case 0x22:
+        out.write(r'\"');
+      case 0x24:
+        out.write(r'\$');
+      case 0x0A:
+        out.write(r'\n');
+      case 0x0D:
+        out.write(r'\r');
+      case 0x09:
+        out.write(r'\t');
+      case 0x0C:
+        out.write(r'\f');
+      case 0x0B:
+        out.write(r'\v');
+      default:
+        out.writeCharCode(unit);
+    }
+  }
+  out.write('"');
+  return '$out';
 }
 
 /// The `laravel/framework` version of the project at [root], from
