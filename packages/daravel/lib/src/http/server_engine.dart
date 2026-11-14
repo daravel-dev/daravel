@@ -818,7 +818,11 @@ final class ServerEngine {
       final socket =
           await (webSocketUpgradeOverride ?? WebSocketTransformer.upgrade)(
             guard.wrap(httpRequest),
-            compression: response.webSocketCompression
+            // An offer with a window size RFC 7692 does not allow is
+            // declined: the connection goes on uncompressed.
+            compression:
+                response.webSocketCompression &&
+                    _deflateOfferAcceptable(httpRequest.headers)
                 ? CompressionOptions.compressionDefault
                 : CompressionOptions.compressionOff,
             // With the guard's assembly, the limit of a whole message (and
@@ -1396,6 +1400,68 @@ final class _DiscardedBody {
       _arrival.complete();
     }
   }
+}
+
+/// Whether the permessage-deflate offer of [headers] may be agreed to.
+///
+/// The offer is read the way the handshake reads it to agree:
+/// `headers.value('sec-websocket-extensions')`, then
+/// `HeaderValue.parse(value, valueSeparator: ',')`, whose first value
+/// must be `permessage-deflate` for compression to be agreed to at all,
+/// and whose parameters give the window sizes. Each window size named
+/// there must be one RFC 7692 §7.1.2 allows: a decimal 8 to 15 without a
+/// leading zero (`client_max_window_bits` may also come without a value).
+///
+/// A value holding a quote or a backslash is not agreed to whatever it
+/// says: clients do not quote these parameters, and no two readers can
+/// then disagree on what it names. Otherwise compression is not agreed to
+/// for the handshake, and the connection goes on without it.
+bool _deflateOfferAcceptable(HttpHeaders headers) {
+  final String? value;
+  try {
+    value = headers.value('sec-websocket-extensions');
+  } on Object {
+    // Given more than once: the upgrade itself refuses that (400).
+    return false;
+  }
+  if (value == null) {
+    return true;
+  }
+  if (value.contains('"') || value.contains(r'\')) {
+    return false;
+  }
+  final HeaderValue offer;
+  try {
+    offer = HeaderValue.parse(value, valueSeparator: ',');
+  } on Object {
+    // A value that does not parse is never agreed to (the handshake's own
+    // reading refuses it too), and never an error here.
+    return false;
+  }
+  if (offer.value != 'permessage-deflate') {
+    // Nothing the handshake would agree to.
+    return true;
+  }
+  final window = RegExp(r'^(?:[89]|1[0-5])$');
+  for (final name in const [
+    'server_max_window_bits',
+    'client_max_window_bits',
+  ]) {
+    if (!offer.parameters.containsKey(name)) {
+      continue;
+    }
+    final bits = offer.parameters[name];
+    if (bits == null) {
+      if (name == 'client_max_window_bits') {
+        continue;
+      }
+      return false;
+    }
+    if (!window.hasMatch(bits)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// What a request asks of the WebSocket protocol ([ServerEngine]).
