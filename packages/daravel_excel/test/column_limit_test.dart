@@ -110,6 +110,62 @@ void main() {
     final (line, _) = await read(await workbook(full.toString()));
     expect(line, 'ok 2 $maxColumns');
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  // RSEQ 59 #1: each `r="A1"` set the column back to 0 and the cell was
+  // appended anyway: 300 000 of them made a row of 300 000 cells.
+  test('a reference given 300 000 times sets one cell', () async {
+    final cells = '<c r="A1"><v>1</v></c>' * 300000;
+    final (line, rss) = await read(await workbook('<row r="1">$cells</row>'));
+    expect(line, 'ok 1 1');
+    expect(rss, lessThan(400 * mib));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  Future<List<Object?>> firstRow(String sheetData) async {
+    final sheets = await Excel.toArray(
+      await workbook(sheetData),
+      type: ExcelType.xlsx,
+    );
+    final row = sheets.first.first;
+    return [for (var i = 0; i < row.length; i++) row['$i']];
+  }
+
+  test(
+    'a reference going back lands at its column; the last one wins',
+    () async {
+      expect(
+        await firstRow(
+          '<row r="1"><c r="B1"><v>2</v></c><c r="A1"><v>1</v></c>'
+          '<c r="B1"><v>3</v></c></row>',
+        ),
+        [1, 3],
+      );
+    },
+  );
+
+  // RSEQ 59 #2: digits were dropped wherever they were, and no letters
+  // meant column -1.
+  test(
+    'a cell reference is letters then digits, or a FormatException',
+    () async {
+      for (final ref in [
+        '',
+        '1',
+        'A',
+        '1A1',
+        '99XFD1',
+        '12A34B5',
+        'A1B',
+        'A-1',
+      ]) {
+        await expectLater(
+          firstRow('<row r="1"><c r="$ref"><v>1</v></c></row>'),
+          throwsA(isA<FormatException>()),
+          reason: '"$ref"',
+        );
+      }
+      expect(() => columnIndex(''), throwsFormatException);
+    },
+  );
 }
 
 final class ListExport implements FromCollection {

@@ -173,9 +173,7 @@ final class XlsxReader {
               }
             case 'c':
               final ref = _attr(event, 'r');
-              column = ref == null
-                  ? column
-                  : columnIndex(ref.replaceAll(RegExp('[0-9]'), ''));
+              column = ref == null ? column : _referenceColumn(ref);
               // Cells without `r` count on from the last: past XFD too, a
               // row is longer than a worksheet allows.
               if (column >= maxColumns) {
@@ -206,10 +204,18 @@ final class XlsxReader {
             case 'c':
               final cell = cellValue();
               if (cell != null) {
-                while (cells.length < column) {
-                  cells.add(null);
+                // At its column, as PhpSpreadsheet writes a cell by its
+                // coordinate: a reference given twice, or going back, sets
+                // that cell again (the last one wins) instead of growing the
+                // row, which so never passes maxColumns.
+                if (column < cells.length) {
+                  cells[column] = cell;
+                } else {
+                  while (cells.length < column) {
+                    cells.add(null);
+                  }
+                  cells.add(cell);
                 }
-                cells.add(cell);
               }
               column++;
             case 'row':
@@ -237,6 +243,31 @@ final class XlsxReader {
       .toXmlEvents()
       .normalizeEvents()
       .flatten();
+
+  /// The zero-based column of the cell reference [ref] (`B7` → 1): one
+  /// or more letters, then one or more digits, nothing else, as
+  /// PhpSpreadsheet's `Coordinate::coordinateFromString` reads it. Any
+  /// other shape (`""`, `1A1`, `12A34B5`) is a [FormatException]; it used
+  /// to have its digits dropped wherever they were.
+  static int _referenceColumn(String ref) {
+    var letters = 0;
+    while (letters < ref.length && _isLetter(ref.codeUnitAt(letters))) {
+      letters++;
+    }
+    var digits = letters;
+    while (digits < ref.length && _isDigit(ref.codeUnitAt(digits))) {
+      digits++;
+    }
+    if (letters == 0 || digits == letters || digits != ref.length) {
+      final shown = ref.length <= 16 ? ref : '${ref.substring(0, 16)}…';
+      throw FormatException('Not a cell reference: "$shown"');
+    }
+    return columnIndex(ref.substring(0, letters));
+  }
+
+  static bool _isLetter(int c) => (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;
+
+  static bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
 
   static String _local(String name) {
     final colon = name.indexOf(':');
