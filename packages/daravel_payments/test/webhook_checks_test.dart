@@ -455,6 +455,30 @@ void main() {
         },
       );
 
+      test('a confirmed event takes its id from the status the API answered: '
+          'a forged refund does not swallow the real one', () async {
+        await order();
+        Future<String> answer(Map<String, Object?> body) async =>
+            (jsonDecode(await (await post(body)).bodyText())
+                    as Map<String, Object?>)['status']!
+                as String;
+        // A signed pending notification turned into a refund; the API says
+        // settlement, so the payment is paid under tx-1:settlement.
+        await statusApi(apiAnswer('settlement'));
+        final forged = notification(status: 'refund', statusCode: '201');
+        expect(await answer(forged), PaymentOutcome.applied.name);
+        expect(await status(), PaymentStatus.paid);
+        // The genuine settlement notification is then a duplicate.
+        expect(await answer(notification()), PaymentOutcome.duplicate.name);
+        // The real refund later: the API says refund, a new event.
+        await statusApi(apiAnswer('refund'));
+        final refund = notification(status: 'refund', statusCode: '200');
+        expect(await answer(refund), PaymentOutcome.applied.name);
+        expect(await status(), PaymentStatus.refunded);
+        // And its retry is a duplicate.
+        expect(await answer(refund), PaymentOutcome.duplicate.name);
+      });
+
       test('a status API that fails answers 5xx and changes nothing', () async {
         await order();
         await statusApi(null);
