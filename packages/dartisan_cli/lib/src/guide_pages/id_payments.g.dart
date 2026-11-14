@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/payments.md`.
 const String pageIdPayments =
-    r'''<!-- source: payments.md sha256:b48e95ff7477 -->
+    r'''<!-- source: payments.md sha256:5f30f3b32065 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -89,8 +89,12 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    dan timestamp-nya paling jauh lima menit. Perbandingannya memakai waktu
    konstan. `transaction_status` Midtrans juga harus sesuai dengan
    `status_code` yang ditandatangani (200 untuk `capture` dan `settlement`,
-   201 `pending`, 202 `deny`, 407 `expire`, menurut referensi kode status
-   Midtrans). Selain itu dijawab 401 dan tidak mengubah apa pun. Notifikasi
+   202 untuk `expire` dan `cancel`, seperti pada contoh notifikasi
+   Midtrans), dan `fraud_status` selain `accept` membuat `settlement` dan
+   `capture` tidak melunasi. Status lain (`deny`, refund, chargeback, ...)
+   diambil dari API status Midtrans, bukan dari notifikasinya; bila API itu
+   gagal, jawabannya 5xx dan tidak ada yang berubah. Selain itu dijawab 401
+   dan tidak mengubah apa pun. Notifikasi
    lunas yang jumlah atau mata uangnya tidak terbaca dijawab 400.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
    gateway) dalam transaksi yang sama dengan perubahannya. Setelah sebuah

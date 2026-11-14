@@ -80,9 +80,12 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    `<timestamp>.<body>` with the endpoint secret, and the timestamp must
    be within five minutes. Comparisons take constant time. A Midtrans
    `transaction_status` must also agree with the signed `status_code`
-   (200 for `capture` and `settlement`, 201 `pending`, 202 `deny`, 407
-   `expire`, from Midtrans' status codes reference). Anything else gets
-   401 and changes nothing. A paid notification whose amount or currency
+   (200 for `capture` and `settlement`, 202 for `expire` and `cancel`, as
+   in Midtrans' sample notifications), and a `fraud_status` other than
+   `accept` keeps `settlement` and `capture` from paying. Any other status
+   (`deny`, a refund, a chargeback, ...) is taken from Midtrans' status
+   API, not from the notification; when that API fails the answer is 5xx
+   and nothing changes. Anything else gets 401 and changes nothing. A paid notification whose amount or currency
    cannot be read gets 400.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
    gateway), in the same transaction as the change. Once a notification

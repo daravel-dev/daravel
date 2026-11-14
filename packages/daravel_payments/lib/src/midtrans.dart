@@ -141,46 +141,88 @@ final class MidtransGateway implements PaymentGateway {
 
   @override
   Future<PaymentEvent> parseWebhook(Request request) async {
-    final Map<String, Object?> body;
+    final Object? decoded;
     try {
-      body = jsonDecode(
-        utf8.decode(await request.bytes()),
-      ) as Map<String, Object?>;
+      decoded = jsonDecode(utf8.decode(await request.bytes()));
     } on FormatException {
       throw const InvalidPaymentSignatureException(
         'Not a Midtrans notification.',
       );
     }
+    if (decoded is! Map<String, Object?>) {
+      throw const InvalidPaymentSignatureException(
+        'Not a Midtrans notification.',
+      );
+    }
+    final body = decoded;
     final signature = body['signature_key'];
     if (signature is! String ||
         !constantTimeEquals(signature.toLowerCase(), signatureFor(body))) {
       throw const InvalidPaymentSignatureException();
     }
+    final transactionStatus = '${body['transaction_status']}';
     // The signature covers status_code, not transaction_status: a status
     // must agree with the code signed for it.
-    final expected = signedStatusCodes['${body['transaction_status']}'];
-    if (expected != null && '${body['status_code']}' != expected) {
+    final expected = signedStatusCodes[transactionStatus];
+    if (expected != null && _code(body['status_code']) != expected) {
       throw const InvalidPaymentSignatureException(
         'The Midtrans transaction_status does not match the signed '
         'status_code.',
       );
     }
-    return requireAmountWhenPaid(_event(body));
+    final event = _event(body);
+    if (expected != null || transactionStatus == 'pending') {
+      return requireAmountWhenPaid(event);
+    }
+    // Any other status (deny, refund, partial_refund, chargeback,
+    // authorize, failure, one not known) is taken from Midtrans' status
+    // API, not from the notification; the notification's id is kept, so a
+    // retry is still a duplicate. An API that fails answers 5xx, and
+    // nothing is applied.
+    final confirmed = await status(event.orderId, reference: event.reference);
+    return requireAmountWhenPaid(
+      PaymentEvent(
+        gateway: confirmed.gateway,
+        eventId: event.eventId,
+        orderId: event.orderId,
+        status: confirmed.status,
+        amount: confirmed.amount,
+        currency: confirmed.currency,
+        paymentType: confirmed.paymentType,
+        reference: confirmed.reference,
+        occurredAt: confirmed.occurredAt,
+        raw: confirmed.raw,
+      ),
+    );
   }
 
-  /// The `status_code` a `transaction_status` comes with, from Midtrans'
-  /// status codes reference (docs.midtrans.com/reference/status-codes):
-  /// 200 for a successful transaction (capture, settlement), 201 pending,
-  /// 202 denied, 407 expired. A notification whose status disagrees with
-  /// its signed code is refused. Statuses the reference pairs with a code
-  /// for cards only (`authorize`, `cancel`) or not at all (`failure`,
-  /// `refund`, `partial_refund`) are not checked.
+  /// The `status_code` a `transaction_status` comes with in Midtrans'
+  /// sample notifications: 200 for `capture` and `settlement`
+  /// (docs.midtrans.com/docs/https-notification-webhooks), 202 for
+  /// `expire` (docs.midtrans.com/reference/expire-transaction, "Expired
+  /// Notification") and for `cancel`
+  /// (docs.midtrans.com/reference/cancel-transaction, "Success
+  /// Notification"). A notification whose status disagrees with its signed
+  /// code is refused. `pending` is not checked: it moves no payment. Every
+  /// other status, which no sample pairs with a code (`deny`, `refund`,
+  /// `partial_refund`, `chargeback`, `authorize`, `failure`), is confirmed
+  /// with the status API instead.
   static const Map<String, String> signedStatusCodes = {
     'capture': '200',
     'settlement': '200',
-    'pending': '201',
-    'deny': '202',
-    'expire': '407',
+    'expire': '202',
+    'cancel': '202',
+  };
+
+  /// A `status_code` as text: Midtrans sends `"200"`; a whole number
+  /// (`200`) reads the same, anything else does not match.
+  static String? _code(Object? value) => switch (value) {
+    final String text => text,
+    final int number => '$number',
+    final double number
+        when number == number.truncateToDouble() && number.isFinite =>
+      '${number.toInt()}',
+    _ => null,
   };
 
   /// `SHA512(order_id + status_code + gross_amount + ServerKey)`, as
@@ -216,13 +258,13 @@ final class MidtransGateway implements PaymentGateway {
   }
 
   /// Midtrans' `transaction_status` (and `fraud_status`) as a
-  /// [PaymentStatus]: paid on `settlement`, or on `capture` unless the
-  /// fraud check did not accept it. A partial refund is not a status
+  /// [PaymentStatus]: paid on `settlement` or `capture` unless a fraud
+  /// status is there and is not `accept` (`deny` fails, `challenge`
+  /// waits; Midtrans' notification guide). A partial refund is not a status
   /// change (`null`).
   static PaymentStatus? mapStatus(String status, String? fraud) =>
       switch (status) {
-        'settlement' => PaymentStatus.paid,
-        'capture' =>
+        'settlement' || 'capture' =>
           fraud == null || fraud == 'accept'
               ? PaymentStatus.paid
               : (fraud == 'deny'
