@@ -292,6 +292,8 @@ void main() {
     // What the clients sent after the 413 (as fast as loopback takes it,
     // for up to 1 s each) is thrown away, not kept.
     final grown = await rss() - before;
+    // Printed always, for the distance to the bound on every system.
+    print('after the 413: the server grew ${grown >> 20} MiB');
     expect(grown, lessThan(64 << 20), reason: 'RSS grew $grown bytes');
     // The isolate is free: a normal request is answered at once.
     final (ok, _) = await sendChunkedTo(
