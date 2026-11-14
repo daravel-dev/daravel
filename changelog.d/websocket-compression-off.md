@@ -7,6 +7,8 @@
 
 - A WebSocket whose handler cancelled its subscription and kept the socket open stayed open until the server stopped: the client's close and its going away were no longer read. The client is read on and what it sends dropped, its frames still checked (limits, deadline, PING rate): its close or its going away ends the session at once, with its code. What the handler sends is not affected.
 
+- A WebSocket upgrade that failed before the server took the socket over (for example a request with two `Sec-WebSocket-Extensions` headers) left the connection open without an answer until its idle timeout; it is answered 400 and closed.
+
 ### Upgrade notes
 
 - WebSocket compression is off unless a route asks for it. Clients keep working without a change, since compression is negotiated, not required; they connect uncompressed. A route that sends large text messages to clients over slow links sends more bytes now: add `compress: true` to it if its clients are known.
