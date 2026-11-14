@@ -64,10 +64,10 @@ final class MediaLibraryConfig implements ConfigSection {
   /// 24 MP camera fits with room). Converting an image at the limit takes
   /// memory and time (measured in a compiled process, peak resident
   /// memory): a baseline JPEG of 8 000 x 5 000 about 130 MiB and 2.5 s, a
-  /// progressive one about 415 MiB and 3 s, an animated PNG or WebP
-  /// filling the budget with
-  /// many frames 230 to 330 MiB and up to 4 s. Lower it where conversions
-  /// share a process with requests.
+  /// progressive one about 415 MiB and 3 s, a PNG about 205 MiB and 1 s, a
+  /// WebP about 320 MiB and 1 s, an animated GIF filling the budget about
+  /// 140 MiB and 1.2 s. Lower it where conversions share a process with
+  /// requests.
   static const int defaultMaxImagePixels = 40000000;
 
   /// [maxImageFrames] by default.

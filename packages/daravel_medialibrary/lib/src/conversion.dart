@@ -254,7 +254,8 @@ final class ImageTooLargeException extends ImageConversionException {
 
 /// Whether files of [mimeType] or with [extension] are converted (JPEG,
 /// PNG, GIF, WebP, BMP). TIFF is not, in this version: its conversions are
-/// skipped and the original kept.
+/// skipped and the original kept. An animated PNG or WebP is told from its
+/// content when it is converted, and refused then.
 bool canConvert({String? mimeType, String? extension}) {
   const mimes = {
     'image/jpeg',
@@ -284,6 +285,20 @@ bool canConvert({String? mimeType, String? extension}) {
 /// than [maxFrames] frames throws [ImageTooLargeException] before anything
 /// is decoded. An isolate shares its process's memory, so a small file
 /// that declares 16 000 x 16 000 pixels would take gigabytes otherwise.
+///
+/// What is guaranteed: a still image (JPEG, PNG, WebP, BMP) or a GIF is
+/// decoded by a decoder held to [maxPixels], one frame for a still image;
+/// an animated PNG or WebP is not converted in this version. Measured peak
+/// memory at the default limit (40 million pixels, a compiled process):
+///
+/// | Image | Peak memory | Time |
+/// | --- | --- | --- |
+/// | baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
+/// | progressive JPEG, 8 000 x 5 000 | about 415 MiB | 3 s |
+/// | PNG, 6 324 x 6 324 (16-bit: half the pixels) | about 205 MiB | 1 s |
+/// | WebP, 6 324 x 6 324 | about 320 MiB | 0.7 s |
+/// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
+/// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 Future<Uint8List> convertImage(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
@@ -308,17 +323,11 @@ Uint8List convertImageSync(
   if (maxPixels < 1 || maxFrames < 1) {
     throw ArgumentError('maxPixels and maxFrames are at least 1.');
   }
-  // A 16-bit PNG decodes to two bytes per sample: the same budget in
-  // bytes (maxPixels x 4) holds half as many of its pixels.
-  final pixels = _pngBitDepth(bytes) > 8 ? maxPixels ~/ 2 : maxPixels;
-  final decoder = _decoderFor(bytes, math.max(1, pixels));
-  switch (decoder) {
-    case img.WebPDecoder():
-      _checkWebpFrames(bytes);
-    case img.JpegDecoder():
-      _checkJpegComponents(bytes);
-    default:
-      break;
+  // One decoder instance reads the file once: what is checked below is
+  // the decoder's own reading, and the same instance then decodes it.
+  final decoder = _decoderFor(bytes, maxPixels);
+  if (decoder is img.JpegDecoder) {
+    _checkJpegComponents(bytes);
   }
   final info = decoder == null
       ? null
@@ -329,7 +338,17 @@ Uint8List convertImageSync(
       'converted in this version).',
     );
   }
-  _checkFramesInside(info);
+  if (_isAnimated(info)) {
+    throw const ImageConversionException(
+      'Animated images (PNG, WebP) are not converted in this version.',
+    );
+  }
+  // A 16-bit PNG decodes to two bytes per sample: the same budget in
+  // bytes (maxPixels x 4) holds half as many of its pixels. The depth is
+  // the decoder's reading.
+  final pixels = info is img.PngInfo && info.bits > 8
+      ? math.max(1, maxPixels ~/ 2)
+      : maxPixels;
   final frames = math.max(1, info.numFrames);
   if (info.width < 1 || info.height < 1) {
     throw ImageConversionException(
@@ -347,7 +366,14 @@ Uint8List convertImageSync(
       'converted.',
     );
   }
-  final decoded = _guarded(() => decoder.decode(bytes));
+  // A still image: its one frame, from the reading checked above. An
+  // animated GIF (still converted: its decoder checks every frame against
+  // its screen while decoding) is decoded whole.
+  final decoded = _guarded(
+    () => decoder is img.GifDecoder && frames > 1
+        ? decoder.decode(bytes)
+        : decoder.decodeFrame(0),
+  );
   if (decoded == null) {
     throw const ImageConversionException('The file is not a known image.');
   }
@@ -601,209 +627,70 @@ T _guarded<T>(T Function() body) {
   }
 }
 
-/// For an animated WebP, refuses a frame (`ANMF`) that does not lie inside
-/// the canvas `VP8X` declares (the format requires it), or whose bitstream
-/// (`VP8L` or `VP8 `) declares another size than its `ANMF` header. Not a
-/// WebP, or not animated: nothing to do.
-void _checkWebpFrames(Uint8List bytes) {
-  int le(int at, int length) {
-    var value = 0;
-    for (var i = length - 1; i >= 0; i--) {
-      value = (value << 8) | bytes[at + i];
-    }
-    return value;
-  }
+/// Whether the decoder's own reading ([info] from its `startDecode`) is of
+/// an animated PNG or WebP, which are not converted in this version. An
+/// animated GIF is still converted; [_convertsAnimatedGif] turns that off.
+bool _isAnimated(img.DecodeInfo info) => switch (info) {
+  // A plain PNG reads as one frame (numFrames defaults to 1) without fcTL.
+  img.PngInfo() => info.numFrames > 1 || info.frames.isNotEmpty,
+  img.WebPInfo() =>
+    info.hasAnimation ||
+        info.frames.isNotEmpty ||
+        info.format == img.WebPFormat.animated,
+  img.GifInfo() => !_convertsAnimatedGif && info.numFrames > 1,
+  _ => false,
+};
 
-  bool fourcc(int at, String code) =>
-      at + 4 <= bytes.length && String.fromCharCodes(bytes, at, at + 4) == code;
+/// Whether an animated GIF is converted: its decoder checks every frame
+/// against its logical screen while decoding.
+const bool _convertsAnimatedGif = true;
 
-  if (!fourcc(0, 'RIFF') || !fourcc(8, 'WEBP')) {
-    return;
-  }
-  const malformed = ImageConversionException(
-    'An animated WebP frame is malformed, lies outside its canvas, or its '
-    'bitstream does not match its frame size; it was not converted.',
-  );
-  (int, int)? canvas;
-  var at = 12;
-  while (at + 8 <= bytes.length) {
-    final size = le(at + 4, 4);
-    final data = at + 8;
-    final end = data + size;
-    if (end > bytes.length) {
-      throw malformed;
-    }
-    if (fourcc(at, 'VP8X')) {
-      if (size < 10) {
-        throw malformed;
-      }
-      canvas = (le(data + 4, 3) + 1, le(data + 7, 3) + 1);
-    }
-    if (fourcc(at, 'ANMF')) {
-      if (size < 16 || canvas == null) {
-        throw malformed;
-      }
-      // Offsets are stored halved.
-      final x = le(data, 3) * 2;
-      final y = le(data + 3, 3) * 2;
-      final width = le(data + 6, 3) + 1;
-      final height = le(data + 9, 3) + 1;
-      if (x + width > canvas.$1 || y + height > canvas.$2) {
-        throw malformed;
-      }
-      var sub = data + 16;
-      while (sub + 8 <= end) {
-        final subSize = le(sub + 4, 4);
-        final payload = sub + 8;
-        if (payload + subSize > end) {
-          throw malformed;
-        }
-        (int, int)? declared;
-        if (fourcc(sub, 'VP8L')) {
-          if (subSize < 5 || bytes[payload] != 0x2F) {
-            throw malformed;
-          }
-          final bits = le(payload + 1, 4);
-          declared = ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1);
-        } else if (fourcc(sub, 'VP8 ')) {
-          if (subSize < 10) {
-            throw malformed;
-          }
-          declared = (le(payload + 6, 2) & 0x3FFF, le(payload + 8, 2) & 0x3FFF);
-        }
-        if (declared != null && declared != (width, height)) {
-          throw malformed;
-        }
-        sub = payload + subSize + (subSize.isOdd ? 1 : 0);
-      }
-    }
-    at = end + (size.isOdd ? 1 : 0);
-  }
-}
-
-/// Refuses an animated PNG or WebP whose frame (`fcTL`, `ANMF`) does not
-/// lie inside the image (`IHDR`, `VP8X` canvas), as the formats require.
-/// The frames are the ones the decoder read itself ([info] from its
-/// `startDecode`), so the check sees exactly what it will decode.
-void _checkFramesInside(img.DecodeInfo info) {
-  const outside = ImageConversionException(
-    'An animated image frame lies outside the image; it was not converted.',
-  );
-  switch (info) {
-    case img.PngInfo():
-      for (final frame in info.frames) {
-        if (frame.xOffset + frame.width > info.width ||
-            frame.yOffset + frame.height > info.height) {
-          throw outside;
-        }
-      }
-    case img.WebPInfo():
-      for (final frame in info.frames) {
-        if (frame.x + frame.width > info.width ||
-            frame.y + frame.height > info.height) {
-          throw outside;
-        }
-      }
-    default:
-      break;
-  }
-}
-
-/// For a JPEG, refuses a frame (`SOF0`–`SOF2`) whose number of components
-/// is not 1 or 3 (the ones converted), before anything is decoded. The
-/// markers are walked the way the decoder walks them when it decodes: to
-/// the next `0xFF` (fill bytes and `0xFF00` skipped), restart and `TEM`
-/// markers standalone, every other segment by its length; a segment shorter
-/// than its length field, a frame type the decoder does not take, or an
-/// unknown marker ends the walk (the decoder stops there with an error),
-/// except an unknown segment ending in `0xFF` and a marker byte, where the
-/// decoder steps back three bytes and reads that marker. Not a JPEG:
-/// nothing to do.
+/// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
+/// 1 or 3 (the ones converted), before anything is decoded. An early
+/// refusal for ordinary files, not a guarantee: the guarantee is the pixel
+/// limit the decoder is held to. Segments are walked by their lengths, and
+/// entropy-coded data byte by byte to its next marker. Not a JPEG: nothing
+/// to do.
 void _checkJpegComponents(Uint8List bytes) {
   final n = bytes.length;
   if (n < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) {
     return;
   }
   var at = 2;
-  while (true) {
-    // The next marker: up to an 0xFF, past fill bytes, not 0xFF00.
-    int? marker;
-    while (at < n) {
-      if (bytes[at] != 0xFF) {
-        at++;
-        continue;
-      }
-      var next = at + 1;
-      while (next < n && bytes[next] == 0xFF) {
-        next++;
-      }
-      if (next >= n) {
-        return;
-      }
-      at = next + 1;
-      if (bytes[next] != 0) {
-        marker = bytes[next];
-        break;
-      }
-    }
-    if (marker == null || marker == 0xD9) {
-      return;
-    }
-    if ((marker >= 0xD0 && marker <= 0xD7) || marker == 0x01) {
+  while (at + 4 <= n) {
+    if (bytes[at] != 0xFF) {
+      // Entropy-coded data: on to the next marker (not a stuffed 0xFF00
+      // or a restart marker).
+      at++;
       continue;
     }
-    if (at + 2 > n) {
+    final marker = bytes[at + 1];
+    if (marker == 0xFF ||
+        marker == 0x00 ||
+        marker == 0x01 ||
+        (marker >= 0xD0 && marker <= 0xD7)) {
+      at += marker == 0xFF ? 1 : 2;
+      continue;
+    }
+    if (marker == 0xD9) {
       return;
     }
-    final length = (bytes[at] << 8) | bytes[at + 1];
-    if (length < 2) {
-      return;
-    }
-    final end = at + length;
-    final known =
-        (marker >= 0xE0 && marker <= 0xEF) ||
-        marker == 0xFE || // COM
-        marker == 0xDB || // DQT
-        marker == 0xC4 || // DHT
-        marker == 0xDD || // DRI
-        marker == 0xDA; // SOS
-    if (marker >= 0xC0 && marker <= 0xC2) {
-      final components = at + 7 < n ? bytes[at + 7] : 0;
+    final length = (bytes[at + 2] << 8) | bytes[at + 3];
+    final sof =
+        marker >= 0xC0 &&
+        marker <= 0xCF &&
+        marker != 0xC4 &&
+        marker != 0xC8 &&
+        marker != 0xCC;
+    if (sof) {
+      final components = at + 9 < n ? bytes[at + 9] : 0;
       if (components != 1 && components != 3) {
         throw ImageConversionException(
           'The JPEG has $components color components; only 1 or 3 are '
           'converted.',
         );
       }
-      at = end;
-    } else if (known) {
-      at = end;
-    } else if (marker >= 0xC3 && marker <= 0xCF && marker != 0xCC) {
-      // A frame type the decoder refuses.
-      return;
-    } else if (end <= n &&
-        end >= 3 &&
-        bytes[end - 3] == 0xFF &&
-        bytes[end - 2] >= 0xC0 &&
-        bytes[end - 2] <= 0xFE) {
-      at = end - 3;
-    } else {
-      return;
     }
+    at += 2 + length;
   }
-}
-
-/// The bit depth a PNG's `IHDR` declares (byte 24), or 0 when [bytes] is
-/// not a PNG.
-int _pngBitDepth(Uint8List bytes) {
-  const signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-  if (bytes.length < 25) {
-    return 0;
-  }
-  for (var i = 0; i < signature.length; i++) {
-    if (bytes[i] != signature[i]) {
-      return 0;
-    }
-  }
-  return bytes[24];
 }

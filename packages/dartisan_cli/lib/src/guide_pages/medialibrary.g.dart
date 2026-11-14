@@ -122,11 +122,11 @@ result of the one before, as in Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP or TIFF instead of JPEG |
 | `greyscale()`, `blur(10)` | Filters |
 
-JPEG, PNG (APNG too), GIF, WebP and BMP files are converted, after their
-EXIF rotation is applied; the format is told from the content, not the
-name. TIFF is not converted in this version: a TIFF keeps its original and gets
-no conversions. WebP and AVIF cannot be written: `package:image` has
-no encoder for them.
+JPEG, PNG, GIF (animated too), WebP and BMP files are converted, after
+their EXIF rotation is applied; the format is told from the content, not
+the name. TIFF and animated PNG or WebP are not converted in this version:
+such a file keeps its original and gets no conversions. WebP and AVIF
+cannot be written: `package:image` has no encoder for them.
 
 The size of an image is read from its header before it is decoded: one
 that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
@@ -134,16 +134,20 @@ width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
 (1 000) is not converted (`ImageTooLargeException`), and the original stays
 stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
 takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
-sample). An animated PNG or WebP frame must lie inside the image it
-belongs to, and an animated WebP frame's bitstream must have the size its
-frame header declares; a JPEG must have 1 or 3 color components. Any other
-file is refused. A conversion refused this way fails its job at once,
-without retries.
+sample), and a JPEG must have 1 or 3 color components. A conversion
+refused this way fails its job at once, without retries.
 
-The limits keep memory bounded, though not small: converting an image at
-the default limit takes about 130 MiB and 2.5 s for a baseline JPEG of
-8 000 x 5 000, about 415 MiB and 3 s for a progressive one, and up to
-330 MiB and 4 s for an animation filling the budget (measured peaks).
+The limits keep memory bounded, though not small. Converting an image at
+the default limit takes (measured peaks):
+
+| Image | Memory | Time |
+|---|---|---|
+| baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
+| progressive JPEG, 8 000 x 5 000 | about 415 MiB | 3 s |
+| PNG, 6 324 x 6 324 | about 205 MiB | 1 s |
+| WebP, 6 324 x 6 324 | about 320 MiB | 0.7 s |
+| GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
+
 Lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
 requests.
 

@@ -372,52 +372,63 @@ Uint8List _animatedWebp({
 
 void containerTests(Future<(String, int)> Function(List<int>) convert) {
   const mib = 1024 * 1024;
-  test('an APNG frame larger than its canvas is refused', () async {
+  const animated = 'Animated images (PNG, WebP) are not converted';
+  Matcher notConverted() => throwsA(
+    isA<ImageConversionException>().having(
+      (e) => e.message,
+      'message',
+      contains(animated),
+    ),
+  );
+
+  // RSEQ 68: animated PNG and WebP are not converted in this version, told
+  // from the decoder's own reading of the file.
+  test('an APNG is not converted, however large its frames', () async {
     final (line, rss) = await convert(_apngWithHugeFrame(16000, 16000));
     expect(line, 'error ImageConversionException');
     expect(rss, lessThan(300 * mib));
-  }, timeout: const Timeout(Duration(minutes: 2)));
-
-  test('an animated WebP frame whose bitstream size differs from its frame '
-      'header is refused', () async {
-    final (line, _) = await convert(_animatedWebp(frame: 2, bitstream: 1));
-    expect(line, 'error ImageConversionException');
-  }, timeout: const Timeout(Duration(minutes: 2)));
-
-  test(
-    'an animated WebP whose frames match their bitstreams converts',
-    () async {
-      final (line, _) = await convert(_animatedWebp(frame: 2, bitstream: 2));
-      expect(line, startsWith('ok '));
-    },
-    timeout: const Timeout(Duration(minutes: 2)),
-  );
-
-  // RSEQ 63: a frame must lie inside its canvas.
-  test('an animated WebP frame outside its canvas is refused', () {
-    expect(
-      () => convertImageSync(_animatedWebp(frame: 2, bitstream: 2, canvas: 1), {
-        'width': [1],
-      }),
-      throwsA(isA<ImageConversionException>()),
-    );
-  });
-
-  test('an APNG frame outside its image is refused; frames inside convert', () {
-    expect(
-      () => convertImageSync(_apngWithHugeFrame(2, 2), {
-        'width': [1],
-      }),
-      throwsA(isA<ImageConversionException>()),
-    );
     final animation = img.Image(width: 4, height: 4, numChannels: 4)
       ..addFrame(img.Image(width: 4, height: 4, numChannels: 4));
     expect(
-      convertImageSync(img.encodePng(animation), {
+      () => convertImageSync(img.encodePng(animation), {
         'width': [2],
       }),
-      isNotEmpty,
+      notConverted(),
     );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('an animated WebP is not converted', () {
+    for (final webp in [
+      _animatedWebp(frame: 2, bitstream: 2),
+      _animatedWebp(frame: 2, bitstream: 1),
+      _animatedWebp(frame: 2, bitstream: 2, canvas: 1),
+    ]) {
+      expect(
+        () => convertImageSync(webp, {
+          'width': [1],
+        }),
+        notConverted(),
+      );
+    }
+  });
+
+  test('a still PNG, WebP and GIF, and an animated GIF, still convert', () {
+    final still = img.Image(width: 4, height: 4, numChannels: 4);
+    final gifAnimation = img.Image(width: 4, height: 4)
+      ..addFrame(img.Image(width: 4, height: 4));
+    for (final bytes in [
+      img.encodePng(still),
+      _stillWebp(4),
+      img.encodeGif(img.Image(width: 4, height: 4)),
+      img.encodeGif(gifAnimation),
+    ]) {
+      expect(
+        convertImageSync(bytes, {
+          'width': [2],
+        }),
+        isNotEmpty,
+      );
+    }
   });
 
   test('a JPEG of 4 color components is refused before it is decoded', () {
@@ -514,4 +525,28 @@ void tiffAndBudgetTests() {
       throwsA(isA<ImageConversionException>()),
     );
   });
+}
+
+/// A still lossless WebP of [side] x [side], one colour throughout.
+Uint8List _stillWebp(int side) {
+  final bits = (side - 1) | ((side - 1) << 14);
+  final vp8l = [
+    0x2F, bits & 0xFF, (bits >> 8) & 0xFF, (bits >> 16) & 0xFF, //
+    (bits >> 24) & 0xFF, 0x88, 0x88, 0x08, ...List.filled(16, 0),
+  ];
+  final body = [
+    ...ascii.encode('WEBP'),
+    ...ascii.encode('VP8L'),
+    ...(ByteData(
+      4,
+    )..setUint32(0, vp8l.length, Endian.little)).buffer.asUint8List(),
+    ...vp8l,
+  ];
+  return Uint8List.fromList([
+    ...ascii.encode('RIFF'),
+    ...(ByteData(
+      4,
+    )..setUint32(0, body.length, Endian.little)).buffer.asUint8List(),
+    ...body,
+  ]);
 }

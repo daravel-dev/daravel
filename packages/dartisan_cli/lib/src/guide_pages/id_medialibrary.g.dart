@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/medialibrary.md`.
 const String pageIdMedialibrary =
-    r'''<!-- source: medialibrary.md sha256:fb1b520d494f -->
+    r'''<!-- source: medialibrary.md sha256:9e7d51ac6941 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -125,11 +125,12 @@ masing-masing pada hasil manipulasi sebelumnya, seperti di Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP, atau TIFF sebagai ganti JPEG |
 | `greyscale()`, `blur(10)` | Filter |
 
-File JPEG, PNG (termasuk APNG), GIF, WebP, dan BMP bisa dikonversi, setelah
-rotasi EXIF-nya diterapkan; formatnya ditentukan dari isi, bukan dari nama.
-TIFF tidak dikonversi di versi ini: TIFF tetap menyimpan file aslinya
-tanpa konversi. WebP dan AVIF tidak bisa ditulis: `package:image` tidak
-memiliki encoder untuk keduanya.
+File JPEG, PNG, GIF (termasuk yang beranimasi), WebP, dan BMP bisa
+dikonversi, setelah rotasi EXIF-nya diterapkan; formatnya ditentukan dari
+isi, bukan dari nama. TIFF serta PNG atau WebP beranimasi tidak dikonversi
+di versi ini: file seperti itu tetap menyimpan file aslinya tanpa
+konversi. WebP dan AVIF tidak bisa ditulis: `package:image` tidak memiliki
+encoder untuk keduanya.
 
 Ukuran gambar dibaca dari header-nya sebelum didekode: gambar yang akan
 menjadi lebih dari `MEDIA_MAX_IMAGE_PIXELS` piksel (40 juta, lebar x tinggi x
@@ -137,18 +138,22 @@ frame) atau memuat lebih dari `MEDIA_MAX_IMAGE_FRAMES` frame (1 000) tidak
 dikonversi (`ImageTooLargeException`), dan file aslinya tetap tersimpan.
 File berukuran satu megabyte bisa menyatakan 16 000 x 16 000 piksel, yang
 butuh gigabyte untuk didekode. PNG 16-bit dihitung dua kali (dua byte per
-sampel). Frame PNG atau WebP animasi harus berada di dalam gambarnya, dan
-ukuran bitstream frame WebP animasi harus sama dengan yang dinyatakan
-header frame-nya; JPEG harus memiliki 1 atau 3 komponen warna. Berkas
-lain ditolak. Konversi yang ditolak dengan cara ini langsung
-menggagalkan job-nya, tanpa diulang.
+sampel), dan JPEG harus memiliki 1 atau 3 komponen warna. Konversi yang
+ditolak dengan cara ini langsung menggagalkan job-nya, tanpa diulang.
 
-Batas ini menjaga memori tetap terbatas, tetapi tidak kecil: mengonversi
-gambar tepat di batas bawaan memakan sekitar 130 MiB dan 2,5 dtk untuk
-JPEG baseline 8 000 x 5 000, sekitar 415 MiB dan 3 dtk untuk JPEG
-progresif, dan sampai 330 MiB dan 4 dtk untuk animasi yang memenuhi
-anggaran (puncak terukur). Turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi
-berbagi proses dengan request.
+Batas ini menjaga memori tetap terbatas, tetapi tidak kecil. Mengonversi
+gambar tepat di batas bawaan memakan (puncak terukur):
+
+| Gambar | Memori | Waktu |
+|---|---|---|
+| JPEG baseline, 8 000 x 5 000 | sekitar 130 MiB | 2,5 dtk |
+| JPEG progresif, 8 000 x 5 000 | sekitar 415 MiB | 3 dtk |
+| PNG, 6 324 x 6 324 | sekitar 205 MiB | 1 dtk |
+| WebP, 6 324 x 6 324 | sekitar 320 MiB | 0,7 dtk |
+| GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
+
+Turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi proses dengan
+request.
 
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau
