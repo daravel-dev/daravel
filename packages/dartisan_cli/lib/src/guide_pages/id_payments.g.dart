@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/payments.md`.
 const String pageIdPayments =
-    r'''<!-- source: payments.md sha256:a68530a8c96e -->
+    r'''<!-- source: payments.md sha256:d821138db3b2 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -87,12 +87,34 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    Stripe: salah satu signature `v1` di `Stripe-Signature` harus sama
    dengan HMAC-SHA256 dari `<timestamp>.<body>` dengan endpoint secret,
    dan timestamp-nya paling jauh lima menit. Perbandingannya memakai waktu
-   konstan. Selain itu dijawab 401 dan tidak mengubah apa pun.
+   konstan. Selain itu dijawab 401 dan tidak mengubah apa pun. Midtrans
+   hanya menandatangani `order_id`, `status_code`, dan `gross_amount`,
+   sehingga hanya pelunasan yang diambil dari notifikasinya: `settlement`
+   atau `capture` dengan `status_code` 200 dan `fraud_status` kosong atau
+   `accept`. Status Midtrans lainnya (`expire`, `cancel`, `deny`, refund,
+   chargeback, kartu yang di-challenge, ...) dikonfirmasi lewat API status
+   Midtrans, yang jawabannya harus tentang order yang sama; bila API itu
+   gagal, jawabannya 5xx dan tidak ada yang berubah. Notifikasi yang sama
+   yang dikirim lagi dalam satu menit memakai ulang jawaban API itu.
+   Notifikasi tanpa `transaction_id`, atau dengan medan yang seharusnya
+   teks tetapi bukan teks, dijawab 400, begitu pula notifikasi lunas yang
+   jumlah atau mata uangnya tidak terbaca.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
-   gateway) dalam transaksi yang sama dengan perubahannya. Pengiriman ulang
-   dijawab `{"status": "duplicate"}` dan tidak melakukan apa pun.
-3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan jumlah lain
-   tidak mengubah apa pun dan mengirim event `PaymentAmountMismatch`.
+   gateway) dalam transaksi yang sama dengan perubahannya. Setelah sebuah
+   notifikasi menggerakkan pembayaran, pengiriman ulangnya dijawab
+   `{"status": "duplicate"}` dan tidak melakukan apa pun. Notifikasi yang
+   tidak menggerakkan apa pun (`unknownOrder`, `unchanged`, `ignored`,
+   `amountMismatch`) diperiksa lagi saat dikirim ulang, sehingga notifikasi
+   yang tiba sebelum order-nya tersimpan diterapkan pada pengiriman ulang
+   oleh gateway. Id Midtrans memuat order, transaksi, status, dan
+   `fraud_status`: `capture` kartu yang ditahan untuk ditinjau
+   (`challenge`) dan `capture` yang sama setelah diterima adalah dua
+   notifikasi, dan notifikasi satu order tidak pernah dianggap milik order
+   lain.
+3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan mata uang
+   lain atau jumlah lain tidak mengubah apa pun dan mengirim event
+   `PaymentAmountMismatch`. Tanpa mata uang, hanya jumlahnya yang
+   dibandingkan.
 4. **Hanya bergerak maju.** `pending` → `paid`, `failed`, `expired`;
    `failed` atau `expired` → `paid` (pelunasan yang terlambat); `paid` →
    `refunded`. `pending` yang terlambat setelah `paid` diabaikan.
@@ -108,9 +130,15 @@ events
   ..listen<PaymentAmountMismatch>((e) => Log.critical('Amount mismatch', {'order': e.payment.orderId}));
 ```
 
-Pada semua kasus lain jawabannya 200 (`applied`, `unchanged`, `ignored`,
-`unknownOrder`, `amountMismatch`), sehingga gateway berhenti mengirim ulang
-notifikasi yang memang tidak perlu ditindaklanjuti lagi.
+Notifikasi untuk order yang belum tersimpan (`unknownOrder`) dijawab 409:
+Stripe, Midtrans, dan Xendit hanya mengirim ulang notifikasi sesudah
+jawaban non-2xx, sehingga notifikasi itu diterapkan begitu order-nya ada.
+Pada akun gateway yang dipakai bersama sistem lain, notifikasi untuk
+order sistem itu lalu dikirim ulang sampai gateway menyerah dan tampil
+gagal di dasbornya; gunakan `withPayments(unknownOrderStatus: 200)` untuk
+menjawabnya 200 seperti sebelumnya. Pada semua kasus lain jawabannya 200
+(`applied`, `duplicate`, `unchanged`, `ignored`, `amountMismatch`), karena
+pengiriman ulang tidak akan mengubahnya.
 
 ## Rekonsiliasi
 

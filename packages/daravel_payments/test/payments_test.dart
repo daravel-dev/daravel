@@ -239,6 +239,7 @@ void main() {
           'status': 'PAID',
           'amount': 50000,
           'paid_amount': 50000,
+          'currency': 'IDR',
           'payment_channel': 'QRIS',
           'paid_at': '2026-10-29T08:00:00.000Z',
         });
@@ -368,13 +369,27 @@ void main() {
     });
 
     test('expired, then paid after all; unknown orders are reported', () async {
+      // An expiry is confirmed with Midtrans' status API.
+      await app.run(() async {
+        Http.fake({
+          'api.sandbox.midtrans.com/*': Http.response({
+            'status_code': '407',
+            'transaction_status': 'expire',
+            'transaction_id': 'tx-1',
+            'order_id': 'ORDER-42',
+            'gross_amount': '150000.00',
+            'currency': 'IDR',
+          }),
+        });
+      });
       expect(
-        await notify(midtransNotification(status: 'expire', statusCode: '407')),
+        await notify(midtransNotification(status: 'expire', statusCode: '202')),
         (200, '{"status":"applied"}'),
       );
       expect((await record()).status, PaymentStatus.expired);
+      // 409, so the gateway sends it again once the order exists.
       expect(await notify(midtransNotification(orderId: 'ORDER-404')), (
-        200,
+        409,
         '{"status":"unknownOrder"}',
       ));
     });

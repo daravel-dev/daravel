@@ -2,20 +2,24 @@ import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
 
+import 'secrets.dart';
 import 'types.dart';
+import 'webhook_checks.dart';
 
 /// Stripe Checkout (hosted payment page) and its signed webhooks
 /// (https://docs.stripe.com/webhooks#verify-manually): `Stripe-Signature`
 /// carries `t=<timestamp>` and `v1=<HMAC-SHA256 of "t.body">` signatures.
 final class StripeGateway implements PaymentGateway {
-  /// Stripe Checkout, with the secret key from `STRIPE_SECRET`.
+  /// Stripe Checkout, with the secret key from `STRIPE_SECRET`; an empty
+  /// or blank key or webhook secret is an [ArgumentError].
   StripeGateway({
-    required this.secretKey,
-    required this.webhookSecret,
+    required String secretKey,
+    required String webhookSecret,
     this.name = 'stripe',
     this.tolerance = const Duration(minutes: 5),
     this.baseUrl = 'https://api.stripe.com',
-  });
+  }) : secretKey = requireSecret(secretKey, 'secretKey'),
+       webhookSecret = requireSecret(webhookSecret, 'webhookSecret');
 
   @override
   final String name;
@@ -102,7 +106,7 @@ final class StripeGateway implements PaymentGateway {
         body: response.body,
       );
     }
-    final session = jsonDecode(response.body) as Map<String, Object?>;
+    final session = apiObject(response, 'Stripe status');
     final status = switch ((session['status'], session['payment_status'])) {
       (_, 'paid' || 'no_payment_required') => PaymentStatus.paid,
       ('expired', _) => PaymentStatus.expired,
@@ -113,7 +117,9 @@ final class StripeGateway implements PaymentGateway {
 
   @override
   Future<PaymentEvent> parseWebhook(Request request) async {
-    final payload = utf8.decode(await request.bytes());
+    // Malformed UTF-8 is read as U+FFFD, so a forged body fails the
+    // signature (401) instead of the decoder (500); Stripe sends UTF-8.
+    final payload = utf8.decode(await request.bytes(), allowMalformed: true);
     verifySignature(
       payload,
       request.headers.first('stripe-signature') ?? '',
@@ -133,7 +139,7 @@ final class StripeGateway implements PaymentGateway {
       'checkout.session.expired' => PaymentStatus.expired,
       _ => null,
     };
-    return _session(object, status, '${event['id']}');
+    return requireAmountWhenPaid(_session(object, status, '${event['id']}'));
   }
 
   /// Throws [InvalidPaymentSignatureException] unless [header] holds a
