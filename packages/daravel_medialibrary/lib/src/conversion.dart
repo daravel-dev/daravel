@@ -295,8 +295,10 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | --- | --- | --- |
 /// | baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
 /// | progressive JPEG, 8 000 x 5 000 | about 415 MiB | 3 s |
-/// | PNG, 6 324 x 6 324 (16-bit: half the pixels) | about 205 MiB | 1 s |
+/// | PNG, 6 324 x 6 324 | about 205 MiB | 1 s |
+/// | PNG, 16-bit, 4 472 x 4 472 (half the pixels) | about 205 MiB | 1 s |
 /// | WebP, 6 324 x 6 324 | about 320 MiB | 0.7 s |
+/// | WebP of any size, even a small one | up to about 320 MiB | under 1 s |
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 Future<Uint8List> convertImage(
