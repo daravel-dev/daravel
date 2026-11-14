@@ -655,9 +655,12 @@ comment, and pass values as bindings.
   checked (256 per connection, up to 4 096 characters each). A repeated
   text costs nothing extra; a text seen for the first time on a connection
   costs one more round trip, so pass values as bindings rather than in the
-  text. A `SET`, `CALL` or `EXECUTE` (and MariaDB's `BEGIN NOT ATOMIC`)
-  makes the connection check its texts again, since `sql_mode` and the
-  character set change how text splits. A trigger or stored function that
+  text. A `SET`, `CALL` or `EXECUTE` (and MariaDB's compound statements
+  outside a routine: `BEGIN NOT ATOMIC`, `IF`, `CASE`, `WHILE`, `LOOP`,
+  `REPEAT`, `FOR`) makes the connection check its texts again, since
+  `sql_mode` and the character set change how text splits; so does a
+  statement the prepared protocol does not take (1295), other than
+  transaction control, savepoints, table locks and the like. A trigger or stored function that
   changes `sql_mode` is not noticed: keep such changes out of them.
 - PostgreSQL already refused a second statement (`42601`).
 - SQLite refuses it too. Laravel on SQLite runs the first statement of

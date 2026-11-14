@@ -35,6 +35,21 @@ void main() {
       'BEGIN /*c*/ NOT ATOMIC SELECT 1; END',
       'BEGIN -- c\n NOT ATOMIC SELECT 1; END',
       'BEGIN # c\n NOT /* c */ ATOMIC SELECT 1; END',
+      // RSEQ 57: MariaDB runs compound statements outside a routine, and a
+      // SET NAMES inside one stays (measured on 11.8).
+      'IF 1 THEN SET NAMES latin1; END IF',
+      '/* c */ if 1 then set names latin1; end if',
+      'CASE WHEN 1 THEN SET NAMES latin1; END CASE',
+      'WHILE @w IS NULL DO SET @w = 1; END WHILE',
+      'LOOP SET NAMES latin1; END LOOP',
+      'REPEAT SET NAMES latin1; UNTIL 1 END REPEAT',
+      'FOR i IN 1..1 DO SET NAMES latin1; END FOR',
+      'l: BEGIN NOT ATOMIC SET NAMES latin1; END l',
+      'l1 : LOOP SET NAMES latin1; LEAVE l1; END LOOP l1',
+      '`my label`: BEGIN NOT ATOMIC SELECT 1; END',
+      r'$x_9:REPEAT SELECT 1; UNTIL 1 END REPEAT',
+      // A comment ends at \n, not at a lone \r (MySQL 8.4 and MariaDB 11.8).
+      '-- x\r\nSET @c = 1',
     ]) {
       expect(MySqlDriver.changesSplitting(sql), isTrue, reason: sql);
     }
@@ -53,6 +68,15 @@ void main() {
       '/*M SET x = 1 */', // not executable without the !
       '-- only a comment',
       '',
+      'SELECT IF(1, 2, 3)',
+      'iffy',
+      'formats',
+      'x := 1', // an assignment, not a label
+      // The whole text is a comment: MySQL 8.4 and MariaDB 11.8 run nothing
+      // of it, since a comment ends at \n only.
+      '--\rSET @c = 1',
+      '-- \rSET @c = 1',
+      '#\rSET @c = 1',
     ]) {
       expect(MySqlDriver.changesSplitting(sql), isFalse, reason: sql);
     }

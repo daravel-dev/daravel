@@ -464,9 +464,12 @@ jobs:
 
       - name: Test against ${{ matrix.server }}
         run: |
-          (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_mysql && dart test --tags integration --exclude-tags single-statement --reporter=expanded)
           # Timestamps come back without a zone: read them as UTC in any zone.
-          (cd packages/daravel_mysql && TZ=Asia/Makassar dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_mysql && TZ=Asia/Makassar dart test --tags integration --exclude-tags single-statement --reporter=expanded)
+          # A process of its own: sharing one with the other files loaded
+          # their timing-sensitive tests (#403).
+          (cd packages/daravel_mysql && dart test test/single_statement_test.dart --reporter=expanded)
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)

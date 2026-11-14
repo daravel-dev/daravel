@@ -296,7 +296,9 @@ abstract interface class UnpreparedExecutor {
 }
 
 /// SQL text a driver refused for its shape before the database saw it
-/// (SQLite's); the connection reports it as a `QueryException`.
+/// (SQLite's; MySQL's NUL check). Through `DB` and the `DatabaseManager`
+/// it arrives wrapped in a [QueryException] (its [QueryException.previous]);
+/// a driver called directly throws it as is.
 sealed class SqlTextException implements Exception {
   const SqlTextException(this.message);
 

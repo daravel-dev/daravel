@@ -1,4 +1,4 @@
-@Tags(['integration'])
+@Tags(['integration', 'single-statement'])
 library;
 
 import 'dart:io';
@@ -224,6 +224,51 @@ void main() {
       expect(await prepares() - afterCall, 1);
     },
   );
+
+  test('a statement the prepared protocol does not take (1295) checks the '
+      'texts again, unless it is a lock, a savepoint or the like', () async {
+    addTearDown(() => db.unprepared('DEALLOCATE PREPARE db1_ps'));
+    await prepares(); // its own text, checked once
+    const text = 'SELECT COUNT(*) AS c FROM db1_single';
+    await db.select(text);
+    final cached = await prepares();
+    await db.select(text);
+    expect(await prepares() - cached, 0, reason: 'remembered');
+    // 1295 on MySQL 8.4 (prepared on MariaDB 11.8): kept either way.
+    await db.execute('LOCK TABLES db1_single READ');
+    await db.execute('UNLOCK TABLES');
+    final afterLock = await prepares();
+    await db.select(text);
+    expect(await prepares() - afterLock, 0, reason: 'a lock changes nothing');
+    // 1295 on both, and not a kind known to leave splitting alone.
+    await db.execute("PREPARE db1_ps FROM 'SELECT 1'");
+    // Reading afterPrepare checks the counter's own text again.
+    final afterPrepare = await prepares();
+    await db.select(text);
+    expect(await prepares() - afterPrepare, 1);
+  });
+
+  test('MariaDB: a compound statement outside a routine checks the texts '
+      'again (a SET NAMES inside one stays)', () async {
+    if ((Platform.environment['DARAVEL_TEST_MARIADB'] ?? '').isEmpty) {
+      markTestSkipped('MariaDB only (DARAVEL_TEST_MARIADB)');
+      return;
+    }
+    addTearDown(() => db.unprepared('SET NAMES utf8mb4'));
+    await prepares();
+    const text = 'SELECT COUNT(*) AS c FROM db1_single';
+    await db.select(text);
+    await db.execute('IF 1 THEN SET NAMES latin1; END IF');
+    expect(
+      (await db.select('SELECT @@session.character_set_client AS cs'))
+          .single['cs'],
+      'latin1',
+      reason: 'the SET NAMES in the block stayed',
+    );
+    final afterIf = await prepares();
+    await db.select(text);
+    expect(await prepares() - afterIf, 1);
+  });
 
   test('1 000 distinct texts leave no prepared statement on the server, '
       'and a text over 4 096 is checked every time', () async {

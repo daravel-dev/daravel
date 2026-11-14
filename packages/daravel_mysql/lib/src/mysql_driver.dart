@@ -787,7 +787,15 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   ///   returns;
   /// - `EXECUTE` (a statement prepared with `PREPARE … FROM`, MariaDB's
   ///   `EXECUTE IMMEDIATE`) and MariaDB's `BEGIN NOT ATOMIC` block, which
-  ///   may run a `SET` of their own.
+  ///   may run a `SET` of their own;
+  /// - MariaDB's compound statements outside a routine: `IF`, `CASE`,
+  ///   `WHILE`, `LOOP`, `REPEAT`, `FOR`. Measured on MariaDB 11.8, they
+  ///   prepare (no 1295) and run as text; `sql_mode` comes back as it was
+  ///   once the block ends, but `SET NAMES` inside one stays. MySQL 8.4
+  ///   refuses them (1064);
+  /// - a statement starting with a label (`l: BEGIN NOT ATOMIC …`), which
+  ///   MariaDB 11.8 refuses outside a routine (1064) but which costs
+  ///   nothing to notice.
   ///
   /// A known limit: a trigger or stored function that sets `sql_mode`,
   /// fired by an ordinary statement, is not noticed. The manual says they
@@ -798,17 +806,68 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// skipping repeated comments backtracked exponentially (26 empty
   /// comments took 14 s).
   static bool changesSplitting(String sql) {
-    final first = _word(sql, _skipIgnored(sql, 0));
+    final start = _skipIgnored(sql, 0);
+    final first = _word(sql, start);
     switch (first.word) {
       case 'set' || 'call' || 'execute':
+      case 'if' || 'case' || 'while' || 'loop' || 'repeat' || 'for':
         return true;
       case 'begin':
         final second = _word(sql, _skipIgnored(sql, first.end));
         return second.word == 'not' &&
             _word(sql, _skipIgnored(sql, second.end)).word == 'atomic';
       default:
-        return false;
+        // A label: an identifier, then `:` (not `:=`).
+        final end = _identifierEnd(sql, start);
+        if (end == start) {
+          return false;
+        }
+        final colon = _skipIgnored(sql, end);
+        return colon < sql.length &&
+            sql.codeUnitAt(colon) == 0x3a &&
+            (colon + 1 == sql.length || sql.codeUnitAt(colon + 1) != 0x3d);
     }
+  }
+
+  /// Whether [sql], refused by a prepare with 1295, is a kind of statement
+  /// that cannot change how text splits, by its first keyword: savepoints
+  /// and transaction control, table locks, XA, `HANDLER`, `CHECK TABLE`
+  /// and `HELP`. MySQL 8.4 answers 1295 for `SAVEPOINT`, `RELEASE
+  /// SAVEPOINT`, `ROLLBACK TO` and `START TRANSACTION`, so without this a
+  /// nested transaction would empty the cache. A 1295 text is one
+  /// statement: the server refuses a stack it starts as a syntax error
+  /// (1064) before it gets that far. `BEGIN NOT ATOMIC` is caught by
+  /// [changesSplitting] before the text is checked.
+  static bool _keepsSplitting(String sql) =>
+      switch (_word(sql, _skipIgnored(sql, 0)).word) {
+        'savepoint' || 'release' || 'rollback' || 'start' || 'begin' => true,
+        'commit' || 'lock' || 'unlock' || 'xa' || 'handler' => true,
+        'check' || 'help' => true,
+        _ => false,
+      };
+
+  /// Where the identifier at [start] ends: letters, digits, `_` and `$`,
+  /// or a backquoted name (an unterminated one ends the text).
+  static int _identifierEnd(String sql, int start) {
+    final n = sql.length;
+    if (start < n && sql.codeUnitAt(start) == 0x60) {
+      final close = sql.indexOf('`', start + 1);
+      return close < 0 ? n : close + 1;
+    }
+    var i = start;
+    while (i < n) {
+      final c = sql.codeUnitAt(i);
+      final lower = c | 0x20;
+      if ((lower >= 0x61 && lower <= 0x7a) ||
+          _isDigit(c) ||
+          c == 0x5f ||
+          c == 0x24) {
+        i++;
+      } else {
+        break;
+      }
+    }
+    return i;
   }
 
   /// The index of the first code unit at or after [start] that is not a
@@ -916,7 +975,12 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
         rethrow;
       }
       // Not verified as one statement, so not remembered: it is asked
-      // about every time it runs.
+      // about every time it runs. Unverified, it may also change how text
+      // splits, so the texts checked so far are checked again, unless it
+      // is a kind that cannot ([_keepsSplitting]).
+      if (!_keepsSplitting(sql)) {
+        seen.clear();
+      }
       return;
     }
     if (sql.length <= MySqlDriver.singleStatementMaxLength) {
