@@ -136,6 +136,49 @@ void main() {
               }
               into.add('done:${socket.closeCode}');
             }, compress: false)
+            ..ws('/cancel', (socket, request) async {
+              // Cancels its subscription at the first message, without
+              // closing the socket.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              late final StreamSubscription<dynamic> sub;
+              sub = socket.listen((message) {
+                into.add(message as String);
+                unawaited(sub.cancel());
+              });
+              await socket.done;
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
+            ..ws('/pause-cancel', (socket, request) async {
+              // Pauses at the first message, then cancels 1 s later
+              // without closing the socket.
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              late final StreamSubscription<dynamic> sub;
+              sub = socket.listen((message) {
+                into.add(message as String);
+                sub.pause();
+                unawaited(
+                  Future<void>.delayed(const Duration(seconds: 1))
+                      .then((_) => sub.cancel()),
+                );
+              });
+              await socket.done;
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
+            ..ws('/cancel-write', (socket, request) async {
+              // Cancels its subscription at the first message, and goes on
+              // sending ("send only").
+              final into = seen[request.uri.queryParameters['id']!] = [];
+              late final StreamSubscription<dynamic> sub;
+              sub = socket.listen((message) {
+                into.add(message as String);
+                unawaited(sub.cancel());
+              });
+              while (socket.readyState == WebSocket.open) {
+                socket.add('tick');
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+              }
+              into.add('done:${socket.closeCode}');
+            }, compress: false)
             ..ws('/self-close', (socket, request) async {
               // Closes itself; the client never answers.
               final into = seen[request.uri.queryParameters['id']!] = [];
@@ -439,6 +482,117 @@ void main() {
       expectNoErrors();
     },
   );
+
+  group('a handler that cancelled its subscription and keeps the socket', () {
+    test("1 000 bytes, CLOSE(4000) and FIN: the session ends at once, with "
+        "the client's code", () async {
+      final client = await open('/cancel?id=c1');
+      client.send(0x1, utf8.encode('first'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      client.socket.add([
+        ...RawWsClient.frame(0x2, Uint8List(1000)),
+        ...RawWsClient.frame(0x8, const [0x0F, 0xA0]),
+      ]);
+      await client.socket.flush();
+      await client.socket.close();
+      final ms = await sessionEndsWithin(const Duration(seconds: 9));
+      expect(engine.openWebSockets, 0, reason: 'the session ended');
+      expect(ms, lessThan(3000), reason: 'not the 5 s unread wait');
+      expect(seen['c1'], ['first', 'done:4000']);
+      client.socket.destroy();
+    });
+
+    test('70 000 bytes, then 200 messages of 1 KiB over seconds: dropped, '
+        "the session stays open, then CLOSE(4000) ends it with the client's "
+        'code', () async {
+      final client = await open('/cancel?id=c2');
+      client.send(0x1, utf8.encode('first'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      client.send(0x2, Uint8List(70000));
+      await client.socket.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      for (var i = 0; i < 200; i++) {
+        client.send(0x1, utf8.encode('m$i'.padRight(1024)));
+        if (i % 20 == 19) {
+          await client.socket.flush();
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        }
+      }
+      // Well past the unread wait and past the bound: still open.
+      expect(engine.openWebSockets, 1);
+      expect(
+        log.records.where((r) => r.message.contains('did not read')),
+        isEmpty,
+      );
+      client.send(0x8, const [0x0F, 0xA0]);
+      await client.socket.flush();
+      final ms = await sessionEndsWithin(const Duration(seconds: 9));
+      expect(engine.openWebSockets, 0, reason: 'the session ended');
+      expect(ms, lessThan(3000));
+      expect(seen['c2'], ['first', 'done:4000']);
+      client.socket.destroy();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    for (final fin in [true, false]) {
+      test('paused, the client closes (CLOSE(4000)${fin ? ' and FIN' : ''}), '
+          "then the cancel: the session ends at once with the client's "
+          'code', () async {
+        final id = 'pc-$fin';
+        final client = await open('/pause-cancel?id=$id');
+        client.send(0x1, utf8.encode('first'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        client.send(0x8, const [0x0F, 0xA0]);
+        await client.socket.flush();
+        if (fin) {
+          await client.socket.close();
+        }
+        // The handler cancels 1 s after its pause.
+        final ms = await sessionEndsWithin(const Duration(seconds: 9));
+        expect(engine.openWebSockets, 0, reason: 'the session ended');
+        expect(ms, lessThan(3000));
+        expect(seen[id], ['first', 'done:4000']);
+        client.socket.destroy();
+      });
+    }
+
+    test('frames are still checked after the cancel: an unmasked frame is '
+        '1002', () async {
+      final client = await open('/cancel?id=c4');
+      client.send(0x1, utf8.encode('first'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      client.socket.add(const [0x81, 0x02, 0x68, 0x69]); // unmasked "hi"
+      expect(await client.closeFrame(), 1002);
+      final ms = await sessionEndsWithin(const Duration(seconds: 5));
+      expect(engine.openWebSockets, 0);
+      expect(ms, lessThan(3000));
+      expect(seen['c4'], ['first', 'done:1002']);
+      client.socket.destroy();
+    });
+
+    test('a handler that cancelled and goes on sending is not disturbed '
+        'while the client sends less than the bound', () async {
+      final client = await open('/cancel-write?id=c3');
+      client.send(0x1, utf8.encode('first'));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        client.send(0x1, utf8.encode('small $i'));
+      }
+      // Three seconds on: still open, still sending.
+      expect(engine.openWebSockets, 1);
+      final ticks = <WsFrame>[];
+      for (var i = 0; i < 5; i++) {
+        ticks.add(await client.next());
+      }
+      expect(ticks.every((f) => f.opcode == 0x1), isTrue);
+      client.send(0x8, const [0x03, 0xE8]);
+      await client.socket.flush();
+      final ms = await sessionEndsWithin(const Duration(seconds: 9));
+      expect(engine.openWebSockets, 0);
+      expect(ms, lessThan(3000));
+      expect(seen['c3'], ['first', 'done:1000']);
+      client.socket.destroy();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+  });
 
   group('a socket this side closed and the client never answered', () {
     // closeCode is the code the client sent: none here. The end of the

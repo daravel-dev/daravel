@@ -317,7 +317,23 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
       // only.
       _closedUnlistened = true;
     }
-    await _unbind(drop: drop);
+    // Set before anything here waits on the client: unbinding waits for
+    // the frame being written, which a client that stopped reading can
+    // hold up. It covers the queued frames' own [closeGrace] (without
+    // [drop]) and then the close's [grace]. A safeguard: no test fails
+    // without it, as the guard destroys the socket of a client that stops
+    // reading at its own limit first.
+    final giveUp = Timer(drop ? grace : closeGrace + grace, () {
+      if (!_gaveUp.isCompleted) {
+        _gaveUp.complete();
+      }
+    });
+    await Future.any<void>([_unbind(drop: drop), _gaveUp.future]);
+    if (_gaveUp.isCompleted) {
+      // Given up while unbinding: the sink is still bound, and [done] has
+      // completed; nothing more to do here.
+      return;
+    }
     final closing = _inner
         .close(code, reason)
         .then<void>(
@@ -330,11 +346,6 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
       // The close waits for the client's answer: what was held goes on.
       onReader?.call();
     }
-    final giveUp = Timer(grace, () {
-      if (!_gaveUp.isCompleted) {
-        _gaveUp.complete();
-      }
-    });
     await Future.any<void>([closing, _gaveUp.future]);
     giveUp.cancel();
   }
