@@ -30,8 +30,33 @@ void main() {
       ('pgsql://app:P1:$secret@host/db', 'pgsql://app:***@host/db'),
       // A `://` after the `@` (in the query) is not the scheme's.
       ('app:$secret@host/?next=https://x', 'app:***@host/?next=https://x'),
+      // A `://` inside the password: not a scheme's, since what precedes
+      // it is no scheme (Tech Lead, SEQ 208 reply).
+      ('app:pa://$secret@host/db', 'app:***@host/db'),
+      ('//app:pa://$secret@host', '//app:***@host'),
+      ('pgsql://app:pa://$secret@h/db', 'pgsql://app:***@h/db'),
+      ('1x://app:$secret@h', '1x:***@h'), // a scheme starts with a letter
     ]) {
       expect(redactUrlPassword(url), expected, reason: url);
+    }
+  });
+
+  test('redactUrl masks sensitive pairs in the query and the fragment', () {
+    for (final (url, expected) in [
+      (
+        'https://app.test/cb#access_token=$secret&id_token=$secret&state=s1',
+        'https://app.test/cb#access_token=***&id_token=***&state=s1',
+      ),
+      (
+        'https://h/p?token=$secret&page=2#api_key=$secret',
+        'https://h/p?token=***&page=2#api_key=***',
+      ),
+      ('https://h/p#section-2', 'https://h/p#section-2'), // no pairs
+      // A `?` after the `#` belongs to the fragment, read as pairs too.
+      ('https://h/p#a?token=x', 'https://h/p#a?token=***'),
+      ('https://h/p?page=1#top', 'https://h/p?page=1#top'),
+    ]) {
+      expect(redactUrl(url), expected, reason: url);
     }
   });
 

@@ -16,12 +16,14 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   if (at < 0) {
     return url;
   }
-  // The user info starts after `://` when one comes before the `@`;
-  // otherwise at the start of the text (after a leading `//`), so a URL
-  // without a valid scheme (`app:secret@host`, `postgres//app:secret@h`)
-  // is masked too. Masking more (`mailto:***@b`) is fine; less is not.
+  // The user info starts after `://` when one comes before the `@` and
+  // what precedes it is a scheme (a letter, then letters, digits, `+`,
+  // `-`, `.`); otherwise at the start of the text (after a leading `//`),
+  // so a URL without a valid scheme (`app:secret@host`,
+  // `postgres//app:secret@h`, `app:pa://ss@h`) is masked too. Masking more
+  // (`mailto:***@b`) is fine; less is not.
   final separator = url.indexOf('://');
-  final user = separator >= 0 && separator < at
+  final user = separator >= 0 && separator < at && _isScheme(url, separator)
       ? separator + 3
       : (url.startsWith('//') ? 2 : 0);
   if (at < user) {
@@ -34,6 +36,27 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
         : url;
   }
   return '${url.substring(0, colon + 1)}***${url.substring(at)}';
+}
+
+/// Whether `url[0, end)` is a URL scheme (RFC 3986 §3.1): a letter, then
+/// letters, digits, `+`, `-` or `.`.
+bool _isScheme(String url, int end) {
+  if (end == 0) {
+    return false;
+  }
+  for (var i = 0; i < end; i++) {
+    final c = url.codeUnitAt(i);
+    final letter = (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;
+    if (!letter &&
+        (i == 0 ||
+            !((c >= 0x30 && c <= 0x39) ||
+                c == 0x2b ||
+                c == 0x2d ||
+                c == 0x2e))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// Names whose values logs, error messages and URLs never show: a name
@@ -78,26 +101,38 @@ bool isSensitiveKeyName(String key, [List<String> names = sensitiveKeyNames]) {
 /// ([redactUrlPassword]), and the value of every query parameter whose
 /// name is sensitive ([isSensitiveKeyName]: `token`, `api_key`,
 /// `password`, ...) replaced by `***`; other parameters stay
-/// (`?token=***&page=2`). Like [redactUrlPassword], it needs no valid URL.
+/// (`?token=***&page=2`). A fragment made of `name=value` pairs (an OAuth
+/// implicit-flow redirect, `#access_token=…&state=…`) is masked the same
+/// way; a fragment without `=` is left alone. Like [redactUrlPassword], it
+/// needs no valid URL.
 String redactUrl(
   String url, {
   bool loneUserIsPassword = false,
   List<String> names = sensitiveKeyNames,
 }) {
   final masked = redactUrlPassword(url, loneUserIsPassword: loneUserIsPassword);
-  final question = masked.indexOf('?');
-  if (question < 0) {
-    return masked;
-  }
-  final hash = masked.indexOf('#', question);
+  final hash = masked.indexOf('#');
   final end = hash < 0 ? masked.length : hash;
-  final pairs = [
-    for (final pair in masked.substring(question + 1, end).split('&'))
-      _maskPair(pair, names),
-  ];
-  return '${masked.substring(0, question + 1)}${pairs.join('&')}'
-      '${masked.substring(end)}';
+  final question = masked.indexOf('?');
+  final out = StringBuffer();
+  if (question >= 0 && question < end) {
+    out
+      ..write(masked.substring(0, question + 1))
+      ..write(_maskPairs(masked.substring(question + 1, end), names));
+  } else {
+    out.write(masked.substring(0, end));
+  }
+  if (hash >= 0) {
+    final fragment = masked.substring(hash + 1);
+    out
+      ..write('#')
+      ..write(fragment.contains('=') ? _maskPairs(fragment, names) : fragment);
+  }
+  return out.toString();
 }
+
+String _maskPairs(String pairs, List<String> names) =>
+    [for (final pair in pairs.split('&')) _maskPair(pair, names)].join('&');
 
 String _maskPair(String pair, List<String> names) {
   final equals = pair.indexOf('=');
