@@ -27,6 +27,10 @@ const int maxColumns = 16384;
 /// holds one, and a reader that took `ZZZZZZ1` at its word filled a row
 /// with hundreds of millions of empty cells before the first value.
 int columnIndex(String letters) {
+  if (letters.isEmpty) {
+    // It used to answer -1.
+    throw const FormatException('Not a column: no letters');
+  }
   var n = 0;
   for (final unit in letters.toUpperCase().codeUnits) {
     if (unit < 0x41 || unit > 0x5A) {
