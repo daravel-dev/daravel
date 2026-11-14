@@ -996,6 +996,14 @@ final class TestCommand extends Command<int> {
     ...rest,
   ];
 
+  /// The environment of the `dart test` process: [environment] without
+  /// [mcpRunCommandVariable].
+  static Map<String, String> testEnvironment(Map<String, String> environment) =>
+      {
+        for (final MapEntry(:key, :value) in environment.entries)
+          if (key.toUpperCase() != mcpRunCommandVariable) key: value,
+      };
+
   @override
   Future<int> run() async {
     final paths = ProjectPaths.locate();
@@ -1012,6 +1020,10 @@ final class TestCommand extends Command<int> {
       args,
       workingDirectory: paths.root,
       mode: ProcessStartMode.inheritStdio,
+      // The project's tests run as from a terminal, also when run_command
+      // started this process: its own guard is not theirs.
+      environment: testEnvironment(Platform.environment),
+      includeParentEnvironment: false,
     );
     return process.exitCode;
   }

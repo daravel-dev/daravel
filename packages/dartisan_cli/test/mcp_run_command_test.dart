@@ -344,6 +344,129 @@ void main() {
     });
   });
 
+  group('the dartisan process run_command starts checks its own '
+      'configuration', () {
+    /// The project as `.env` says, as the dartisan process reads it.
+    Application fromDotEnv() => Application.configure(basePath: root.path)
+        .withEnv({
+          'APP_KEY': 'base64:${'A' * 43}=',
+          'DB_DATABASE': p.join(root.path, 'database.sqlite'),
+        })
+        .withLogLevel(LogLevel.critical)
+        .withMigrations(const [CreateNotes()])
+        .withSeeders(const [NoteSeeder()])
+        .create();
+
+    void dotEnv(String env) =>
+        File(p.join(root.path, '.env')).writeAsStringSync('APP_ENV=$env\n');
+
+    /// Runs [args] as the dartisan process would: [marked] with
+    /// mcpRunCommandVariable set. Exit code and stderr.
+    Future<(int, String)> child(List<String> args, {bool marked = true}) async {
+      // ignore: close_sinks (stderr of the zone, never opened)
+      final err = _Capture();
+      final code = await IOOverrides.runZoned(
+        () => DartisanRunner(
+          fromDotEnv,
+          environment: {if (marked) mcpRunCommandVariable: '1'},
+        ).execute(args),
+        getCurrentDirectory: () => root,
+        stdout: () => _Capture(),
+        stderr: () => err,
+      );
+      return (code, '${err.buffer}'.trim());
+    }
+
+    Future<List<String>> tables() async {
+      final app = fromDotEnv();
+      await app.boot();
+      try {
+        return await app.run(
+          () async => [
+            for (final row in await DB.select(
+              "SELECT name FROM sqlite_master WHERE type = 'table' "
+              "AND name NOT LIKE 'sqlite_%'",
+            ))
+              '${row['name']}',
+          ],
+        );
+      } finally {
+        await app.shutdown();
+      }
+    }
+
+    test('booted local, .env changed to production afterwards: '
+        'migrate:fresh --force is refused by the dartisan process, with the '
+        "server's words, and the tables stay", () async {
+      dotEnv('local');
+      expect((await child(['migrate'])).$1, 0);
+      final app = fromDotEnv();
+      await app.boot();
+      addTearDown(app.shutdown);
+      final stderrs = <String>[];
+      final server = McpServer(
+        app,
+        allowWrite: true,
+        runner: DartisanRunner(fromDotEnv),
+        runCommand: (command, arguments) async {
+          final (code, err) = await child([command, ...arguments]);
+          stderrs.add(err);
+          return (exitCode: code, stdout: '', stderr: err);
+        },
+      );
+      dotEnv('production');
+      final response = (await server.handle({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/call',
+        'params': {
+          'name': 'run_command',
+          'arguments': {
+            'command': 'migrate:fresh',
+            'arguments': ['--force'],
+          },
+        },
+      }))!;
+      final content = (response['result']! as Map)['content'] as List;
+      expect('${(content.single as Map)['text']}', contains('"exitCode": 1'));
+      expect(stderrs, [
+        'migrate:fresh is refused when APP_ENV=production; run it in a '
+            'terminal.',
+      ]);
+      expect(await tables(), containsAll(['migrations', 'notes']));
+    });
+
+    test('in production, the dartisan process refuses migrate --seed and '
+        'test too; local, and without the variable, they run', () async {
+      dotEnv('production');
+      expect(await child(['migrate', '--seed', '--force']), (
+        1,
+        'migrate --seed is refused when APP_ENV=production; run it in a '
+            'terminal.',
+      ));
+      expect(await tables(), isNot(contains('notes')));
+      expect((await child(['test'])).$1, 1);
+      // Plain migrate is not refused.
+      expect((await child(['migrate', '--force'])).$1, 0);
+      expect(await tables(), contains('notes'));
+      // Without the variable (a terminal), the CLI's own guard applies.
+      expect((await child(['migrate:fresh', '--force'], marked: false)).$1, 0);
+      dotEnv('local');
+      expect((await child(['migrate:fresh'])).$1, 0);
+    });
+
+    test('dartisan test starts dart test without the variable', () {
+      expect(
+        TestCommand.testEnvironment({
+          'PATH': '/bin',
+          mcpRunCommandVariable: '1',
+          'APP_ENV': 'local',
+        }),
+        {'PATH': '/bin', 'APP_ENV': 'local'},
+      );
+    });
+  });
+
   group('mcp:serve --allow-command', () {
     Future<int> serve(List<String> args) => IOOverrides.runZoned(
       () => runnerFor('local').execute(['mcp:serve', ...args]),
@@ -371,6 +494,19 @@ final class _Silent implements Stdout {
 
   @override
   void writeln([Object? object = '']) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+final class _Capture implements Stdout {
+  final StringBuffer buffer = StringBuffer();
+
+  @override
+  void write(Object? object) => buffer.write(object);
+
+  @override
+  void writeln([Object? object = '']) => buffer.writeln(object);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

@@ -92,6 +92,31 @@ const Set<String> mcpProductionOnlyInTerminal = {
   'up',
 };
 
+/// Set to `1` in the environment of the dartisan process `run_command`
+/// starts. That process refuses what [mcpProductionRefusal] names when the
+/// configuration it boots is production, so a `.env` changed after
+/// `mcp:serve` started cannot slip past the server's own check. `dartisan
+/// test` leaves it out of the `dart test` process it starts.
+const String mcpRunCommandVariable = 'DARTISAN_MCP_RUN_COMMAND';
+
+/// Why `run_command` refuses the command [name] (canonical, with
+/// [command] its parsed options) when `APP_ENV=production`, or null: the
+/// commands in [mcpProductionOnlyInTerminal], and `migrate --seed`. The
+/// same words from the server and from the dartisan process.
+String? mcpProductionRefusal(String name, ArgResults command) {
+  if (mcpProductionOnlyInTerminal.contains(name)) {
+    return '$name is refused when APP_ENV=production; run it in a terminal.';
+  }
+  // migrate --seed is db:seed by another name.
+  if (name == 'migrate' &&
+      command.options.contains('seed') &&
+      command['seed'] == true) {
+    return 'migrate --seed is refused when APP_ENV=production; run it in a '
+        'terminal.';
+  }
+  return null;
+}
+
 /// Commands `run_command` never starts: long-running or interactive.
 @Deprecated(
   'run_command offers mcpOfferedCommands (and mcpOfferedOutsideProduction '
@@ -675,25 +700,21 @@ final class McpServer {
       throw ArgumentError('dartisan reads no command here.');
     }
     final name = resolved.name;
-    if (!_offers(name)) {
+    if (mcpNeverOffered.contains(name)) {
       throw StateError(
-        mcpNeverOffered.contains(name)
-            ? '$name runs until stopped; start it in a terminal instead.'
-            : _production && mcpProductionOnlyInTerminal.contains(name)
-            ? '$name is refused when APP_ENV=production; run it in a '
-                  'terminal.'
-            : '$name is not offered to agents; run it in a terminal, or '
-                  'start the server with --allow-command=$name.',
+        '$name runs until stopped; start it in a terminal instead.',
       );
     }
-    // migrate --seed is db:seed by another name.
-    if (name == 'migrate' &&
-        _production &&
-        named.options.contains('seed') &&
-        named['seed'] == true) {
+    // The first filter; the dartisan process checks again with the
+    // configuration it boots (mcpRunCommandVariable).
+    final refusal = _production ? mcpProductionRefusal(name, named) : null;
+    if (refusal != null) {
+      throw StateError(refusal);
+    }
+    if (!_offers(name)) {
       throw StateError(
-        'migrate --seed is refused when APP_ENV=production; run it in a '
-        'terminal.',
+        '$name is not offered to agents; run it in a terminal, or start the '
+        'server with --allow-command=$name.',
       );
     }
     _checkOptions(name, named);
@@ -760,12 +781,12 @@ final class McpServer {
     String command,
     List<String> arguments,
   ) async {
-    final result = await Process.run(dartExecutable(), [
-      'run',
-      'bin/dartisan.dart',
-      command,
-      ...arguments,
-    ], workingDirectory: ProjectPaths.locate().root);
+    final result = await Process.run(
+      dartExecutable(),
+      ['run', 'bin/dartisan.dart', command, ...arguments],
+      workingDirectory: ProjectPaths.locate().root,
+      environment: const {mcpRunCommandVariable: '1'},
+    );
     return (
       exitCode: result.exitCode,
       stdout: '${result.stdout}',

@@ -181,9 +181,10 @@ Any other command is refused, the project's own commands too. Open one with
 (`db:restore`, `db:transfer`, `db:replicate`, `queue:flush`, `queue:clear`,
 `key:generate`, `env:decrypt`, `env:encrypt`, `down`, `up` and the
 outside-production list). The tool's description names what is offered.
-Whether it is production is read from the configuration `mcp:serve` booted
-with: after changing `APP_ENV` in `.env`, restart the server. Protocol
-messages use stdout; logs go to stderr.
+The dartisan process `run_command` starts checks again with the
+configuration it boots, so a `.env` changed to production after the server
+started still refuses those commands; restart the server anyway, so that
+the offered list is right. Protocol messages use stdout; logs go to stderr.
 
 Packages add tools through the commands they register: a command that is an
 `McpToolSource` brings its `McpTool`s. With `redisCommands` in

@@ -95,12 +95,16 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
   /// A runner of the built-in commands and the project's own, for the
   /// application [createApp] builds. [console] replaces the one detected
   /// from the terminal and the `--no-color` and `--ansi` flags (tests).
+  /// [environment] replaces the process's own (`Platform.environment`) where
+  /// the runner reads [mcpRunCommandVariable] (tests).
   DartisanRunner(
     AppFactory createApp, {
     List<CommandFactory> commands = const <CommandFactory>[],
     Console? console,
     Nudges Function(Console console)? nudges,
-  }) : super('dartisan', 'Daravel command-line interface.') {
+    this._environment,
+  }) : _createApp = createApp,
+       super('dartisan', 'Daravel command-line interface.') {
     argParser.addFlag(
       'version',
       abbr: 'V',
@@ -199,7 +203,40 @@ final class DartisanRunner extends CommandRunner<int> with DartisanConsole {
       stdout.writeln('Daravel Framework $daravelVersion');
       return 0;
     }
+    if ((_environment ?? Platform.environment)[mcpRunCommandVariable] == '1') {
+      final refusal = await _mcpRefusal(topLevelResults);
+      if (refusal != null) {
+        stderr.writeln(refusal);
+        return 1;
+      }
+    }
     return super.runCommand(topLevelResults);
+  }
+
+  final AppFactory _createApp;
+  final Map<String, String>? _environment;
+
+  /// Started by `run_command`: why this command is refused under the
+  /// configuration this process boots, or null. Only a command the server
+  /// would refuse in production boots the application for it.
+  Future<String?> _mcpRefusal(ArgResults topLevelResults) async {
+    final named = topLevelResults.command;
+    final command = named == null ? null : commands[named.name];
+    if (named == null || command == null) {
+      return null;
+    }
+    final refusal = mcpProductionRefusal(command.name, named);
+    if (refusal == null) {
+      return null;
+    }
+    // A configuration that does not boot refuses too (execute reports it).
+    final app = _createApp();
+    await app.boot();
+    try {
+      return app.config.section<AppConfig>().isProduction ? refusal : null;
+    } finally {
+      await app.shutdown();
+    }
   }
 
   /// Runs [command] with [args] and returns its exit code (used by the

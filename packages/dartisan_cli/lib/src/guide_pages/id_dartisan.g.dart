@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/dartisan.md`.
 const String pageIdDartisan =
-    r'''<!-- source: dartisan.md sha256:1b47110e5383 -->
+    r'''<!-- source: dartisan.md sha256:2273f0b8c7b2 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -187,9 +187,11 @@ Dengan `APP_ENV=production`, command yang mengubah data atau deployment juga
 tidak bisa dibuka (`db:restore`, `db:transfer`, `db:replicate`,
 `queue:flush`, `queue:clear`, `key:generate`, `env:decrypt`,
 `env:encrypt`, `down`, `up`, dan daftar di luar production). Deskripsi tool
-menyebut apa saja yang ditawarkan. Status production dibaca dari
-konfigurasi saat `mcp:serve` di-boot: setelah mengubah `APP_ENV` di `.env`,
-jalankan ulang server. Pesan protokol memakai stdout; log masuk ke stderr.
+menyebut apa saja yang ditawarkan. Proses dartisan yang dijalankan
+`run_command` memeriksa lagi dengan konfigurasi yang ia boot sendiri,
+sehingga `.env` yang diubah ke production setelah server berjalan tetap
+menolak command tersebut. Tetap jalankan ulang server supaya daftar yang
+ditawarkan benar. Pesan protokol memakai stdout; log masuk ke stderr.
 
 Paket menambahkan tool lewat command yang mereka daftarkan: command yang
 merupakan `McpToolSource` membawa `McpTool`-nya. Dengan `redisCommands` di
