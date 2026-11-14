@@ -5,7 +5,7 @@
 
 ### Fixed
 
-- A WebSocket whose handler cancelled its subscription and kept the socket open stayed open until the server stopped: the client's close and its going away were no longer read. The client is read on, within the bound of what a handler that does not read gets: its close or its going away ends the session at once, with its code, and more than the bound sent unread ends it with 1008 after 5 s. What the handler sends is not affected.
+- A WebSocket whose handler cancelled its subscription and kept the socket open stayed open until the server stopped: the client's close and its going away were no longer read. The client is read on and what it sends dropped, its frames still checked (limits, deadline, PING rate): its close or its going away ends the session at once, with its code. What the handler sends is not affected.
 
 ### Upgrade notes
 

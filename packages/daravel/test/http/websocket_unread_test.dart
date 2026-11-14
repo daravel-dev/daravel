@@ -486,21 +486,48 @@ void main() {
       client.socket.destroy();
     });
 
-    test('70 000 bytes, then (after the hold) CLOSE(4000) and FIN: 1008 '
-        'after the unread wait', () async {
+    test('70 000 bytes, then 200 messages of 1 KiB over seconds: dropped, '
+        "the session stays open, then CLOSE(4000) ends it with the client's "
+        'code', () async {
       final client = await open('/cancel?id=c2');
       client.send(0x1, utf8.encode('first'));
       await Future<void>.delayed(const Duration(milliseconds: 300));
       client.send(0x2, Uint8List(70000));
       await client.socket.flush();
       await Future<void>.delayed(const Duration(milliseconds: 500));
+      for (var i = 0; i < 200; i++) {
+        client.send(0x1, utf8.encode('m$i'.padRight(1024)));
+        if (i % 20 == 19) {
+          await client.socket.flush();
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        }
+      }
+      // Well past the unread wait and past the bound: still open.
+      expect(engine.openWebSockets, 1);
+      expect(
+        log.records.where((r) => r.message.contains('did not read')),
+        isEmpty,
+      );
       client.send(0x8, const [0x0F, 0xA0]);
       await client.socket.flush();
-      await client.socket.close();
       final ms = await sessionEndsWithin(const Duration(seconds: 9));
       expect(engine.openWebSockets, 0, reason: 'the session ended');
-      expect(ms, lessThan(8000));
-      expect(seen['c2'], ['first', 'done:1008']);
+      expect(ms, lessThan(3000));
+      expect(seen['c2'], ['first', 'done:4000']);
+      client.socket.destroy();
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('frames are still checked after the cancel: an unmasked frame is '
+        '1002', () async {
+      final client = await open('/cancel?id=c4');
+      client.send(0x1, utf8.encode('first'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      client.socket.add(const [0x81, 0x02, 0x68, 0x69]); // unmasked "hi"
+      expect(await client.closeFrame(), 1002);
+      final ms = await sessionEndsWithin(const Duration(seconds: 5));
+      expect(engine.openWebSockets, 0);
+      expect(ms, lessThan(3000));
+      expect(seen['c4'], ['first', 'done:1002']);
       client.socket.destroy();
     });
 

@@ -908,6 +908,10 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// buffer (a slice that starts elsewhere is copied); held while it does
   /// not read or nothing reads it.
   void _handOn(Uint8List bytes) {
+    if (_readerGone) {
+      // Checked already ([_Inbound]); nothing can read it: dropped.
+      return;
+    }
     if (!_passing || _held.isNotEmpty) {
       _hold(bytes);
       if (!_tcpHeldBack && _heldBytes > _heldLimit) {
@@ -1148,9 +1152,18 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
           !_guard._violated &&
           _guard._attached?.readyState == WebSocket.open) {
         // The application cancelled its subscription and kept the socket:
-        // the client is read on, held within the bound, so its close or
-        // its going away still ends the session.
+        // the client is read on and what it sends dropped, as the server's
+        // own read for a handler that never listens does, so its close or
+        // its going away still ends the session. Frames are still checked.
         _readerGone = true;
+        _held.clear();
+        _heldBytes = 0;
+        _unreadWait?.cancel();
+        _unreadWait = null;
+        if (_tcpHeldBack) {
+          _tcpHeldBack = false;
+          _reading?.resume();
+        }
         return null;
       }
       return _reading?.cancel();
