@@ -2,20 +2,23 @@ import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
 
+import 'secrets.dart';
 import 'types.dart';
 
 /// Stripe Checkout (hosted payment page) and its signed webhooks
 /// (https://docs.stripe.com/webhooks#verify-manually): `Stripe-Signature`
 /// carries `t=<timestamp>` and `v1=<HMAC-SHA256 of "t.body">` signatures.
 final class StripeGateway implements PaymentGateway {
-  /// Stripe Checkout, with the secret key from `STRIPE_SECRET`.
+  /// Stripe Checkout, with the secret key from `STRIPE_SECRET`; an empty
+  /// or blank key or webhook secret is an [ArgumentError].
   StripeGateway({
-    required this.secretKey,
-    required this.webhookSecret,
+    required String secretKey,
+    required String webhookSecret,
     this.name = 'stripe',
     this.tolerance = const Duration(minutes: 5),
     this.baseUrl = 'https://api.stripe.com',
-  });
+  }) : secretKey = requireSecret(secretKey, 'secretKey'),
+       webhookSecret = requireSecret(webhookSecret, 'webhookSecret');
 
   @override
   final String name;

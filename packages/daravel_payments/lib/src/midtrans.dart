@@ -2,18 +2,20 @@ import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
 
+import 'secrets.dart';
 import 'types.dart';
 
 /// Midtrans: Snap for paying (QRIS, virtual accounts, e-wallets, cards)
 /// and HTTP notifications for the result
 /// (https://docs.midtrans.com/docs/https-notification-webhooks).
 final class MidtransGateway implements PaymentGateway {
-  /// Midtrans Snap, with the server key from `MIDTRANS_SERVER_KEY`.
+  /// Midtrans Snap, with the server key from `MIDTRANS_SERVER_KEY`; an
+  /// empty or blank key is an [ArgumentError].
   MidtransGateway({
-    required this.serverKey,
+    required String serverKey,
     this.production = false,
     this.name = 'midtrans',
-  });
+  }) : serverKey = requireSecret(serverKey, 'serverKey');
 
   @override
   final String name;
@@ -171,7 +173,9 @@ final class MidtransGateway implements PaymentGateway {
         (body['settlement_time'] ?? body['transaction_time']) as String?;
     return PaymentEvent(
       gateway: name,
-      eventId: '$prefix$transaction:$status',
+      // The fraud status is part of the key: a `capture` held for review
+      // (`challenge`) is followed by the same `capture` once accepted.
+      eventId: '$prefix$transaction:$status${fraud == null ? '' : ':$fraud'}',
       orderId: orderId,
       status: mapStatus(status, fraud),
       amount: num.tryParse('${body['gross_amount']}'),
