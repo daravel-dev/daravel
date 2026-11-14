@@ -580,7 +580,10 @@ img.Decoder? _decoderFor(Uint8List bytes, int maxPixels) {
 /// [body], with `package:image`'s errors as this library's: its pixel
 /// budget (checked per frame and over all frames or pages, with our
 /// limit) as [ImageTooLargeException], a damaged file as
-/// [ImageConversionException].
+/// [ImageConversionException]. The budget error is told by its message,
+/// which `package:image` does not type: the APNG test in
+/// `test/image_limits_test.dart` ("an APNG frame larger than its canvas is
+/// refused") fails if that message changes.
 T _guarded<T>(T Function() body) {
   try {
     return body();
