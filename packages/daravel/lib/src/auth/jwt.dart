@@ -308,6 +308,8 @@ final class JwtCodec {
     if (!valid) {
       throw const JwtException('Invalid signature.');
     }
+    // A required claim must be there (an empty text counts, as in
+    // tymon/jwt-auth, whose `hasAllClaims` checks for the key).
     for (final claim in requiredClaims) {
       final value = payload[claim];
       final missing = switch (claim) {
@@ -316,6 +318,16 @@ final class JwtCodec {
       };
       if (missing) {
         throw JwtException('The token has no [$claim] claim.');
+      }
+    }
+    // A time claim that is there must be a number, whether the times are
+    // checked or not: one that is not would otherwise be skipped, and a
+    // token with `exp: "x"` never expire (firebase/php-jwt v7.2.1 refuses
+    // it the same way, `JWT.php` 134-141).
+    for (final claim in const ['exp', 'nbf', 'iat']) {
+      final value = payload[claim];
+      if (value != null && (value is! num || !value.isFinite)) {
+        throw JwtException('The token [$claim] claim is not a number.');
       }
     }
     if (checkTimes) {
@@ -351,15 +363,6 @@ final class JwtCodec {
   }
 
   void _checkTimeClaims(Map<String, Object?> payload) {
-    // A time claim that is there must be a number: one that is not would
-    // otherwise be skipped, and a token with `exp: "x"` never expire
-    // (firebase/php-jwt v7.2.1 refuses it the same way, `JWT.php` 134-141).
-    for (final claim in const ['exp', 'nbf', 'iat']) {
-      final value = payload[claim];
-      if (value != null && (value is! num || !value.isFinite)) {
-        throw JwtException('The token [$claim] claim is not a number.');
-      }
-    }
     final now = _clock().millisecondsSinceEpoch / 1000;
     final skew = leeway.inMilliseconds / 1000;
     final exp = payload['exp'];

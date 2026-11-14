@@ -68,7 +68,20 @@ void main() {
           throwsA(isA<JwtException>()),
           reason: '$claims',
         );
+        // Whether the times are checked or not (revoking).
+        await expectLater(
+          codec().verify(token, checkTimes: false),
+          throwsA(isA<JwtException>()),
+          reason: '$claims, checkTimes: false',
+        );
       }
+    });
+
+    test('a required claim of empty text counts as there, as in '
+        'tymon/jwt-auth', () async {
+      final strict = codec(required: ['iss']);
+      final token = await strict.sign({'sub': '1', 'iss': ''});
+      expect((await strict.verify(token)).issuer, '');
     });
   });
 
