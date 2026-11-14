@@ -221,6 +221,45 @@ void main() {
       expect(await notify(short), PaymentOutcome.amountMismatch.name);
     });
 
+    test(
+      'a unique violation without this event\'s log row is no duplicate',
+      () async {
+        // That happens when the delivery that wrote the clashing row rolled
+        // back; it cannot be timed on a real database, so a unique index of
+        // the test's own on order_id makes the insert clash with another
+        // event's row.
+        await order();
+        final now = DateTime.utc(2026, 11, 14);
+        await app.run(() async {
+          await (await Schema.builder()).table(
+            PaymentManager.webhookLogTable,
+            (table) =>
+                table.unique(['order_id'], name: 'test_one_log_per_order'),
+          );
+          await DB.table(PaymentManager.webhookLogTable).insert({
+            'gateway': 'midtrans',
+            'event_id': 'another-event',
+            'order_id': 'ORDER-42',
+            'payload': '{}',
+            'processed': true,
+            'created_at': now,
+            'updated_at': now,
+          });
+        });
+        final response = await app.handle(
+          Request.fake(
+            method: 'POST',
+            path: '/payments/webhook/midtrans',
+            headers: {'content-type': 'application/json'},
+            body: jsonEncode(notification()),
+          ),
+        );
+        expect(response.status, 500, reason: 'the gateway sends it again');
+        expect(await status(), PaymentStatus.pending);
+        expect(events.whereType<PaymentPaid>(), isEmpty);
+      },
+    );
+
     test('a card challenged, then accepted, is paid', () async {
       await order();
       expect(
