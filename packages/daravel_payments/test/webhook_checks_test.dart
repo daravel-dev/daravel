@@ -342,6 +342,18 @@ void main() {
   });
 
   // RSEQ 64 A: the answer to an order not stored yet.
+  test('unknownOrderStatus outside 200 to 599 is refused when the route '
+      'is registered', () {
+    for (final status in [0, 199, 600, -1]) {
+      expect(
+        () => Payment.webhookRoutes(Router(), unknownOrderStatus: status),
+        throwsArgumentError,
+        reason: '$status',
+      );
+    }
+    Payment.webhookRoutes(Router(), unknownOrderStatus: 503);
+  });
+
   test('unknownOrderStatus: 200 restores the earlier answer', () async {
     final dir = Directory.systemTemp.createTempSync('daravel_payments_a_');
     final app = Application.configure(basePath: dir.path)

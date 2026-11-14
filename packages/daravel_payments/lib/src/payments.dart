@@ -526,6 +526,13 @@ abstract final class Payment {
     List<Object> middleware = const [],
     int unknownOrderStatus = 409,
   }) {
+    if (unknownOrderStatus < 200 || unknownOrderStatus > 599) {
+      throw ArgumentError.value(
+        unknownOrderStatus,
+        'unknownOrderStatus',
+        'must be an HTTP status from 200 to 599',
+      );
+    }
     router.group((r) {
       r
           .post('$path/{gateway}', (Request request) async {
