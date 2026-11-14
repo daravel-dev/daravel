@@ -1,4 +1,4 @@
-<!-- source: payments.md sha256:587ddc2db091 -->
+<!-- source: payments.md sha256:b48e95ff7477 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -82,7 +82,11 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    Stripe: salah satu signature `v1` di `Stripe-Signature` harus sama
    dengan HMAC-SHA256 dari `<timestamp>.<body>` dengan endpoint secret,
    dan timestamp-nya paling jauh lima menit. Perbandingannya memakai waktu
-   konstan. Selain itu dijawab 401 dan tidak mengubah apa pun.
+   konstan. `transaction_status` Midtrans juga harus sesuai dengan
+   `status_code` yang ditandatangani (200 untuk `capture` dan `settlement`,
+   201 `pending`, 202 `deny`, 407 `expire`, menurut referensi kode status
+   Midtrans). Selain itu dijawab 401 dan tidak mengubah apa pun. Notifikasi
+   lunas yang jumlah atau mata uangnya tidak terbaca dijawab 400.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
    gateway) dalam transaksi yang sama dengan perubahannya. Setelah sebuah
    notifikasi menggerakkan pembayaran, pengiriman ulangnya dijawab
@@ -112,9 +116,15 @@ events
   ..listen<PaymentAmountMismatch>((e) => Log.critical('Amount mismatch', {'order': e.payment.orderId}));
 ```
 
-Pada semua kasus lain jawabannya 200 (`applied`, `unchanged`, `ignored`,
-`unknownOrder`, `amountMismatch`), sehingga gateway berhenti mengirim ulang
-notifikasi yang memang tidak perlu ditindaklanjuti lagi.
+Notifikasi untuk order yang belum tersimpan (`unknownOrder`) dijawab 409:
+Stripe, Midtrans, dan Xendit hanya mengirim ulang notifikasi sesudah
+jawaban non-2xx, sehingga notifikasi itu diterapkan begitu order-nya ada.
+Pada akun gateway yang dipakai bersama sistem lain, notifikasi untuk
+order sistem itu lalu dikirim ulang sampai gateway menyerah dan tampil
+gagal di dasbornya; gunakan `withPayments(unknownOrderStatus: 200)` untuk
+menjawabnya 200 seperti sebelumnya. Pada semua kasus lain jawabannya 200
+(`applied`, `duplicate`, `unchanged`, `ignored`, `amountMismatch`), karena
+pengiriman ulang tidak akan mengubahnya.
 
 ## Rekonsiliasi
 

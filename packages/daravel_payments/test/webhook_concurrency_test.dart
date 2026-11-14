@@ -107,11 +107,11 @@ void main() {
           ),
         );
         final text = await response.bodyText();
-        if (response.status != 200) {
+        if (response.status != 200 && response.status != 409) {
           return (response.status, text);
         }
         final json = jsonDecode(text) as Map<String, Object?>;
-        return (200, json['status']! as String);
+        return (response.status, json['status']! as String);
       }
 
       Future<void> expectOneApplied(String orderId) async {
@@ -136,7 +136,7 @@ void main() {
       test('an event seen before its order, then retried twice at once: one '
           'applied, one duplicate', () async {
         for (var i = 0; i < rounds; i++) {
-          expect(await deliver(notification('LATE-$i')), (200, 'unknownOrder'));
+          expect(await deliver(notification('LATE-$i')), (409, 'unknownOrder'));
           await order('LATE-$i');
           await expectOneApplied('LATE-$i');
         }

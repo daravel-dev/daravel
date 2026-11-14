@@ -505,12 +505,26 @@ abstract final class Payment {
   static FakePaymentGateway fake() => manager.installFake();
 
   /// `POST <path>/{gateway}`: verifies and applies the gateway's
-  /// notifications, answering 200 (the gateway stops retrying) with what
-  /// happened, 401 for a bad signature, 404 for an unknown gateway.
+  /// notifications, answering with what happened (`{"status": …}`).
+  ///
+  /// - [unknownOrderStatus] (409 by default) for a notification about an
+  ///   order not stored yet: Stripe, Midtrans and Xendit send a
+  ///   notification again only after a non-2xx answer, so the payment is
+  ///   applied once its order exists. 409 is what Midtrans retries most (5
+  ///   times; 400/404 twice, 500 once). An order that is not this
+  ///   application's (a gateway account shared with another system) is
+  ///   then retried until the gateway gives up and shows as failed in its
+  ///   dashboard; pass 200 for the earlier behaviour.
+  /// - 200 for every other outcome, which another delivery would not
+  ///   change: `applied`, `duplicate`, `unchanged`, `ignored`, and
+  ///   `amountMismatch` (whose alert is [PaymentAmountMismatch]).
+  /// - 401 for a bad signature, 400 for a malformed notification, 404 for
+  ///   an unknown gateway.
   static void webhookRoutes(
     Router router, {
     String path = '/payments/webhook',
     List<Object> middleware = const [],
+    int unknownOrderStatus = 409,
   }) {
     router.group((r) {
       r
@@ -519,7 +533,12 @@ abstract final class Payment {
               request.param<String>('gateway'),
               request,
             );
-            return Response.json({'status': outcome.name});
+            return Response.json(
+              {'status': outcome.name},
+              status: outcome == PaymentOutcome.unknownOrder
+                  ? unknownOrderStatus
+                  : 200,
+            );
           })
           .name('payments.webhook');
     }, middleware: middleware);

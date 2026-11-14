@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 
 import 'secrets.dart';
 import 'types.dart';
+import 'webhook_checks.dart';
 
 /// Stripe Checkout (hosted payment page) and its signed webhooks
 /// (https://docs.stripe.com/webhooks#verify-manually): `Stripe-Signature`
@@ -136,7 +137,7 @@ final class StripeGateway implements PaymentGateway {
       'checkout.session.expired' => PaymentStatus.expired,
       _ => null,
     };
-    return _session(object, status, '${event['id']}');
+    return requireAmountWhenPaid(_session(object, status, '${event['id']}'));
   }
 
   /// Throws [InvalidPaymentSignatureException] unless [header] holds a

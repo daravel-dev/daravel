@@ -140,11 +140,16 @@ void main() {
           body: jsonEncode(body),
         ),
       );
-      expect(response.status, 200);
-      final status = (jsonDecode(
-        await response.bodyText(),
-      ) as Map<String, Object?>)['status'];
-      return status! as String;
+      final status =
+          (jsonDecode(await response.bodyText())
+                  as Map<String, Object?>)['status']!
+              as String;
+      expect(
+        response.status,
+        status == PaymentOutcome.unknownOrder.name ? 409 : 200,
+        reason: status,
+      );
+      return status;
     }
 
     Future<PaymentStatus?> status([String orderId = 'ORDER-42']) async =>
@@ -300,6 +305,125 @@ void main() {
         ),
       );
       expect(settled.eventId, 'tx-1:settlement');
+    });
+
+    // RSEQ 64 C: the signature covers status_code, not transaction_status.
+    test('a Midtrans status that disagrees with its signed code is refused '
+        '(401) and changes nothing', () async {
+      await order();
+      final forged = notification(status: 'settlement', statusCode: '201');
+      final response = await app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/payments/webhook/midtrans',
+          headers: {'content-type': 'application/json'},
+          body: jsonEncode(forged),
+        ),
+      );
+      expect(response.status, 401);
+      expect(await status(), PaymentStatus.pending);
+    });
+
+    // RSEQ 64 B: a paid event from a built-in gateway carries its amount.
+    test('a paid Midtrans notification whose amount cannot be read is '
+        'refused (400)', () async {
+      await order();
+      final response = await app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/payments/webhook/midtrans',
+          headers: {'content-type': 'application/json'},
+          body: jsonEncode(notification(grossAmount: 'many')),
+        ),
+      );
+      expect(response.status, 400);
+      expect(await status(), PaymentStatus.pending);
+    });
+  });
+
+  // RSEQ 64 A: the answer to an order not stored yet.
+  test('unknownOrderStatus: 200 restores the earlier answer', () async {
+    final dir = Directory.systemTemp.createTempSync('daravel_payments_a_');
+    final app = Application.configure(basePath: dir.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': '${dir.path}/app.sqlite',
+          'LOG_LEVEL': 'error',
+          'MIDTRANS_SERVER_KEY': serverKey,
+        })
+        .withPayments(unknownOrderStatus: 200)
+        .withMigrations(const [CreatePaymentTables()])
+        .create();
+    await app.boot();
+    addTearDown(() async {
+      await app.shutdown();
+      Container.setRoot(null);
+      dir.deleteSync(recursive: true);
+    });
+    await app.run(() => App.make<Migrator>().run());
+    final response = await app.handle(
+      Request.fake(
+        method: 'POST',
+        path: '/payments/webhook/midtrans',
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode(notification()),
+      ),
+    );
+    expect(response.status, 200);
+    expect(await response.bodyText(), '{"status":"unknownOrder"}');
+  });
+
+  group('a paid event without its amount or currency (RSEQ 64 B)', () {
+    Request post(String body, {Map<String, String> headers = const {}}) =>
+        Request.fake(method: 'POST', path: '/x', headers: headers, body: body);
+
+    test('Stripe: a completed session without its currency', () async {
+      const secret = 'whsec_test';
+      final stripe = StripeGateway(
+        secretKey: 'sk_test_1',
+        webhookSecret: secret,
+      );
+      final payload = jsonEncode({
+        'id': 'evt_1',
+        'type': 'checkout.session.completed',
+        'data': {
+          'object': {
+            'id': 'cs_1',
+            'client_reference_id': 'ORDER-1',
+            'payment_status': 'paid',
+            'amount_total': 1999,
+          },
+        },
+      });
+      final t = Clock.now().millisecondsSinceEpoch ~/ 1000;
+      final header = 't=$t,v1=${hmacSha256Hex(secret, '$t.$payload')}';
+      await expectLater(
+        stripe.parseWebhook(
+          post(payload, headers: {'stripe-signature': header}),
+        ),
+        throwsA(isA<BadRequestHttpException>()),
+      );
+    });
+
+    test('Xendit: a paid invoice without its amount or currency', () async {
+      final xendit = XenditGateway(secretKey: 'xnd_dev', callbackToken: 'tok');
+      for (final invoice in [
+        {'id': 'inv-1', 'external_id': 'ORDER-9', 'status': 'PAID'},
+        {
+          'id': 'inv-1',
+          'external_id': 'ORDER-9',
+          'status': 'PAID',
+          'paid_amount': 50000,
+        },
+      ]) {
+        await expectLater(
+          xendit.parseWebhook(
+            post(jsonEncode(invoice), headers: {'x-callback-token': 'tok'}),
+          ),
+          throwsA(isA<BadRequestHttpException>()),
+          reason: '$invoice',
+        );
+      }
     });
   });
 }
