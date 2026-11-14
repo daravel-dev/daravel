@@ -785,7 +785,13 @@ final class ServerEngine {
     try {
       final socket = await WebSocketTransformer.upgrade(
         guard.wrap(httpRequest),
-        compression: response.webSocketCompression
+        // An offer with a window size RFC 7692 does not allow is declined:
+        // the connection goes on uncompressed.
+        compression:
+            response.webSocketCompression &&
+                _deflateOfferAcceptable(
+                  httpRequest.headers['sec-websocket-extensions'],
+                )
             ? CompressionOptions.compressionDefault
             : CompressionOptions.compressionOff,
         // With the guard's assembly, the limit of a whole message (and of
@@ -1313,4 +1319,54 @@ final class _DiscardedBody {
       _arrival.complete();
     }
   }
+}
+
+/// Whether the permessage-deflate offers in [extensions] (the request's
+/// `Sec-WebSocket-Extensions` values) may be agreed to: each window size
+/// they name is one RFC 7692 §7.1.2 allows, a decimal 8 to 15 without a
+/// leading zero (`client_max_window_bits` may also come without a value),
+/// and no parameter appears twice in one offer. Otherwise compression is
+/// not agreed to for the handshake, and the connection goes on without it.
+bool _deflateOfferAcceptable(List<String>? extensions) {
+  if (extensions == null) {
+    return true;
+  }
+  final window = RegExp(r'^(?:[89]|1[0-5])$');
+  for (final offer in extensions.expand((value) => value.split(','))) {
+    final parts = offer.split(';').map((part) => part.trim()).toList();
+    if (parts.first.toLowerCase() != 'permessage-deflate') {
+      continue;
+    }
+    final seen = <String>{};
+    for (final parameter in parts.skip(1)) {
+      if (parameter.isEmpty) {
+        continue;
+      }
+      final equals = parameter.indexOf('=');
+      final name = (equals < 0 ? parameter : parameter.substring(0, equals))
+          .trim()
+          .toLowerCase();
+      if (!seen.add(name)) {
+        return false;
+      }
+      if (name != 'server_max_window_bits' &&
+          name != 'client_max_window_bits') {
+        continue;
+      }
+      if (equals < 0) {
+        if (name == 'client_max_window_bits') {
+          continue;
+        }
+        return false;
+      }
+      var value = parameter.substring(equals + 1).trim();
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value.substring(1, value.length - 1);
+      }
+      if (!window.hasMatch(value)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }

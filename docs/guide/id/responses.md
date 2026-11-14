@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:085f0f7eb631 -->
+<!-- source: responses.md sha256:8fa10e8666b3 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -436,7 +436,9 @@ memintanya dengan `r.ws(path, handler, compress: true)`; client yang
 menawarkannya tetap terhubung tanpa kompresi. Kompresi menyimpan state
 zlib per koneksi, dan pesan terkompresi yang kecil bisa mengembang sampai
 `maxPayloadBytes` rutenya: nyalakan untuk client yang dikenal dan
-mengirim teks besar yang berulang, bukan untuk endpoint publik.
+mengirim teks besar yang berulang, bukan untuk endpoint publik. Tawaran
+yang menyebut ukuran window di luar yang diizinkan RFC 7692 (8 sampai 15)
+ditolak, dan client itu terhubung tanpa kompresi.
 
 Server hanya tahu client pergi selama ada yang mendengarkan socket-nya.
 Dengarkan sebelum handler kembali, atau paling lambat 5 detik sesudahnya:
