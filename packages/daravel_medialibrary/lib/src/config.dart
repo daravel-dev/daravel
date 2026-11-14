@@ -66,8 +66,8 @@ final class MediaLibraryConfig implements ConfigSection {
   /// memory): a baseline JPEG of 8 000 x 5 000 about 130 MiB and 2.5 s, a
   /// progressive one about 415 MiB and 3 s, a PNG about 205 MiB and 1 s, a
   /// WebP (which counts against half of it, as a 16-bit PNG does) up to
-  /// about 245 MiB, an animated GIF filling the budget about 140 MiB and
-  /// 1.2 s; plan about 450 MiB per conversion running at once. Lower it
+  /// about 470 MiB, an animated GIF filling the budget about 140 MiB and
+  /// 1.2 s; plan about 500 MiB per conversion running at once. Lower it
   /// where conversions share a process with requests.
   static const int defaultMaxImagePixels = 40000000;
 

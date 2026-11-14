@@ -290,7 +290,7 @@ bool canConvert({String? mimeType, String? extension}) {
 /// decoded by a decoder held to [maxPixels] (half of it for a WebP or a
 /// 16-bit PNG), one frame for a still image; an animated PNG or WebP is not
 /// converted in this version. The limit bounds an image's size, not memory
-/// exactly: at the default limit, plan about 450 MiB of memory per
+/// exactly: at the default limit, plan about 500 MiB of memory per
 /// conversion running at once. Measured peaks (a compiled process):
 ///
 /// | Image | Peak memory | Time |
@@ -302,6 +302,7 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | PNG, 16-bit, 4 472 x 4 472 | about 205 MiB | 1 s |
 /// | WebP, 4 472 x 4 472 | about 170 to 175 MiB | 0.3 to 0.9 s |
 /// | the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
+/// | WebP, 4 472 x 4 472, many Huffman groups | about 395 MiB (470 with orientation) | 2.6 s |
 /// | WebP of any size, even a small one | up to about 240 MiB | under 1 s |
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |

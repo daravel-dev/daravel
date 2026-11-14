@@ -145,12 +145,13 @@ the default limit takes (measured peaks):
 | PNG, 16-bit, 4 472 x 4 472 | about 205 MiB | 1 s |
 | WebP, 4 472 x 4 472 | about 170 to 175 MiB | 0.3 to 0.9 s |
 | the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
+| WebP, 4 472 x 4 472, with transforms and many Huffman groups | about 395 MiB, up to 470 MiB with orientation | 2 to 2.6 s |
 | WebP of any size, even a small one | up to about 240 MiB | under 1 s |
 | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 
 A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
 The limit bounds an image's size, not memory exactly: at the default
-limit, plan about 450 MiB of memory per conversion running at once, and
+limit, plan about 500 MiB of memory per conversion running at once, and
 lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
 requests.
 
