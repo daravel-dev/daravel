@@ -10,10 +10,14 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/websocket_counts.dart';
 
 /// The guard checks every frame a client sends by RFC 6455 itself, whether
 /// the handler reads or not, and answers a CLOSE within the protocol.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
 
