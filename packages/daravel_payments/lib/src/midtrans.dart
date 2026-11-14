@@ -176,14 +176,21 @@ final class MidtransGateway implements PaymentGateway {
     }
     // Any other status (deny, refund, partial_refund, chargeback,
     // authorize, failure, one not known) is taken from Midtrans' status
-    // API, not from the notification; the notification's id is kept, so a
-    // retry is still a duplicate. An API that fails answers 5xx, and
-    // nothing is applied.
+    // API, not from the notification. The event id is the one a genuine
+    // notification of the status the API answered carries (this
+    // transaction, that status and fraud status), so that notification is
+    // a duplicate when it comes and a later status is an event of its own.
+    // An API that fails answers 5xx, and nothing is applied.
     final confirmed = await status(event.orderId, reference: event.reference);
+    final answered = confirmed.raw['transaction_status'] ?? 'pending';
+    final answeredFraud = confirmed.raw['fraud_status'];
+    final transaction = body['transaction_id'] as String? ?? event.orderId;
     return requireAmountWhenPaid(
       PaymentEvent(
         gateway: confirmed.gateway,
-        eventId: event.eventId,
+        eventId:
+            '$transaction:$answered'
+            '${answeredFraud is String ? ':$answeredFraud' : ''}',
         orderId: event.orderId,
         status: confirmed.status,
         amount: confirmed.amount,
