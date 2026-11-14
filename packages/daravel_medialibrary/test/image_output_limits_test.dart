@@ -178,8 +178,32 @@ void main() {
       // A small image allows many more.
       expect(convert(_scansOnly(64, 48, 17), {}), isNot(refused));
     });
+
+    test('the scans are counted against the largest frame header in the '
+        'file, not only the first', () {
+      // The first frame is 64 x 48; a second header of 8 000 x 5 000 sits
+      // in a comment. 17 scans are too many for the larger one.
+      expect(convert(_scansOnly(64, 48, 17), {}), isNot(refused));
+      expect(
+        convert(_scansOnly(64, 48, 17, comment: _frameHeader(8000, 5000)), {}),
+        refused,
+      );
+      // Bytes that only look like a frame header (no valid components)
+      // are not counted.
+      final notAFrame = _frameHeader(8000, 5000)..[9] = 0;
+      expect(
+        convert(_scansOnly(64, 48, 17, comment: notAFrame), {}),
+        isNot(refused),
+      );
+    });
   });
 }
+
+/// A progressive frame header of [width] x [height], one component.
+List<int> _frameHeader(int width, int height) => [
+  0xFF, 0xC2, ..._be16(11), 8, ..._be16(height), ..._be16(width), 1, //
+  1, 0x11, 0,
+];
 
 List<int> _be16(int value) => [(value >> 8) & 0xFF, value & 0xFF];
 
@@ -215,13 +239,20 @@ Uint8List _progressiveJpeg(int width, int height, int scans) {
   return out.takeBytes();
 }
 
-/// A JPEG header of [width] x [height] followed by [scans] empty scans:
-/// the count is checked before anything is decoded.
-Uint8List _scansOnly(int width, int height, int scans) => Uint8List.fromList([
+/// A JPEG header of [width] x [height] followed by [scans] empty scans, and
+/// [comment] in a comment segment after the frame: the count is checked
+/// before anything is decoded.
+Uint8List _scansOnly(
+  int width,
+  int height,
+  int scans, {
+  List<int> comment = const [],
+}) => Uint8List.fromList([
   0xFF, 0xD8, //
   0xFF, 0xDB, ..._be16(67), 0, ...List.filled(64, 1),
-  0xFF, 0xC2, ..._be16(11), 8, ..._be16(height), ..._be16(width), 1, 1, 0x11,
-  0,
+  ..._frameHeader(width, height),
+  if (comment.isNotEmpty) ...[0xFF, 0xFE, ..._be16(2 + comment.length)],
+  ...comment,
   for (var i = 0; i < scans; i++) ...[
     0xFF, 0xDA, ..._be16(8), 1, 1, 0x00, 0, 0, 0x00, //
   ],

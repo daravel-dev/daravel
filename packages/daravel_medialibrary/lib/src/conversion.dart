@@ -295,8 +295,8 @@ bool canConvert({String? mimeType, String? extension}) {
 /// the one it starts from and a quarter of [maxPixels], nor one with a
 /// side longer than 65 535: past that, [ImageTooLargeException]. A
 /// manipulation's cost follows the pixels it makes (a resize to 10 million
-/// pixels takes about 3.3 s; a blur, whose amount the conversion sets,
-/// costs more per pixel).
+/// pixels takes 3.3 to 5 s, the most for a very elongated one; a blur,
+/// whose amount the conversion sets, costs more per pixel).
 ///
 /// The limit bounds an image's size, not memory exactly: at the default
 /// limit, plan about 500 MiB of memory per conversion running at once,
@@ -315,7 +315,7 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 /// | JPEG at its scan limit (40, 20 or 5 MP) | about 245 MiB at 40 MP | 3.1 to 3.4 s |
-/// | a manipulation making 10 million pixels | 46 to 160 MiB | 3.3 to 3.8 s |
+/// | a manipulation making 10 million pixels | 46 to 160 MiB | 3.3 to 5 s |
 Future<Uint8List> convertImage(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
@@ -383,7 +383,7 @@ Uint8List convertImageSync(
     );
   }
   if (decoder is img.JpegDecoder) {
-    _checkJpegScans(bytes, info.width, info.height, maxPixels);
+    _checkJpegFrames(bytes, info.width, info.height, maxPixels);
   }
   // Divisions only: width x height x frames <= pixels, without a product
   // that could overflow.
@@ -743,35 +743,94 @@ const int _maxImageSide = 65535;
 /// quarter of it, so 1080p to 4K (8.3 MP) still converts.
 const int _growthDivisor = 4;
 
-/// For a JPEG, refuses one with more scans than its size allows: each scan
-/// is a pass over the image, so a small file of many scans takes a long
-/// time to decode. The count is every `FF DA` (start of scan) in the file,
-/// an upper bound on the scans a decoder can see (an EXIF thumbnail and
-/// other data count too); the file's structure is deliberately not
-/// interpreted. At most `16 x maxPixels` scanned pixels, the pixels counted
-/// in whole 8 x 8 blocks: 16 scans for 40 MP, 64 for 10 MP. Measured, the
-/// worst file at the limit took about 3.4 s whatever its size; real
-/// progressive JPEGs (5 to 12 `FF DA`) stayed under a third of it.
-void _checkJpegScans(Uint8List bytes, int width, int height, int maxPixels) {
+/// For a JPEG, refuses one with more scans than its size allows, from the
+/// raw bytes, without walking the file's structure. Each scan is a pass
+/// over the frame, so a small file of many scans takes a long time to
+/// decode.
+///
+/// - The scans are counted as every `FF DA` (start of scan) in the file,
+///   an upper bound on those a decoder can see (an EXIF thumbnail's and
+///   other data count too).
+/// - The frame is the largest of [width] x [height] (the decoder's own
+///   reading) and of every frame header found anywhere in the bytes that
+///   the decoder would take: `FF C0`, `FF C1` or `FF C2`, then a height and
+///   width of at least 1 whose product is at most [maxPixels] (the decoder
+///   is held to it, so a larger frame is refused when read), and 1 to 4
+///   components of distinct ids with sampling factors from 1 to 4. Other
+///   bytes that only look like a frame header (as in camera maker notes)
+///   are left out: counting them refused real photos.
+/// - At most `16 x maxPixels` scanned pixels, counted in whole 8 x 8 blocks
+///   of that frame: 16 scans for 40 MP, 64 for 10 MP. Measured, the worst
+///   file at the limit took about 3.4 s whatever its size; real
+///   progressive JPEGs (5 to 12 `FF DA`) stayed under a third of it.
+void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
   var scans = 0;
-  for (var i = 0; i + 1 < bytes.length; i++) {
-    if (bytes[i] == 0xFF && bytes[i + 1] == 0xDA) {
+  var frameWidth = width;
+  var frameHeight = height;
+  final n = bytes.length;
+  for (var i = 0; i + 1 < n; i++) {
+    if (bytes[i] != 0xFF) {
+      continue;
+    }
+    final marker = bytes[i + 1];
+    if (marker == 0xDA) {
       scans++;
+    } else if (marker >= 0xC0 && marker <= 0xC2) {
+      final frame = _frameAt(bytes, i, maxPixels);
+      // Both sides at most 65 535: the products fit.
+      if (frame != null && frame.$1 * frame.$2 > frameWidth * frameHeight) {
+        (frameWidth, frameHeight) = frame;
+      }
     }
   }
   if (scans == 0) {
     return;
   }
-  final blockWidth = (width + 7) ~/ 8 * 8;
-  final blockHeight = (height + 7) ~/ 8 * 8;
+  final blockWidth = (frameWidth + 7) ~/ 8 * 8;
+  final blockHeight = math.max(8, (frameHeight + 7) ~/ 8 * 8);
   // 16 x maxPixels without overflowing for any configured limit.
   final budget = maxPixels > (1 << 58) ? (1 << 62) : maxPixels * 16;
   if (blockWidth > budget ~/ scans ~/ blockHeight) {
     throw ImageTooLargeException(
-      'The JPEG holds up to $scans scans of $width x $height pixels, more '
-      'than its size allows; it was not converted.',
+      'The JPEG holds up to $scans scans of $frameWidth x $frameHeight '
+      'pixels, more than its size allows; it was not converted.',
     );
   }
+}
+
+/// The width and height of a frame header the decoder would take at [at]
+/// (`FF C0` to `FF C2`; see [_checkJpegFrames]), or null.
+(int, int)? _frameAt(Uint8List bytes, int at, int maxPixels) {
+  final n = bytes.length;
+  if (at + 9 >= n) {
+    return null;
+  }
+  final height = (bytes[at + 5] << 8) | bytes[at + 6];
+  final width = (bytes[at + 7] << 8) | bytes[at + 8];
+  if (width < 1 || height < 1 || width > maxPixels ~/ height) {
+    return null;
+  }
+  final components = bytes[at + 9];
+  if (at + 9 + 3 * components >= n) {
+    return null;
+  }
+  // By id: a repeated id replaces the earlier one.
+  final sampling = <int, int>{};
+  for (var k = 0; k < components; k++) {
+    final entry = at + 10 + 3 * k;
+    sampling[bytes[entry]] = bytes[entry + 1];
+  }
+  if (sampling.isEmpty || sampling.length > 4) {
+    return null;
+  }
+  for (final factors in sampling.values) {
+    final h = factors >> 4;
+    final v = factors & 0x0F;
+    if (h < 1 || h > 4 || v < 1 || v > 4) {
+      return null;
+    }
+  }
+  return (width, height);
 }
 
 /// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
