@@ -17,9 +17,13 @@ import 'types.dart';
 /// the event id and the reason, never the payload.
 PaymentEvent requireAmountWhenPaid(PaymentEvent event) {
   final currency = event.currency;
+  final amount = event.amount;
   if (event.status == PaymentStatus.paid &&
-      (event.amount == null || currency == null || currency.trim().isEmpty)) {
-    final reason = event.amount == null
+      (amount == null ||
+          !amount.isFinite ||
+          currency == null ||
+          currency.trim().isEmpty)) {
+    final reason = amount == null || !amount.isFinite
         ? 'no readable amount'
         : 'no readable currency';
     Container.currentOrNull?.tryMake<Logger>()?.warning(

@@ -117,7 +117,9 @@ final class StripeGateway implements PaymentGateway {
 
   @override
   Future<PaymentEvent> parseWebhook(Request request) async {
-    final payload = utf8.decode(await request.bytes());
+    // Malformed UTF-8 is read as U+FFFD, so a forged body fails the
+    // signature (401) instead of the decoder (500); Stripe sends UTF-8.
+    final payload = utf8.decode(await request.bytes(), allowMalformed: true);
     verifySignature(
       payload,
       request.headers.first('stripe-signature') ?? '',

@@ -370,7 +370,7 @@ void main() {
 
     test('expired, then paid after all; unknown orders are reported', () async {
       expect(
-        await notify(midtransNotification(status: 'expire', statusCode: '407')),
+        await notify(midtransNotification(status: 'expire', statusCode: '202')),
         (200, '{"status":"applied"}'),
       );
       expect((await record()).status, PaymentStatus.expired);

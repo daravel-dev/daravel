@@ -354,6 +354,154 @@ void main() {
         isNot(contains('signature')),
       );
     });
+
+    // RSEQ 73: the signed status table comes from Midtrans' sample
+    // notifications, and every other status from its status API.
+    group('Midtrans statuses (RSEQ 73)', () {
+      Future<Response> post(Object? body, {List<int>? bytes}) => app.handle(
+        Request.fake(
+          method: 'POST',
+          path: '/payments/webhook/midtrans',
+          headers: {'content-type': 'application/json'},
+          body: bytes == null ? jsonEncode(body) : String.fromCharCodes(bytes),
+        ),
+      );
+      var statusCalls = 0;
+      // Midtrans' status API as the fake answers it.
+      Future<void> statusApi(Map<String, Object?>? answer) => app.run(() async {
+        statusCalls = 0;
+        Http.fake({
+          'app.sandbox.midtrans.com/*': Http.response({
+            'token': 'snap-token',
+            'redirect_url': 'https://app.sandbox.midtrans.com/snap/v4/x',
+          }, 201),
+          'api.sandbox.midtrans.com/*': (ClientRequest request) {
+            statusCalls++;
+            return answer == null
+                ? Http.response({'status_message': 'down'}, 500)
+                : Http.response(answer);
+          },
+        });
+      });
+      Map<String, Object?> apiAnswer(String status) => {
+        'status_code': '200',
+        'transaction_status': status,
+        'transaction_id': 'tx-1',
+        'order_id': 'ORDER-42',
+        'gross_amount': '150000.00',
+        'currency': 'IDR',
+        'payment_type': 'credit_card',
+      };
+      Future<int> logRows() => app.run(
+        () async =>
+            (await DB.table(PaymentManager.webhookLogTable).get()).length,
+      );
+
+      test('official expire and cancel notifications (202) apply', () async {
+        await order();
+        expect(
+          await notify(notification(status: 'expire', statusCode: '202')),
+          PaymentOutcome.applied.name,
+        );
+        expect(await status(), PaymentStatus.expired);
+        await app.run(
+          () => Payment.checkout(
+            const PaymentRequest(orderId: 'ORDER-43', amount: 150000),
+          ),
+        );
+        expect(
+          await notify(
+            notification(
+              orderId: 'ORDER-43',
+              status: 'cancel',
+              statusCode: '202',
+            ),
+          ),
+          PaymentOutcome.applied.name,
+        );
+        expect(await status('ORDER-43'), PaymentStatus.failed);
+      });
+
+      test('a status_code sent as a number reads as the text', () async {
+        await order();
+        final body = notification()..['status_code'] = 200;
+        // Signed over "200" either way.
+        expect(await notify(body), PaymentOutcome.applied.name);
+        expect(await status(), PaymentStatus.paid);
+      });
+
+      test(
+        'a refund is taken from the status API, not the notification',
+        () async {
+          await order();
+          expect(await notify(notification()), PaymentOutcome.applied.name);
+          await statusApi(apiAnswer('settlement'));
+          for (final code in ['201', '200']) {
+            final refund = notification(status: 'refund', statusCode: code);
+            final response = await post(refund);
+            expect(response.status, 200, reason: code);
+            expect(await status(), PaymentStatus.paid, reason: code);
+          }
+          await statusApi(apiAnswer('refund'));
+          final confirmed = notification(
+            status: 'refund',
+            statusCode: '200',
+            grossAmount: '150000.00',
+          )..['transaction_id'] = 'tx-2';
+          confirmed['signature_key'] = MidtransGateway(serverKey: serverKey)
+              .signatureFor(confirmed);
+          expect((await post(confirmed)).status, 200);
+          expect(await status(), PaymentStatus.refunded);
+        },
+      );
+
+      test('a status API that fails answers 5xx and changes nothing', () async {
+        await order();
+        await statusApi(null);
+        final rows = await logRows();
+        final response = await post(
+          notification(status: 'deny', statusCode: '202'),
+        );
+        expect(response.status, greaterThanOrEqualTo(500));
+        expect(await status(), PaymentStatus.pending);
+        expect(await logRows(), rows, reason: 'no log row');
+        expect(statusCalls, 1, reason: 'the status API was asked');
+      });
+
+      test(
+        'settlement with a fraud status other than accept is not paid',
+        () async {
+          await order();
+          expect(
+            await notify(notification(fraud: 'deny')),
+            PaymentOutcome.applied.name,
+          );
+          expect(await status(), PaymentStatus.failed);
+          await app.run(
+            () => Payment.checkout(
+              const PaymentRequest(orderId: 'ORDER-43', amount: 150000),
+            ),
+          );
+          await notify(notification(orderId: 'ORDER-43', fraud: 'challenge'));
+          expect(await status('ORDER-43'), PaymentStatus.pending);
+        },
+      );
+
+      test('bodies that are not an object answer 401, not 500', () async {
+        for (final body in [<Object?>[], 123, null, 'text']) {
+          expect((await post(body)).status, 401, reason: '$body');
+        }
+      });
+
+      test('a signed amount of NaN or Infinity answers 400', () async {
+        await order();
+        for (final amount in ['NaN', 'Infinity']) {
+          final response = await post(notification(grossAmount: amount));
+          expect(response.status, 400, reason: amount);
+        }
+        expect(await status(), PaymentStatus.pending);
+      });
+    });
   });
 
   // RSEQ 64 A: the answer to an order not stored yet.
@@ -452,5 +600,52 @@ void main() {
         );
       }
     });
+  });
+
+  // RSEQ 73 #4: a body that is not UTF-8, sent as raw bytes through a real
+  // server (Request.fake would encode it), never reaches a 500.
+  test('a body that is not UTF-8 is refused as unsigned (401)', () async {
+    Future<Object?> parse(
+      PaymentGateway gateway,
+      List<int> bytes,
+      Map<String, String> headers,
+    ) async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      Object? failure = 'parsed';
+      final handled = server.first.then((httpRequest) async {
+        try {
+          await gateway.parseWebhook(
+            Request.fromHttpRequest(httpRequest, id: 'raw'),
+          );
+        } on Object catch (error) {
+          failure = error;
+        }
+        await httpRequest.response.close();
+      });
+      final client = HttpClient();
+      final request = await client.post('127.0.0.1', server.port, '/');
+      headers.forEach(request.headers.set);
+      request.add(bytes);
+      await (await request.close()).drain<void>();
+      await handled;
+      client.close();
+      await server.close();
+      return failure;
+    }
+
+    const malformed = [0x7B, 0x22, 0x61, 0xC3, 0x28, 0x22, 0x7D];
+    expect(
+      await parse(MidtransGateway(serverKey: serverKey), malformed, const {}),
+      isA<InvalidPaymentSignatureException>(),
+    );
+    final t = Clock.now().millisecondsSinceEpoch ~/ 1000;
+    expect(
+      await parse(
+        StripeGateway(secretKey: 'sk_test_1', webhookSecret: 'whsec_test'),
+        malformed,
+        {'stripe-signature': 't=$t,v1=${'0' * 64}'},
+      ),
+      isA<InvalidPaymentSignatureException>(),
+    );
   });
 }
