@@ -143,7 +143,12 @@ abstract final class MediaLibrary {
         continue;
       }
       original ??= await Storage.disk(media.disk).getBytes(media.path());
-      final converted = await convertImage(original, conversion.manipulations);
+      final converted = await convertImage(
+        original,
+        conversion.manipulations,
+        maxPixels: config.maxImagePixels,
+        maxFrames: config.maxImageFrames,
+      );
       await target.put(path, converted);
       media.markAsConversionGenerated(conversion.name);
     }

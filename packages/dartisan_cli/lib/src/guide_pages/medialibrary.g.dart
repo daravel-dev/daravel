@@ -122,9 +122,41 @@ result of the one before, as in Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP or TIFF instead of JPEG |
 | `greyscale()`, `blur(10)` | Filters |
 
-JPEG, PNG, GIF, WebP, BMP and TIFF files are converted, after their EXIF
-rotation is applied. WebP and AVIF cannot be written: `package:image` has
-no encoder for them.
+JPEG, PNG, GIF (animated too), WebP and BMP files are converted, after
+their EXIF rotation is applied; the format is told from the content, not
+the name. TIFF and animated PNG or WebP are not converted in this version:
+such a file keeps its original and gets no conversions. WebP and AVIF
+cannot be written: `package:image` has no encoder for them.
+
+The size of an image is read from its header before it is decoded: one
+that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
+width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
+(1 000) is not converted (`ImageTooLargeException`), and the original stays
+stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
+takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
+sample), and a JPEG must have 1 or 3 color components. A conversion
+refused this way fails its job at once, without retries.
+
+The limits keep memory bounded, though not small. Converting an image at
+the default limit takes (measured peaks):
+
+| Image | Memory | Time |
+|---|---|---|
+| baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
+| the same, EXIF orientation 6 | about 130 MiB | 3.5 s |
+| progressive JPEG, 8 000 x 5 000 (with or without orientation) | about 415 MiB | 3 s |
+| PNG, 6 324 x 6 324 | about 205 MiB | 1 s |
+| PNG, 16-bit, 4 472 x 4 472 | about 205 MiB | 1 s |
+| WebP, 4 472 x 4 472 | about 170 to 175 MiB | 0.3 to 0.9 s |
+| the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
+| WebP, 4 472 x 4 472, worst measured | about 395 MiB, up to 470 MiB with orientation | 2 to 2.6 s |
+| GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
+
+A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
+The limit bounds an image's size, not memory exactly: at the default
+limit, plan about 500 MiB of memory per conversion running at once,
+whatever the size of the image, and lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
+requests.
 
 Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on
@@ -144,6 +176,8 @@ isolate, so a large photo does not hold up the requests beside it.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | The disk of collections that choose none |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |
