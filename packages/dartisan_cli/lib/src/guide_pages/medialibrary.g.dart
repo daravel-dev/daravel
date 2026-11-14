@@ -126,6 +126,13 @@ JPEG, PNG, GIF, WebP, BMP and TIFF files are converted, after their EXIF
 rotation is applied. WebP and AVIF cannot be written: `package:image` has
 no encoder for them.
 
+The size of an image is read from its header before it is decoded: one
+that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
+width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
+(1 000) is not converted (`ImageTooLargeException`), and the original stays
+stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
+takes gigabytes to decode.
+
 Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on
 the `sync` queue they run at once. The image work itself runs in a separate
@@ -144,6 +151,8 @@ isolate, so a large photo does not hold up the requests beside it.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | The disk of collections that choose none |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |

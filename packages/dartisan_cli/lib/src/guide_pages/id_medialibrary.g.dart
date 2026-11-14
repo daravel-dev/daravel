@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/medialibrary.md`.
 const String pageIdMedialibrary =
-    r'''<!-- source: medialibrary.md sha256:a2e83e3e2cf3 -->
+    r'''<!-- source: medialibrary.md sha256:54715e410fa5 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -129,6 +129,13 @@ File JPEG, PNG, GIF, WebP, BMP, dan TIFF bisa dikonversi, setelah rotasi
 EXIF-nya diterapkan. WebP dan AVIF tidak bisa ditulis: `package:image` tidak
 memiliki encoder untuk keduanya.
 
+Ukuran gambar dibaca dari header-nya sebelum didekode: gambar yang akan
+menjadi lebih dari `MEDIA_MAX_IMAGE_PIXELS` piksel (40 juta, lebar x tinggi x
+frame) atau memuat lebih dari `MEDIA_MAX_IMAGE_FRAMES` frame (1 000) tidak
+dikonversi (`ImageTooLargeException`), dan file aslinya tetap tersimpan.
+File berukuran satu megabyte bisa menyatakan 16 000 x 16 000 piksel, yang
+butuh gigabyte untuk didekode.
+
 Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau
 `QUEUE_CONVERSIONS_BY_DEFAULT=false`; di queue `sync` konversi langsung
@@ -148,6 +155,8 @@ foto besar tidak menahan request lain.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | Disk untuk collection yang tidak memilih disk |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | Ukuran file terbesar, dalam byte |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | Jumlah piksel terbanyak hasil dekode gambar untuk konversinya |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | Jumlah frame terbanyak sebuah gambar untuk konversinya |
 | `MEDIA_QUEUE` | queue default | Queue untuk job konversi |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Konversi tanpa `nonQueued()` dijalankan di queue |
 | `MEDIA_PREFIX` | tidak ada | Direktori di depan setiap direktori media |

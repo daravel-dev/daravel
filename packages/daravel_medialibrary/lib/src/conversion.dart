@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import 'config.dart';
+
 /// How [Conversion.fit] fits an image into a box (spatie/image's `Fit`).
 enum Fit {
   /// Within the box, aspect ratio kept; may upsize.
@@ -230,7 +232,7 @@ final class Conversion {
 }
 
 /// Thrown when an image cannot be decoded or a manipulation is invalid.
-final class ImageConversionException implements Exception {
+base class ImageConversionException implements Exception {
   /// An image could not be converted: [message].
   const ImageConversionException(this.message);
 
@@ -238,7 +240,16 @@ final class ImageConversionException implements Exception {
   final String message;
 
   @override
-  String toString() => 'ImageConversionException: $message';
+  String toString() => '$runtimeType: $message';
+}
+
+/// An image whose header declares more pixels or frames than the media
+/// library converts (`MediaLibraryConfig.maxImagePixels`,
+/// `maxImageFrames`); the original stays stored, its conversions are not
+/// made.
+final class ImageTooLargeException extends ImageConversionException {
+  /// The image was refused for [message].
+  const ImageTooLargeException(super.message);
 }
 
 /// Whether `package:image` can decode files of [mimeType] or with
@@ -264,23 +275,61 @@ bool canConvert({String? mimeType, String? extension}) {
 /// Applies [manipulations] (from [Conversion.manipulations]) to the image
 /// in [bytes] and encodes the result, in a separate isolate so decoding and
 /// resizing do not hold up the event loop.
+///
+/// The image's size is read from its header first: one that would decode
+/// to more than [maxPixels] pixels (width x height x frames) or hold more
+/// than [maxFrames] frames throws [ImageTooLargeException] before anything
+/// is decoded. An isolate shares its process's memory, so a small file
+/// that declares 16 000 x 16 000 pixels would take gigabytes otherwise.
 Future<Uint8List> convertImage(
   Uint8List bytes,
-  Map<String, List<Object?>> manipulations,
-) => Isolate.run(() => convertImageSync(bytes, manipulations));
+  Map<String, List<Object?>> manipulations, {
+  int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
+  int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
+}) => Isolate.run(
+  () => convertImageSync(
+    bytes,
+    manipulations,
+    maxPixels: maxPixels,
+    maxFrames: maxFrames,
+  ),
+);
 
 /// [convertImage] on the calling isolate.
 Uint8List convertImageSync(
   Uint8List bytes,
-  Map<String, List<Object?>> manipulations,
-) {
-  final decoded = img.decodeImage(bytes);
+  Map<String, List<Object?>> manipulations, {
+  int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
+  int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
+}) {
+  final decoder = img.findDecoderForData(bytes);
+  final info = decoder?.startDecode(bytes);
+  if (decoder == null || info == null) {
+    throw const ImageConversionException('The file is not a known image.');
+  }
+  final frames = math.max(1, info.numFrames);
+  // Each factor first, so the product cannot overflow.
+  if (frames > maxFrames ||
+      info.width > maxPixels ||
+      info.height > maxPixels ||
+      info.width * info.height > maxPixels ~/ frames) {
+    throw ImageTooLargeException(
+      'The image is ${info.width} x ${info.height} pixels in $frames '
+      'frame(s), past the limit of $maxPixels pixels and $maxFrames frames '
+      '(MEDIA_MAX_IMAGE_PIXELS, MEDIA_MAX_IMAGE_FRAMES); it was not '
+      'converted.',
+    );
+  }
+  final decoded = decoder.decode(bytes);
   if (decoded == null) {
     throw const ImageConversionException('The file is not a known image.');
   }
   // Camera photos carry their rotation in EXIF; apply it, as Spatie's
-  // drivers do on load.
-  var image = img.bakeOrientation(decoded);
+  // drivers do on load. Only when there is one to apply: baking copies the
+  // whole image.
+  var image = (decoded.exif.imageIfd.orientation ?? 1) == 1
+      ? decoded
+      : img.bakeOrientation(decoded);
   int? quality;
   var format = 'jpg';
   for (final MapEntry(key: name, value: args) in manipulations.entries) {

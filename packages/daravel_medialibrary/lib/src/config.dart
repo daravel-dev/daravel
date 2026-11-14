@@ -12,6 +12,8 @@ final class MediaLibraryConfig implements ConfigSection {
     this.prefix = '',
     this.versionUrls = false,
     this.disallowedExtensions = defaultDisallowedExtensions,
+    this.maxImagePixels = defaultMaxImagePixels,
+    this.maxImageFrames = defaultMaxImageFrames,
   });
 
   /// The settings in `MEDIA_*`.
@@ -27,6 +29,14 @@ final class MediaLibraryConfig implements ConfigSection {
       ),
       prefix: env.string('MEDIA_PREFIX', ''),
       versionUrls: env.boolean('MEDIA_VERSION_URLS', false),
+      maxImagePixels: env.integer(
+        'MEDIA_MAX_IMAGE_PIXELS',
+        defaultMaxImagePixels,
+      ),
+      maxImageFrames: env.integer(
+        'MEDIA_MAX_IMAGE_FRAMES',
+        defaultMaxImageFrames,
+      ),
     );
   }
 
@@ -39,6 +49,24 @@ final class MediaLibraryConfig implements ConfigSection {
     'htaccess', 'htpasswd', //
     'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
   ];
+
+  /// [maxImagePixels] by default: 40 million, a 7 300 x 5 500 photo (a
+  /// 24 MP camera fits with room), about 160 MiB once decoded to RGBA.
+  static const int defaultMaxImagePixels = 40000000;
+
+  /// [maxImageFrames] by default.
+  static const int defaultMaxImageFrames = 1000;
+
+  /// The most pixels an image may decode to before its conversions run
+  /// (`MEDIA_MAX_IMAGE_PIXELS`): width x height x frames, read from the
+  /// file's header before anything is decoded. A larger image is not
+  /// converted (`ImageTooLargeException`); the original stays stored. A
+  /// small PNG can declare 16 000 x 16 000 pixels, 1 GiB once decoded.
+  final int maxImagePixels;
+
+  /// The most frames an image may hold before its conversions run
+  /// (`MEDIA_MAX_IMAGE_FRAMES`, 1 000), read from the header as well.
+  final int maxImageFrames;
 
   /// The disk of files that choose none (`MEDIA_DISK`, `public`).
   final String diskName;
