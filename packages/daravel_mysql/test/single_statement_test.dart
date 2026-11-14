@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 
 import 'package:mysql_dart/exception.dart';
+import 'package:daravel/daravel.dart' show NulInSqlException;
 import 'package:daravel_mysql/daravel_mysql.dart';
 import 'package:test/test.dart';
 
@@ -140,6 +141,43 @@ void main() {
       await db.select(text);
       await db.execute(
         "/*M!100100 SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES' */",
+      );
+      await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
+      expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [
+        {'c': 0},
+      ]);
+    },
+  );
+
+  test('SQL holding a NUL is refused before it is sent: the server read the '
+      'NUL as the end and ran what came before (RSEQ 52 #1)', () async {
+    final nul = String.fromCharCode(0);
+    for (final run in <Future<Object?> Function()>[
+      () => db.select('SELECT 1${nul}junk'),
+      () => db.execute(
+        'INSERT INTO db1_single VALUES (1);${nul}INSERT INTO db1_single '
+        'VALUES (2)',
+      ),
+      () => db.unprepared(
+        'INSERT INTO db1_single VALUES (3);${nul}INSERT INTO db1_single '
+        'VALUES (4)',
+      ),
+    ]) {
+      await expectLater(run(), throwsA(isA<NulInSqlException>()));
+    }
+    expect(await db.select('SELECT n FROM db1_single'), isEmpty);
+  });
+
+  test(
+    'a SET after an empty executable comment is noticed (RSEQ 52 #3)',
+    () async {
+      await db.execute('DROP TABLE IF EXISTS db1_victim');
+      await db.execute('CREATE TABLE db1_victim (n INT)');
+      addTearDown(() => db.unprepared('DROP TABLE IF EXISTS db1_victim'));
+      const text = r"SELECT 'a\'; DROP TABLE db1_victim; -- ' AS v";
+      await db.select(text);
+      await db.execute(
+        "/*!40101*/ SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'",
       );
       await expectLater(db.select(text), throwsA(isA<MySQLServerException>()));
       expect(await db.select('SELECT COUNT(*) AS c FROM db1_victim'), [

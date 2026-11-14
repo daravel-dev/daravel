@@ -1,4 +1,4 @@
-<!-- source: database.md sha256:951406abf412 -->
+<!-- source: database.md sha256:02b048561000 -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -661,6 +661,11 @@ await DB.unprepared('''
 Di `DB.unprepared` tidak ada yang di-bind, jadi jangan pernah memasukkan
 input ke SQL-nya; `dartisan lint` menandai interpolasi di sana seperti di
 tempat lain.
+
+Placeholder di SQL mentah yang memakai binding (`?`, `:name`) dicari dengan
+pemindaian yang mengenal tanda kutip, tetapi tidak mengenal escape backslash
+MySQL (`'it\'s'`) atau komentar: di SQL seperti itu, jangan menulis literal
+ber-`\'` atau `:name` di dalam komentar, dan kirim nilai sebagai binding.
 
 - MySQL dan MariaDB memeriksa setiap teks statement baru yang dikirim tanpa
   binding dengan sebuah prepare yang langsung ditutup, lalu mengingat teks

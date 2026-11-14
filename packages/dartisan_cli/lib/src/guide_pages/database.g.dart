@@ -645,6 +645,11 @@ await DB.unprepared('''
 Nothing is bound in `DB.unprepared`, so never put input in its SQL;
 `dartisan lint` flags interpolation there as everywhere else.
 
+The placeholders of raw SQL with bindings (`?`, `:name`) are found by a
+scan that knows quotes but not MySQL's backslash escape (`'it\'s'`) or
+comments: in such SQL, write no literal with `\'` and no `:name` inside a
+comment, and pass values as bindings.
+
 - MySQL and MariaDB check each new statement text sent without bindings
   with a prepare, closed at once, and remember the texts a connection
   checked (256 per connection, up to 4 096 characters each). A repeated

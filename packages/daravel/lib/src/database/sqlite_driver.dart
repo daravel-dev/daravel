@@ -241,8 +241,8 @@ final class SqliteDriver
       await _waitTurn();
     }
     final db = _database;
-    _runOne(db, sql, bindings);
-    return db.updatedRows;
+    // Nothing ran: 0, not the count of the statement before.
+    return _runOne(db, sql, bindings) ? db.updatedRows : 0;
   }
 
   @override
@@ -254,8 +254,8 @@ final class SqliteDriver
       await _waitTurn();
     }
     final db = _database;
-    _runOne(db, sql, bindings);
-    return db.lastInsertRowId;
+    // Nothing ran: no id, not the one of the statement before.
+    return _runOne(db, sql, bindings) ? db.lastInsertRowId : null;
   }
 
   /// Runs [sql] with `sqlite3_exec`, several statements included
@@ -265,6 +265,7 @@ final class SqliteDriver
     if (_mustWait) {
       await _waitTurn();
     }
+    _checkNoNul(sql);
     _database.execute(sql);
   }
 
@@ -276,14 +277,15 @@ final class SqliteDriver
   /// safer side of that difference, and `DB.unprepared` runs a script.
   ///
   /// SQL holding no statement (empty, blanks, a comment, `;`) without
-  /// bindings does nothing and affects no row, as `sqlite3_exec` did.
-  void _runOne(Database db, String sql, List<Object?> bindings) {
+  /// bindings does nothing, as `sqlite3_exec` did; the result is whether a
+  /// statement ran.
+  bool _runOne(Database db, String sql, List<Object?> bindings) {
     final PreparedStatement statement;
     try {
       statement = _oneStatement(sql, () => db.prepare(sql, checkNoTail: true));
-    } on _NoStatement {
+    } on NoStatementException {
       if (bindings.isEmpty) {
-        return;
+        return false;
       }
       rethrow;
     }
@@ -292,16 +294,32 @@ final class SqliteDriver
     } finally {
       statement.close();
     }
+    return true;
+  }
+
+  /// Refuses [sql] holding a NUL character before `package:sqlite3` sees
+  /// it: its statement loop stopped advancing at the NUL and spun for ever
+  /// (`select`, and `execute` through a prepare), and `sqlite3_exec`
+  /// silently ran only what came before it.
+  static void _checkNoNul(String sql) {
+    if (sql.contains(String.fromCharCode(0))) {
+      throw const NulInSqlException(
+        'SQLite refused SQL holding a NUL character.',
+      );
+    }
   }
 
   /// [body], with the `ArgumentError`s `package:sqlite3` throws for the
   /// shape of the SQL turned into exceptions the connection reports as a
   /// `QueryException` like any refused query: a second statement becomes
   /// a [MultipleStatementsException], no statement at all a
-  /// [_NoStatement]. The errors are recognised by their argument name and
-  /// wording; statement_stacking_test.dart is what notices when an update
-  /// of `package:sqlite3` changes them.
+  /// [NoStatementException], and SQL holding a NUL is a
+  /// [NulInSqlException] before the package sees it. The errors are
+  /// recognised by their argument name and wording;
+  /// statement_stacking_test.dart is what notices when an update of
+  /// `package:sqlite3` changes them.
   static T _oneStatement<T>(String sql, T Function() body) {
+    _checkNoNul(sql);
     try {
       return body();
     } on ArgumentError catch (error) {
@@ -314,7 +332,9 @@ final class SqliteDriver
           );
         }
         if (message.contains('Must contain')) {
-          throw const _NoStatement();
+          throw const NoStatementException(
+            'SQLite found no statement in the SQL.',
+          );
         }
       }
       rethrow;
@@ -391,12 +411,4 @@ final class SqliteDriver
         _ => value,
       },
   ];
-}
-
-/// SQL holding no statement (empty, blanks, comments, `;`).
-final class _NoStatement implements Exception {
-  const _NoStatement();
-
-  @override
-  String toString() => 'SQLite: the SQL holds no statement.';
 }

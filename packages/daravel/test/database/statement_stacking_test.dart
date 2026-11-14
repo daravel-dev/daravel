@@ -78,9 +78,12 @@ void statementStackingTests(DatabaseOpener open) {
       markTestSkipped('SQLite only');
       return;
     }
+    // A statement that changed rows and made an id first: the no-op must
+    // not report those as its own (RSEQ 52 #2).
+    await db.statement('INSERT INTO $table (n) VALUES (1)');
     for (final sql in ['', '  ', '-- why', '/* why */', ';']) {
       expect(await db.statement(sql), 0, reason: '"$sql"');
-      expect(await db.insertGetId(sql), anything, reason: '"$sql"');
+      expect(await db.insertGetId(sql), isNull, reason: '"$sql"');
       await expectLater(
         db.select(sql),
         throwsA(isA<QueryException>()),

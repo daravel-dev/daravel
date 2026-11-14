@@ -295,18 +295,40 @@ abstract interface class UnpreparedExecutor {
       };
 }
 
-/// SQL holding several statements where `select`, `statement` or
-/// `insertGetId` run one (SQLite's; MySQL and PostgreSQL refuse it with
-/// their own syntax error). Run a script with `DB.unprepared`.
-final class MultipleStatementsException implements Exception {
-  /// The SQL was refused for [message].
-  const MultipleStatementsException(this.message);
+/// SQL text a driver refused for its shape before the database saw it
+/// (SQLite's); the connection reports it as a `QueryException`.
+sealed class SqlTextException implements Exception {
+  const SqlTextException(this.message);
 
   /// What was refused.
   final String message;
 
   @override
-  String toString() => 'MultipleStatementsException: $message';
+  String toString() => '$runtimeType: $message';
+}
+
+/// SQL holding several statements where `select`, `statement` or
+/// `insertGetId` run one (SQLite's; MySQL and PostgreSQL refuse it with
+/// their own syntax error). Run a script with `DB.unprepared`.
+final class MultipleStatementsException extends SqlTextException {
+  /// The SQL was refused for [message].
+  const MultipleStatementsException(super.message);
+}
+
+/// SQL holding no statement (empty, blanks, a comment, `;`) given
+/// bindings, or to `select` (SQLite's). Without bindings, `statement` and
+/// `insertGetId` treat it as nothing to do.
+final class NoStatementException extends SqlTextException {
+  /// The SQL was refused for [message].
+  const NoStatementException(super.message);
+}
+
+/// SQL holding a NUL character (code unit 0), refused before it reaches
+/// SQLite: `package:sqlite3` looped for ever on it in `select`, and
+/// `sqlite3_exec` silently stopped at it.
+final class NulInSqlException extends SqlTextException {
+  /// The SQL was refused for [message].
+  const NulInSqlException(super.message);
 }
 
 /// A driver that recognises a unique index or primary key refusing a row

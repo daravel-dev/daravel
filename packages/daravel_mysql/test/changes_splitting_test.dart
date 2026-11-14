@@ -23,6 +23,18 @@ void main() {
       'BEGIN NOT ATOMIC SET sql_mode = ""; END',
       'begin\n  not   atomic select 1; end',
       'SET STATEMENT max_statement_time = 1 FOR SELECT 1',
+      // RSEQ 52: an executable comment that is empty or closes before the
+      // keyword.
+      '/*!40101*/ SET NAMES latin1',
+      '/*!*/ SET NAMES latin1',
+      '/*!40101 */ SET sql_mode = ""',
+      '/*!40101*/ CALL p()',
+      '/*!40101*/ EXECUTE s',
+      '/*M!100616*/ SET sql_mode = ""',
+      '/*!40101 /* inner */ SET x = 1 */',
+      'BEGIN /*c*/ NOT ATOMIC SELECT 1; END',
+      'BEGIN -- c\n NOT ATOMIC SELECT 1; END',
+      'BEGIN # c\n NOT /* c */ ATOMIC SELECT 1; END',
     ]) {
       expect(MySqlDriver.changesSplitting(sql), isTrue, reason: sql);
     }
@@ -39,7 +51,6 @@ void main() {
       '--set x', // not a comment without a blank after the dashes
       '/* unterminated SET',
       '/*M SET x = 1 */', // not executable without the !
-      'BEGIN /* c */ NOT ATOMIC SELECT 1; END', // a known limit
       '-- only a comment',
       '',
     ]) {

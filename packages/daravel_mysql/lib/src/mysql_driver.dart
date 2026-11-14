@@ -792,22 +792,43 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   /// A known limit: a trigger or stored function that sets `sql_mode`,
   /// fired by an ordinary statement, is not noticed. The manual says they
   /// run with the mode they were created with, not whether the caller's
-  /// is restored. Neither is a comment between the words of `BEGIN NOT
-  /// ATOMIC` (`BEGIN /* c */ NOT ATOMIC`).
+  /// is restored.
   ///
   /// One pass over the text, without a regular expression: a pattern
   /// skipping repeated comments backtracked exponentially (26 empty
   /// comments took 14 s).
   static bool changesSplitting(String sql) {
+    final first = _word(sql, _skipIgnored(sql, 0));
+    switch (first.word) {
+      case 'set' || 'call' || 'execute':
+        return true;
+      case 'begin':
+        final second = _word(sql, _skipIgnored(sql, first.end));
+        return second.word == 'not' &&
+            _word(sql, _skipIgnored(sql, second.end)).word == 'atomic';
+      default:
+        return false;
+    }
+  }
+
+  /// The index of the first code unit at or after [start] that is not a
+  /// blank or part of a comment: `/* */`, `#` and `-- ` (MySQL wants a
+  /// blank after the dashes) to the end of the line. An executable
+  /// comment's opening (`/*!`, MariaDB's `/*M!`, each with an optional
+  /// version) and its closing `*/` are skipped and its content read, since
+  /// the server runs it: `/*!40101*/ SET` is a `SET`. An unterminated
+  /// comment ends the text.
+  static int _skipIgnored(String sql, int start) {
     final n = sql.length;
-    var i = 0;
+    var i = start;
     while (i < n) {
       final c = sql.codeUnitAt(i);
-      if (c == 0x20 || (c >= 0x09 && c <= 0x0d)) {
+      if (_isBlank(c)) {
         i++;
+      } else if (c == 0x2a && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2f) {
+        // The `*/` of an executable comment read into.
+        i += 2;
       } else if (c == 0x2f && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2a) {
-        // `/*!` (MySQL and MariaDB) or `/*M!` (MariaDB only), each with an
-        // optional version: the content runs, so read on inside.
         final executable = i + 2 < n && sql.codeUnitAt(i + 2) == 0x21
             ? 3
             : i + 3 < n &&
@@ -823,7 +844,7 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
         } else {
           final end = sql.indexOf('*/', i + 2);
           if (end < 0) {
-            return false;
+            return n;
           }
           i = end + 2;
         }
@@ -832,38 +853,16 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
               i + 1 < n &&
               sql.codeUnitAt(i + 1) == 0x2d &&
               (i + 2 == n || _isBlank(sql.codeUnitAt(i + 2))))) {
-        // `#` or `-- ` (MySQL wants a blank after the dashes): to the end
-        // of the line.
         final end = sql.indexOf('\n', i);
         if (end < 0) {
-          return false;
+          return n;
         }
         i = end + 1;
       } else {
         break;
       }
     }
-    final first = _word(sql, i);
-    switch (first.word) {
-      case 'set' || 'call' || 'execute':
-        return true;
-      case 'begin':
-        var j = first.end;
-        while (j < n && _isBlank(sql.codeUnitAt(j))) {
-          j++;
-        }
-        final second = _word(sql, j);
-        if (second.word != 'not') {
-          return false;
-        }
-        j = second.end;
-        while (j < n && _isBlank(sql.codeUnitAt(j))) {
-          j++;
-        }
-        return _word(sql, j).word == 'atomic';
-      default:
-        return false;
-    }
+    return i;
   }
 
   static bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
@@ -916,6 +915,9 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
       if (error.errorCode != 1295) {
         rethrow;
       }
+      // Not verified as one statement, so not remembered: it is asked
+      // about every time it runs.
+      return;
     }
     if (sql.length <= MySqlDriver.singleStatementMaxLength) {
       seen.add(sql, MySqlDriver.singleStatementCacheSize);
@@ -957,6 +959,15 @@ final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
     List<Object?> bindings, {
     bool checked = true,
   }) async {
+    // The server reads a NUL as the end of the text: SELECT 1 followed by
+    // a NUL and junk answered as SELECT 1, and two INSERTs split by a NUL
+    // passed the prepare check, ran the first and then failed. Refused
+    // before anything is sent, on every path.
+    if (sql.contains(String.fromCharCode(0))) {
+      throw const NulInSqlException(
+        'MySQL refused SQL holding a NUL character.',
+      );
+    }
     // Before it runs: a SET that fails half-way may still have changed
     // the session.
     _forgetChecked(sql);
