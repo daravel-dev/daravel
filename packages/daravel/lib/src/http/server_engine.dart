@@ -621,27 +621,14 @@ final class ServerEngine {
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
-  /// Upgrades [httpRequest] (its middleware has passed); null when it is
-  /// not a WebSocket request, which gets `426 Upgrade Required`, or the
-  /// upgrade fails.
+  /// Upgrades [httpRequest] after [_handle] selected an upgrade; null when
+  /// the upgrade fails. Ordinary refusals use the normal response path.
   Future<WebSocket?> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
     String id,
   ) async {
-    if (!WebSocketTransformer.isUpgradeRequest(httpRequest) || _stopping) {
-      final refusal = Response.json(const <String, Object?>{
-        'message': 'Upgrade Required',
-      }, status: 426).withHeader('upgrade', 'websocket');
-      try {
-        await refusal.writeTo(httpRequest.response);
-      } catch (_) {
-        // Client gone.
-      }
-      await kernel.terminate(request, refusal);
-      return null;
-    }
     // The server reads the frames itself (WebSocketGuard): a message is
     // limited as a whole, fragments are assembled before the WebSocket
     // reads them, control frames are rate limited, and what waits to be
@@ -920,6 +907,13 @@ final class ServerEngine {
                   response = laravelErrorResponse(const <String, Object?>{
                     'message': 'Server Error',
                   }, status: 500);
+                }
+                if (response.webSocket != null &&
+                    (!WebSocketTransformer.isUpgradeRequest(raw!) ||
+                        _stopping)) {
+                  response = Response.json(const <String, Object?>{
+                    'message': 'Upgrade Required',
+                  }, status: 426).withHeader('upgrade', 'websocket');
                 }
                 final onSocket = response.webSocket;
                 if (onSocket != null) {
