@@ -29,6 +29,11 @@ events.listen<PaymentPaid>((paid) => fulfil(paid.payment.orderId));
 
 - **Midtrans** Snap (QRIS, virtual accounts, e-wallets, cards); notifications
   checked with `SHA512(order_id + status_code + gross_amount + server key)`.
+  Every verified notification obtains its event from the status API for
+  the authenticated order, with one transaction-id fallback on a missing
+  result. API failures answer 5xx. Lookups run one at a time per order,
+  sharing the next lookup among arrivals; completed results are not cached.
+  Fake the status endpoint in webhook tests and configure ingress rate limits.
 - **Xendit** invoices; callbacks checked with the `x-callback-token`.
 - **Stripe** Checkout; webhooks checked with the `v1` HMAC-SHA256 of the
   timestamped body, five minutes of tolerance.
@@ -39,6 +44,8 @@ events.listen<PaymentPaid>((paid) => fulfil(paid.payment.orderId));
   the gateway retries it.
 - `Payment.fake()` for tests, `dartisan payment:check <order>` for a missed
   webhook.
+- Order and event ids allow 255 Unicode characters. Log payloads above
+  65,535 UTF-8 bytes store a size marker; event raw data remains available.
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/payments.md>.
 

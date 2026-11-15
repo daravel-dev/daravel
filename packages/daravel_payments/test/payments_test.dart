@@ -272,10 +272,12 @@ void main() {
     late Directory dir;
     late Application app;
     late List<Object> events;
+    Map<String, Object?> apiStatus = {};
 
     setUp(() async {
       dir = Directory.systemTemp.createTempSync('daravel_payments_');
       events = [];
+      apiStatus = midtransNotification()..remove('signature_key');
       app = Application.configure(basePath: dir.path)
           .withEnv({
             'APP_ENV': 'testing',
@@ -301,6 +303,8 @@ void main() {
             'redirect_url':
                 'https://app.sandbox.midtrans.com/snap/v4/redirection/x',
           }, 201),
+          'api.sandbox.midtrans.com/*': (ClientRequest request) =>
+              Http.response(apiStatus),
         });
         await Payment.checkout(
           const PaymentRequest(orderId: 'ORDER-42', amount: 150000),
@@ -352,6 +356,7 @@ void main() {
 
     test('a signed amount that is not the order\'s changes nothing', () async {
       final short = midtransNotification(grossAmount: '1500.00');
+      apiStatus = short;
       expect(await notify(short), (200, '{"status":"amountMismatch"}'));
       expect((await record()).status, PaymentStatus.pending);
       expect(events.single, isA<PaymentAmountMismatch>());
@@ -364,6 +369,7 @@ void main() {
         statusCode: '201',
         transactionId: 'tx-1',
       );
+      apiStatus = late;
       expect(await notify(late), (200, '{"status":"ignored"}'));
       expect((await record()).status, PaymentStatus.paid);
     });
@@ -387,6 +393,13 @@ void main() {
         (200, '{"status":"applied"}'),
       );
       expect((await record()).status, PaymentStatus.expired);
+      await app.run(() async {
+        Http.fake({
+          'api.sandbox.midtrans.com/*': Http.response(
+            midtransNotification(orderId: 'ORDER-404'),
+          ),
+        });
+      });
       // 409, so the gateway sends it again once the order exists.
       expect(await notify(midtransNotification(orderId: 'ORDER-404')), (
         409,

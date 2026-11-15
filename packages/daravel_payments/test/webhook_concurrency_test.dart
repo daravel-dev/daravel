@@ -74,6 +74,10 @@ void main() {
           final schema = await Schema.builder();
           await const CreatePaymentTables().down(schema);
           await const CreatePaymentTables().up(schema);
+          Http.fake({
+            'api.sandbox.midtrans.com/*': (ClientRequest request) =>
+                Http.response(notification(request.url.pathSegments[1])),
+          });
         });
       });
       tearDown(() async {

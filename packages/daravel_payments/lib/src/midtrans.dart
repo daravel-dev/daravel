@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
@@ -112,40 +113,69 @@ final class MidtransGateway implements PaymentGateway {
   }
 
   @override
-  Future<PaymentEvent> status(String orderId, {String? reference}) async {
-    final response = await _http.get(
+  Future<PaymentEvent> status(String orderId, {String? reference}) =>
+      _readStatus(orderId, allowMissing: true);
+
+  Future<PaymentEvent> _readStatus(
+    String orderId, {
+    bool allowMissing = false,
+    String? transactionHint,
+    String eventPrefix = 'status:',
+  }) async {
+    var response = await _http.get(
       '$_api/v2/${Uri.encodeComponent(orderId)}/status',
     );
-    final body = apiObject(response, 'Midtrans status');
-    // Midtrans answers 200 with status_code "404" until the customer has
-    // chosen a payment method on the Snap page.
-    if (_code(body['status_code']) == '404') {
-      return PaymentEvent(
-        gateway: name,
-        eventId: 'status:$orderId:-:pending',
-        orderId: orderId,
-        status: PaymentStatus.pending,
-        amount: null,
-        raw: body,
-      );
+    var body = apiObject(response, 'Midtrans status');
+    final missing =
+        (response.successful || response.status == 404) &&
+        _code(body['status_code']) == '404' &&
+        !body.containsKey('transaction_status');
+    if (missing) {
+      if (allowMissing) {
+        return PaymentEvent(
+          gateway: name,
+          eventId: 'status:$orderId:-:pending',
+          orderId: orderId,
+          status: PaymentStatus.pending,
+          amount: null,
+          raw: body,
+        );
+      }
+      if (transactionHint != null) {
+        // The reference selects a lookup; the returned order still has to
+        // be the authenticated order below.
+        response = await _http.get(
+          '$_api/v2/${Uri.encodeComponent(transactionHint)}/status',
+        );
+        body = apiObject(response, 'Midtrans status');
+      }
     }
-    if (!response.successful) {
+    final status = body['transaction_status'];
+    final transaction = body['transaction_id'];
+    final code = _code(body['status_code']);
+    final successCode =
+        code != null &&
+        code.length == 3 &&
+        code.startsWith('2') &&
+        code.codeUnitAt(1) >= 0x30 &&
+        code.codeUnitAt(1) <= 0x39 &&
+        code.codeUnitAt(2) >= 0x30 &&
+        code.codeUnitAt(2) <= 0x39;
+    if (!response.successful ||
+        body['order_id'] is! String ||
+        body['order_id'] != orderId ||
+        status is! String ||
+        status.trim().isEmpty ||
+        transaction is! String ||
+        transaction.trim().isEmpty ||
+        !(successCode || (code == '407' && status == 'expire'))) {
       throw PaymentGatewayException(
-        'Midtrans status failed (${response.status}).',
+        'Midtrans status did not provide a complete transaction response.',
         status: response.status,
         body: response.body,
       );
     }
-    // The answer must be about the order asked for: anything else is not
-    // applied to it.
-    if ('${body['order_id']}' != orderId) {
-      throw PaymentGatewayException(
-        'Midtrans status for $orderId answered for another order.',
-        status: response.status,
-        body: response.body,
-      );
-    }
-    return _event(body, prefix: 'status:', fromApi: true);
+    return _event(body, prefix: eventPrefix);
   }
 
   @override
@@ -169,117 +199,79 @@ final class MidtransGateway implements PaymentGateway {
         !constantTimeEquals(signature.toLowerCase(), signatureFor(body))) {
       throw const InvalidPaymentSignatureException();
     }
-    // The signature covers order_id, status_code and gross_amount only.
-    // Every other field is read as text or refused (400), whichever path
-    // follows, and the transaction id must be there.
-    final event = _event(body);
+    final orderId = notificationText(body, 'order_id');
+    if (orderId == null ||
+        orderId.trim().isEmpty ||
+        orderId.runes.take(256).length > 255) {
+      throw const BadRequestHttpException(
+        'A payment order identifier must contain 1 to 255 characters.',
+      );
+    }
     final transaction = notificationText(body, 'transaction_id');
     if (transaction == null || transaction.trim().isEmpty) {
       throw const BadRequestHttpException(
         'A Midtrans notification without its transaction_id.',
       );
     }
-    final transactionStatus = notificationText(body, 'transaction_status');
-    final fraud = notificationText(body, 'fraud_status');
-    // One thing is taken from the notification itself: a payment, which
-    // Midtrans signs with status_code 200 and whose amount is signed.
-    // pending moves no payment and is taken as it is too.
-    if (((transactionStatus == 'settlement' ||
-                transactionStatus == 'capture') &&
-            _code(body['status_code']) == '200' &&
-            (fraud == null || fraud == 'accept')) ||
-        transactionStatus == 'pending') {
-      return requireAmountWhenPaid(event);
+    for (final field in [
+      'transaction_status',
+      'fraud_status',
+      'currency',
+      'payment_type',
+      'transaction_time',
+      'settlement_time',
+    ]) {
+      notificationText(body, field);
     }
-    // Everything else (expire, cancel, deny, refund, partial_refund,
-    // chargeback, authorize, failure, a fraud status other than accept, a
-    // status_code other than the one a payment comes with, a status not
-    // known) is taken from Midtrans' status API, not from the notification.
-    // The event id is the one a genuine notification of the answered
-    // status carries (this order, the API's transaction, that status and
-    // fraud status), so that notification is a duplicate when it comes and
-    // a later status is an event of its own. An API that fails answers
-    // 5xx, and nothing is applied.
-    final confirmed = await _confirm(
-      event.orderId,
-      signature.toLowerCase(),
-      transactionStatus,
-    );
-    final answered = switch (confirmed.raw['transaction_status']) {
-      final String status => status,
-      _ => 'pending',
-    };
-    final answeredFraud = confirmed.raw['fraud_status'];
-    return requireAmountWhenPaid(
-      PaymentEvent(
-        gateway: confirmed.gateway,
-        eventId:
-            '${event.orderId}:${confirmed.reference ?? '-'}:$answered'
-            '${answeredFraud is String ? ':$answeredFraud' : ''}',
-        orderId: event.orderId,
-        status: confirmed.status,
-        amount: confirmed.amount,
-        currency: confirmed.currency,
-        paymentType: confirmed.paymentType,
-        reference: confirmed.reference,
-        occurredAt: confirmed.occurredAt,
-        raw: confirmed.raw,
-      ),
-    );
+    return requireAmountWhenPaid(await _confirm(orderId, transaction));
   }
 
-  /// How long a status API answer is reused for the same signed
-  /// notification: a notification Midtrans signed can be posted again and
-  /// again, and each would otherwise call the status API.
-  static const Duration confirmationWindow = Duration(seconds: 60);
+  final Map<String, _StatusLookups> _lookups = {};
 
-  /// How many answers are kept for [confirmationWindow], per gateway in
-  /// each isolate; the oldest goes first.
-  static const int confirmationMemoSize = 1000;
+  Future<PaymentEvent> _confirm(String orderId, String transactionHint) {
+    final existing = _lookups[orderId];
+    if (existing != null) {
+      final previous = existing.active;
+      final next = existing.next ??= SharedResult(() async {
+        await previous.done;
+        return _readStatus(
+          orderId,
+          transactionHint: transactionHint,
+          eventPrefix: '',
+        );
+      });
+      return next.value;
+    }
+    final active = SharedResult(
+      () => _readStatus(
+        orderId,
+        transactionHint: transactionHint,
+        eventPrefix: '',
+      ),
+    );
+    final state = _StatusLookups(active);
+    _lookups[orderId] = state;
+    unawaited(active.done.then((_) => _lookupFinished(orderId, state, active)));
+    return active.value;
+  }
 
-  final Map<String, ({DateTime at, PaymentEvent event})> _confirmations = {};
-
-  /// The status API's answer for [orderId], reused for
-  /// [confirmationWindow] when the same signed notification (its
-  /// [signature]) of the same kind of status comes again. The kind keeps
-  /// two genuine notifications that share a signature apart (`expire` and
-  /// `cancel` are both signed 202 for the same amount); a status not known
-  /// is one kind, so a notification posted under endless made-up statuses
-  /// calls the API once per window. A failed call is not kept. Calls are
-  /// not shared while they run: deliveries of one notification at the same
-  /// moment each call the API once, before the first answer is kept.
-  Future<PaymentEvent> _confirm(
+  void _lookupFinished(
     String orderId,
-    String signature,
-    String? transactionStatus,
-  ) async {
-    final kind = switch (transactionStatus) {
-      'capture' ||
-      'settlement' ||
-      'pending' ||
-      'deny' ||
-      'cancel' => '$transactionStatus',
-      'expire' ||
-      'refund' ||
-      'partial_refund' ||
-      'chargeback' => '$transactionStatus',
-      'partial_chargeback' || 'authorize' || 'failure' => '$transactionStatus',
-      _ => 'other',
-    };
-    final key = '$orderId\n$signature\n$kind';
-    final now = Clock.now();
-    final kept = _confirmations[key];
-    if (kept != null && now.difference(kept.at) < confirmationWindow) {
-      return kept.event;
+    _StatusLookups state,
+    SharedResult<PaymentEvent> completed,
+  ) {
+    if (!identical(_lookups[orderId], state) ||
+        !identical(state.active, completed)) {
+      return;
     }
-    final answer = await status(orderId);
-    _confirmations
-      ..remove(key)
-      ..[key] = (at: now, event: answer);
-    while (_confirmations.length > confirmationMemoSize) {
-      _confirmations.remove(_confirmations.keys.first);
+    final next = state.next;
+    if (next == null) {
+      _lookups.remove(orderId);
+      return;
     }
-    return answer;
+    state.active = next;
+    state.next = null;
+    unawaited(next.done.then((_) => _lookupFinished(orderId, state, next)));
   }
 
   /// A `status_code` as text: Midtrans sends `"200"`; a whole number
@@ -299,21 +291,13 @@ final class MidtransGateway implements PaymentGateway {
     '${body['order_id']}${body['status_code']}${body['gross_amount']}$serverKey',
   );
 
-  /// The event in [body]: a notification's, or with [fromApi] the status
-  /// API's answer. A field of the wrong type is a 400 in a notification
-  /// and a [PaymentGatewayException] in an answer, never a type error.
-  PaymentEvent _event(
-    Map<String, Object?> body, {
-    String prefix = '',
-    bool fromApi = false,
-  }) {
+  /// Builds an event from a status API answer. Incorrect field types
+  /// become a [PaymentGatewayException].
+  PaymentEvent _event(Map<String, Object?> body, {String prefix = ''}) {
     String? text(String key) {
       try {
         return notificationText(body, key);
       } on BadRequestHttpException {
-        if (!fromApi) {
-          rethrow;
-        }
         throw PaymentGatewayException(
           'Midtrans status answered a $key that is not text.',
         );
@@ -367,4 +351,10 @@ final class MidtransGateway implements PaymentGateway {
         'refund' => PaymentStatus.refunded,
         _ => null,
       };
+}
+
+final class _StatusLookups {
+  _StatusLookups(this.active);
+  SharedResult<PaymentEvent> active;
+  SharedResult<PaymentEvent>? next;
 }

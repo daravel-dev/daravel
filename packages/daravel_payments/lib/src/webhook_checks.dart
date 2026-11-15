@@ -26,8 +26,7 @@ Map<String, Object?> apiObject(ClientResponse response, String call) {
 }
 
 /// The text field [key] of a notification's [body]: null when absent, a
-/// 400 when it holds another type (a notification whose signature does not
-/// cover the field can still carry one).
+/// 400 when it holds another type.
 String? notificationText(Map<String, Object?> body, String key) =>
     switch (body[key]) {
       null => null,
@@ -43,13 +42,8 @@ String? notificationText(Map<String, Object?> body, String key) =>
 /// built-in gateway never hands it a paid event without them. Events an
 /// application builds itself are not checked here.
 ///
-/// The gateways send both: Xendit's invoice callback requires `amount` and
-/// `currency` (`InvoiceCallback`, xendit-php 7.0.0), Midtrans' amount is
-/// `gross_amount` in IDR, and a Stripe Checkout Session created in payment
-/// mode carries the `currency` of its line items. Such a session (or
-/// invoice) never becomes `paid` through a webhook: the gateway is
-/// answered 400 and retries, and the refusal is logged as a warning with
-/// the event id and the reason, never the payload.
+/// A paid event with unreadable amount or currency receives 400. The
+/// refusal is logged with the event id and reason, never the payload.
 PaymentEvent requireAmountWhenPaid(PaymentEvent event) {
   final currency = event.currency;
   final amount = event.amount;
