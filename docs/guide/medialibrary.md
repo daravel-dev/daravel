@@ -133,6 +133,15 @@ takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
 sample), and a JPEG must have 1 or 3 color components. A conversion
 refused this way fails its job at once, without retries.
 
+Every image made by `width`, `height`, `fit`, or `crop` is also limited to a
+quarter of `MEDIA_MAX_IMAGE_PIXELS`, frames counted, even when it is
+smaller than its input. Blur has a separate pixel-frame-radius work
+budget. When a conversion resizes and blurs, put `width` or `height`
+before `blur` so the blur works on the smaller image. Manipulations keep
+the order in which the conversion defines them. Dimensions must be
+greater than zero, and no image read or made may have a side longer than
+65 535 pixels.
+
 The limits keep memory bounded, though not small. Converting an image at
 the default limit takes (measured peaks):
 
@@ -147,6 +156,10 @@ the default limit takes (measured peaks):
 | the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
 | WebP, 4 472 x 4 472, worst measured | about 395 MiB, up to 470 MiB with orientation | 2 to 2.6 s |
 | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
+| JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB | up to 9.1 s |
+| a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 7.2 s, depending on shape and machine |
+| blur at its 20-million pixel-frame-radius budget | about 125 MiB for an animated GIF | 3.2 to 4.4 s, depending on machine |
+| encoding an unchanged 40-million-pixel image | about 132 to 140 MiB | 3.0 to 6.7 s, depending on format and machine |
 
 A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
 The limit bounds an image's size, not memory exactly: at the default
