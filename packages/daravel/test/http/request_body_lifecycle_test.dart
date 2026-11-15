@@ -34,6 +34,8 @@ final class Incoming extends Stream<Uint8List> implements HttpRequest {
   @override
   String get method => 'POST';
   @override
+  String get protocolVersion => '1.1';
+  @override
   Uri get uri => Uri(path: '/candidate');
   @override
   HttpConnectionInfo? get connectionInfo => null;

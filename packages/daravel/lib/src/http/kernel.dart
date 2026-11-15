@@ -85,7 +85,15 @@ final class HttpKernel {
     }
     // Last, after every middleware (compression, cache headers) has seen the
     // body a GET would get: HEAD answers the same headers without it.
-    return request.method == 'HEAD' ? response.withoutBody() : response;
+    if (request.method == 'HEAD') {
+      if (response.webSocket != null) {
+        response = Response.json(const <String, Object?>{
+          'message': 'Upgrade Required',
+        }, status: 426).withHeader('upgrade', 'websocket');
+      }
+      return response.withoutBody();
+    }
+    return response;
   }
 
   /// Runs `terminate()` of every terminable middleware that applied to the

@@ -621,6 +621,18 @@ final class ServerEngine {
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
+  /// Selects one upgrade request before checking its remaining handshake.
+  static bool _canUpgrade(HttpRequest raw, Request request) {
+    if (!isWebSocketUpgrade(request)) {
+      return false;
+    }
+    try {
+      return WebSocketTransformer.isUpgradeRequest(raw);
+    } on Object {
+      return false;
+    }
+  }
+
   /// Upgrades [httpRequest] after [_handle] selected an upgrade; null when
   /// the upgrade fails. Ordinary refusals use the normal response path.
   Future<WebSocket?> _upgrade(
@@ -910,8 +922,7 @@ final class ServerEngine {
                   }, status: 500);
                 }
                 if (response.webSocket != null &&
-                    (!WebSocketTransformer.isUpgradeRequest(raw!) ||
-                        _stopping)) {
+                    (!_canUpgrade(raw!, request) || _stopping)) {
                   response = Response.json(const <String, Object?>{
                     'message': 'Upgrade Required',
                   }, status: 426).withHeader('upgrade', 'websocket');

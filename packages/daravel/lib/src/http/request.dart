@@ -39,6 +39,7 @@ final class Request {
     required this.headers,
     required this.remoteAddress,
     required this.id,
+    this.protocolVersion = '1.1',
     this._bodyStream,
     this._bodyBytes,
   }) : _method = method,
@@ -90,6 +91,7 @@ final class Request {
       headers: headers,
       remoteAddress: httpRequest.connectionInfo?.remoteAddress.address ?? '',
       id: id,
+      protocolVersion: httpRequest.protocolVersion,
       bodyStream: httpRequest,
     );
   }
@@ -169,6 +171,9 @@ final class Request {
 
   /// The method on the wire (Laravel's `getRealMethod`).
   final String originalMethod;
+
+  /// The HTTP version from the request line; synthetic requests use 1.1.
+  final String protocolVersion;
 
   /// Used by [MethodOverrideMiddleware].
   void overrideMethod(String method) => _method = method.toUpperCase();
