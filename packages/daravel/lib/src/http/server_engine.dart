@@ -890,6 +890,7 @@ final class ServerEngine {
           .runScoped<void>(
             'request',
             (scope) async {
+              var bodyDetached = false;
               try {
                 scope.put<Request>(request);
                 Response response;
@@ -938,13 +939,17 @@ final class ServerEngine {
                           (unread != null && !unread.arrived)) &&
                       response.body is! StreamBody) {
                     await _writeClosing(raw!, response);
+                    // The detached socket owns the remaining body read.
+                    bodyDetached = true;
                   } else {
                     if (request.bodyRefusedWhileReading) {
                       raw!.response.persistentConnection = false;
                     }
                     await response.writeTo(raw!.response);
+                    await request.releaseRefusedBody();
                   }
                 } catch (error) {
+                  await request.releaseRefusedBody();
                   logger.warning(
                     'Failed to write response for request $id: $error',
                   );
@@ -960,7 +965,13 @@ final class ServerEngine {
                   );
                 }
               } finally {
-                release();
+                try {
+                  if (!bodyDetached) {
+                    await request.releaseRefusedBody();
+                  }
+                } finally {
+                  release();
+                }
               }
             },
             onUncaughtError: (error, stackTrace) => logger.error(

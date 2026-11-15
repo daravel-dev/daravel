@@ -442,10 +442,19 @@ final class Request {
   void abortBodyRead(Object error) => _abortRead?.call(error);
 
   void Function(Object error)? _abortRead;
-  bool _bodyReadAborted = false;
+  StreamSubscription<List<int>>? _refusedBody;
 
   /// Whether [abortBodyRead] ended a read while its body was still arriving.
-  bool get bodyRefusedWhileReading => _bodyReadAborted;
+  /// Only aborted reads set this flag; size checks are separate.
+  bool get bodyRefusedWhileReading => _refusedBody != null;
+
+  /// Cancels the body source held by [bodyRefusedWhileReading] after its
+  /// response is written, or when its request scope ends. Safe to repeat.
+  Future<void> releaseRefusedBody() async {
+    final subscription = _refusedBody;
+    _refusedBody = null;
+    await subscription?.cancel();
+  }
 
   Stream<List<int>> _abortable(Stream<List<int>> source) {
     late final StreamSubscription<List<int>> subscription;
@@ -455,7 +464,7 @@ final class Request {
       ..onListen = () {
         _abortRead = (error) {
           aborted = true;
-          _bodyReadAborted = true;
+          _refusedBody = subscription;
           _abortRead = null;
           // Keep the body on its connection until the server writes the
           // response and detaches the socket to close it.

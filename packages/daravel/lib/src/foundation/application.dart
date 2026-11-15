@@ -1132,6 +1132,7 @@ final class Application {
     await boot();
     return container.runScoped<Response>('request', (scope) async {
       scope.put<Request>(request);
+      scope.onDispose(request.releaseRefusedBody);
       await prepare?.call();
       return kernel.handle(request);
     });
