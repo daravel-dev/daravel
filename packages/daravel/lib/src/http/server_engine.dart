@@ -612,6 +612,9 @@ final class ServerEngine {
   /// waiting for it, and its connection is closed after the answer, so a
   /// client streaming into an overloaded worker is not kept.
   void _shedRequest(HttpRequest httpRequest) {
+    if (_stopping) {
+      httpRequest.response.persistentConnection = false;
+    }
     final body = _discardBody(httpRequest);
     _shed++;
     onShed?.call();
