@@ -40,7 +40,8 @@ abstract final class ReverbDashboard {
   }) {
     Future<Response> guard(FutureOr<Object?> Function(Request r) body) =>
         _guard(body);
-    final api = '$path/api';
+    final prefix = path == '/' ? '' : path;
+    final api = '$prefix/api';
     router.group((r) {
       r
         ..get(
@@ -61,12 +62,12 @@ abstract final class ReverbDashboard {
         ).name('reverb.restart')
         ..get(
           path,
-          (Request q) => guard((_) => _page(path, reverbTabs.first)),
+          (Request q) => guard((_) => _page(prefix, reverbTabs.first)),
         ).name('reverb.index')
         ..get(
-          '$path/{view}',
-          (Request q) => guard((r) => _page(path, r.param<String>('view'))),
-        ).name('reverb.view');
+          '$prefix/{view}',
+          (Request q) => guard((r) => _page(prefix, r.param<String>('view'))),
+        ).whereIn('view', reverbTabs).name('reverb.view');
     }, middleware: middleware);
   }
 

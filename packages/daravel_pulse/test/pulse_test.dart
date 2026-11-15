@@ -207,6 +207,7 @@ void main() {
     Future<Application> boot({
       Map<String, String> env = const {},
       List<Object> middleware = const [],
+      String path = '/pulse',
     }) async {
       final application = Application.configure(basePath: dir.path)
           .withEnv({
@@ -217,7 +218,7 @@ void main() {
             'PULSE_SLOW_QUERIES_THRESHOLD': '0',
             ...env,
           })
-          .withPulse(middleware: middleware)
+          .withPulse(path: path, middleware: middleware)
           .withMiddleware((m) => m.alias('allow', _Allow()))
           .withRouting(
             api: (router) {
@@ -332,6 +333,16 @@ void main() {
       expect(html, isNot(contains(RegExp(r'(src|href)="https?:'))));
       expect(html, isNot(contains('<link')));
       expect(response.headers.first('x-frame-options'), 'DENY');
+    });
+
+    test('at the root, page URLs stay on this origin', () async {
+      app = await boot(path: '/');
+      final (status, response) = await get('/');
+      expect(status, 200);
+      final html = await response.bodyText();
+      expect(html, contains('data-base=""'));
+      expect(html, isNot(contains('data-base="/"')));
+      expect(html, contains("fetch(base+'/api/stats"));
     });
 
     test('404 when off', () async {

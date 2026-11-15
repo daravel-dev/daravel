@@ -137,12 +137,13 @@ abstract final class Pulse {
     String path = '/pulse',
     List<Object> middleware = const [],
   }) {
+    final prefix = path == '/' ? '' : path;
     router.group((r) {
       r
-          .get(path, (Request request) => _guard(request, () => _page(path)))
+          .get(path, (Request request) => _guard(request, () => _page(prefix)))
           .name('pulse');
       r.get(
-        '$path/api/stats',
+        '$prefix/api/stats',
         (Request request) => _guard(request, () => _stats(request)),
       );
     }, middleware: middleware);
