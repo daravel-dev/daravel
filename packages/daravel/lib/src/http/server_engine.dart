@@ -747,8 +747,9 @@ final class ServerEngine {
       Response.text('Bad Request', status: 400);
 
   /// Upgrades [httpRequest] (its middleware has passed): the socket, or
-  /// none and what was answered instead, for `kernel.terminate`. Not a
-  /// WebSocket request: `426 Upgrade Required`. A handshake that does not
+  /// none and what was answered instead, for `kernel.terminate`. Requests
+  /// that do not ask for an upgrade are answered by [_handle]. A handshake
+  /// that does not
   /// read as one, or an upgrade that fails: 400. An upgrade that fails
   /// after it took the connection over answers nothing (the socket is
   /// destroyed); terminate sees that 400 too, the answer the handshake
@@ -776,17 +777,6 @@ final class ServerEngine {
       );
       await _refuseHandshake(httpRequest);
       return (socket: null, answered: _handshakeRefused);
-    }
-    if (ask == _UpgradeAsk.none) {
-      final refusal = Response.json(const <String, Object?>{
-        'message': 'Upgrade Required',
-      }, status: 426).withHeader('upgrade', 'websocket');
-      try {
-        await refusal.writeTo(httpRequest.response);
-      } catch (_) {
-        // Client gone.
-      }
-      return (socket: null, answered: refusal);
     }
     // The server reads the frames itself (WebSocketGuard): a message is
     // limited as a whole, fragments are assembled before the WebSocket
@@ -1292,6 +1282,12 @@ final class ServerEngine {
                     'message': 'Server Error',
                   }, status: 500);
                 }
+                if (response.webSocket != null &&
+                    _upgradeAsk(raw!) == _UpgradeAsk.none) {
+                  response = Response.json(const <String, Object?>{
+                    'message': 'Upgrade Required',
+                  }, status: 426).withHeader('upgrade', 'websocket');
+                }
                 final onSocket = response.webSocket;
                 if (onSocket != null) {
                   final (:socket, :answered) = await _upgrade(
@@ -1307,7 +1303,7 @@ final class ServerEngine {
                     // The session terminates the request when it ends.
                     await _session(socket, request, response, onSocket, id);
                   } else {
-                    // Answered without a socket (426, 400): terminated
+                    // Answered without a socket (400): terminated
                     // once, with what was answered, as a plain request is
                     // (kernel.terminate logs what fails in it and goes on).
                     await kernel.terminate(request, answered!);

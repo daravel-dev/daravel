@@ -40,9 +40,11 @@ void main() {
         .withLogLevel(LogLevel.critical)
         .withMiddleware((m) => m.use([counting]))
         .withRouting(
-          web: (router) => router.ws('/ws', (socket, _) {
-            socket.listen(socket.add);
-          }),
+          web: (router) {
+            void echo(WebSocket socket, Request _) => socket.listen(socket.add);
+            router.ws('/ws', echo);
+            router.get('/direct', (_) => Response.webSocket(echo));
+          },
         )
         .create();
     await app.boot();
@@ -102,6 +104,23 @@ void main() {
     await terminated();
     expectOnce(426);
   });
+
+  test(
+    'a direct WebSocket response answers an ordinary request with 426',
+    () async {
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:${engine.port}/direct'),
+      );
+      final response = await request.close();
+      await response.drain<void>();
+      expect(response.statusCode, 426);
+      expect(response.headers.value('upgrade'), 'websocket');
+      await terminated();
+      expectOnce(426);
+    },
+  );
 
   test('400: a handshake that does not read as one', () async {
     expect(
