@@ -306,8 +306,7 @@ final class MidtransGateway implements PaymentGateway {
 
     final status = text('transaction_status') ?? '';
     final fraud = text('fraud_status');
-    // Signed: the event id holds it, so an event of one order is never
-    // taken for another's.
+    // The validated order is included in the event identity.
     final orderId = '${body['order_id']}';
     final transaction = text('transaction_id');
     final time = text('settlement_time') ?? text('transaction_time');
@@ -335,7 +334,7 @@ final class MidtransGateway implements PaymentGateway {
   /// Midtrans' `transaction_status` (and `fraud_status`) as a
   /// [PaymentStatus]: paid on `settlement` or `capture` unless a fraud
   /// status is there and is not `accept` (`deny` fails, `challenge`
-  /// waits; Midtrans' notification guide). A partial refund is not a status
+  /// waits). A partial refund is not a status
   /// change (`null`).
   static PaymentStatus? mapStatus(String status, String? fraud) =>
       switch (status) {

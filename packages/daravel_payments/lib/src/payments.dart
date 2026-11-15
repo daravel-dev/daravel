@@ -539,13 +539,8 @@ abstract final class Payment {
   /// notifications, answering with what happened (`{"status": …}`).
   ///
   /// - [unknownOrderStatus] (409 by default) for a notification about an
-  ///   order not stored yet: Stripe, Midtrans and Xendit send a
-  ///   notification again only after a non-2xx answer, so the payment is
-  ///   applied once its order exists. 409 is what Midtrans retries most (5
-  ///   times; 400/404 twice, 500 once). An order that is not this
-  ///   application's (a gateway account shared with another system) is
-  ///   then retried until the gateway gives up and shows as failed in its
-  ///   dashboard; pass 200 for the earlier behaviour.
+  ///   order not stored yet. Pass 200 to acknowledge orders belonging to
+  ///   another application when sharing a gateway account.
   /// - 200 for every other outcome, which another delivery would not
   ///   change: `applied`, `duplicate`, `unchanged`, `ignored`, and
   ///   `amountMismatch` (whose alert is [PaymentAmountMismatch]).
