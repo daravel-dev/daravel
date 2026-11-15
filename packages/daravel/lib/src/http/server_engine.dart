@@ -768,7 +768,7 @@ final class ServerEngine {
     Response response,
     String id,
   ) async {
-    final ask = _upgradeAsk(httpRequest);
+    final ask = _upgradeAsk(httpRequest, request);
     if (ask == _UpgradeAsk.malformed) {
       logger.warning(
         'WebSocket handshake refused for request $id: its headers do not '
@@ -848,7 +848,10 @@ final class ServerEngine {
   /// upgrade by the drain ([_handle]). `Connection`, `Sec-WebSocket-Protocol`
   /// and `Sec-WebSocket-Extensions` may come as lists or repeated
   /// (RFC 6455 §4.1), and that is not malformed.
-  static _UpgradeAsk _upgradeAsk(HttpRequest httpRequest) {
+  static _UpgradeAsk _upgradeAsk(HttpRequest httpRequest, Request request) {
+    if (!isWebSocketUpgrade(request)) {
+      return _UpgradeAsk.none;
+    }
     try {
       return WebSocketTransformer.isUpgradeRequest(httpRequest)
           ? _UpgradeAsk.upgrade
@@ -1204,15 +1207,6 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
-    if (_stopping && _upgradeAsk(httpRequest) != _UpgradeAsk.upgrade) {
-      // Draining: the client opens a new connection for its next request
-      // (to another isolate or server) instead of sending it on this one.
-      // Not for an upgrade: its connection becomes the WebSocket, which the
-      // drain closes `goingAway` itself ([_upgrade]). A handshake whose
-      // headers do not read as one counts as no upgrade (read without
-      // throwing: this runs in the server's own listener).
-      httpRequest.response.persistentConnection = false;
-    }
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
       return;
@@ -1255,6 +1249,11 @@ final class ServerEngine {
       return;
     }
     request.maxBodyBytes = options.maxBodyBytes;
+    if (_stopping && _upgradeAsk(httpRequest, request) != _UpgradeAsk.upgrade) {
+      // A request during drain reconnects after its response. An upgrade
+      // becomes a WebSocket and receives the session's goingAway close.
+      httpRequest.response.persistentConnection = false;
+    }
     // The closure below lives as long as a WebSocket does: it lets go of
     // the HTTP request once the socket has taken over.
     HttpRequest? raw = httpRequest;
@@ -1283,7 +1282,7 @@ final class ServerEngine {
                   }, status: 500);
                 }
                 if (response.webSocket != null &&
-                    _upgradeAsk(raw!) == _UpgradeAsk.none) {
+                    _upgradeAsk(raw!, request) == _UpgradeAsk.none) {
                   response = Response.json(const <String, Object?>{
                     'message': 'Upgrade Required',
                   }, status: 426).withHeader('upgrade', 'websocket');

@@ -123,10 +123,7 @@ void main() {
   );
 
   test('400: a handshake that does not read as one', () async {
-    expect(
-      await send('Upgrade: websocket\r\n$handshake'),
-      startsWith('HTTP/1.1 400'),
-    );
+    expect(await send('$key$handshake'), startsWith('HTTP/1.1 400'));
     await terminated();
     expectOnce(400);
   });
