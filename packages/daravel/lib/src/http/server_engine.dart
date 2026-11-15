@@ -940,12 +940,12 @@ final class ServerEngine {
                   unread = await _settleUnreadBody(raw!);
                 }
                 try {
-                  if ((request.bodyReadAborted ||
+                  if ((request.bodyRefusedWhileReading ||
                           (unread != null && !unread.arrived)) &&
                       response.body is! StreamBody) {
                     await _writeClosing(raw!, response);
                   } else {
-                    if (request.bodyReadAborted) {
+                    if (request.bodyRefusedWhileReading) {
                       raw!.response.persistentConnection = false;
                     }
                     await response.writeTo(raw!.response);

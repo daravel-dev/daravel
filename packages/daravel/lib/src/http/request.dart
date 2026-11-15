@@ -445,7 +445,7 @@ final class Request {
   bool _bodyReadAborted = false;
 
   /// Whether [abortBodyRead] ended a read while its body was still arriving.
-  bool get bodyReadAborted => _bodyReadAborted;
+  bool get bodyRefusedWhileReading => _bodyReadAborted;
 
   Stream<List<int>> _abortable(Stream<List<int>> source) {
     late final StreamSubscription<List<int>> subscription;
