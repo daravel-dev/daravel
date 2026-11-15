@@ -79,17 +79,26 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    a `v1` signature in `Stripe-Signature` must be the HMAC-SHA256 of
    `<timestamp>.<body>` with the endpoint secret, and the timestamp must
    be within five minutes. Comparisons take constant time. Anything else
-   gets 401 and changes nothing. Midtrans signs `order_id`, `status_code`
-   and `gross_amount` only, so only a payment is taken from its
-   notification: `settlement` or `capture` with `status_code` 200 and a
-   `fraud_status` that is empty or `accept`. Every other Midtrans status
-   (`expire`, `cancel`, `deny`, a refund, a chargeback, a challenged card,
-   ...) is confirmed with Midtrans' status API, whose answer must be about
-   the same order; when that API fails the answer is 5xx and nothing
-   changes. The same notification posted again within a minute reuses the
-   API's answer. A notification without its `transaction_id`, or with a
+   gets 401 and changes nothing. Each verified Midtrans notification
+   triggers a [status API lookup](https://docs.midtrans.com/reference/get-transaction-status)
+   for its authenticated `order_id`. A missing transaction (code 404,
+   without a transaction status) triggers one further lookup using the
+   notification's `transaction_id`, supporting DANA and BI SNAP. Both
+   lookup paths require an answer for the authenticated order, with a
+   nonempty transaction id and status, and code 2xx or 407 with `expire`.
+   The API supplies the event id, status, amount, currency, time and raw
+   payload. Invalid answers or two missing answers produce 5xx without
+   applying or logging an event. Direct `status(orderId)` calls still
+   return `pending` for a missing transaction. A notification without its `transaction_id`, or with a
    field that should be text and is not, gets 400, as does a paid
    notification whose amount or currency cannot be read.
+   Per order, one lookup runs at a time; arrivals during it share the next
+   lookup, which starts after they arrive. Completed answers are not
+   cached. Configure an ingress rate limit through
+   `Payment.webhookRoutes(middleware: ...)` and
+   account for outbound status calls and gateway availability.
+   Allow outbound HTTPS to `api.midtrans.com` in production or
+   `api.sandbox.midtrans.com` in the sandbox.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
    gateway), in the same transaction as the change. Once a notification
    has moved the payment, a retry answers `{"status": "duplicate"}` and
@@ -108,6 +117,13 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
 4. **Moved forward only.** `pending` → `paid`, `failed`, `expired`;
    `failed` or `expired` → `paid` (a late settlement); `paid` →
    `refunded`. A late `pending` after `paid` is ignored.
+
+Order and event identifiers are limited to 255 Unicode characters:
+webhooks receive 400 when they exceed this, while application calls to
+`Payment.manager.apply` throw `ArgumentError` before database access.
+The JSON log payload is stored intact up to 65,535 UTF-8 bytes; larger
+payloads store only `{"truncated":true,"bytes":N}`. The event passed to
+application listeners retains its raw payload. No schema migration is needed.
 
 Events are dispatched after the commit, so a listener sees the stored
 payment:
@@ -150,3 +166,8 @@ await Payment.manager.apply(fake.named('midtrans').event('ORDER-42', PaymentStat
 The package's own tests check the signatures against values computed with
 `sha512sum` and `openssl`, and run against the Midtrans sandbox when
 `MIDTRANS_SERVER_KEY` holds a sandbox key (`dart test --tags integration`).
+
+Tests delivering real Midtrans webhook shapes must fake
+`api.sandbox.midtrans.com/v2/*/status` as well as Snap checkout creation.
+Return the requested order, transaction id, status, code and amount from
+that fake; use `Payment.fake()` when testing application behavior alone.

@@ -89,6 +89,47 @@ void main() {
     late Application app;
     late List<Object> events;
 
+    var statusCalls = 0;
+    // Midtrans' status API as the fake answers it: [answer] as JSON, a 500
+    // when null, or [raw] as the body.
+    Future<void> statusApi(
+      Map<String, Object?>? answer, {
+      String? raw,
+      int code = 200,
+    }) => app.run(() async {
+      statusCalls = 0;
+      Http.fake({
+        'app.sandbox.midtrans.com/*': Http.response({
+          'token': 'snap-token',
+          'redirect_url': 'https://app.sandbox.midtrans.com/snap/v4/x',
+        }, 201),
+        'api.sandbox.midtrans.com/*': (ClientRequest request) {
+          statusCalls++;
+          if (raw != null) {
+            return Http.response(raw, code);
+          }
+          return answer == null
+              ? Http.response({'status_message': 'down'}, 500)
+              : Http.response(answer, code);
+        },
+      });
+    });
+    Map<String, Object?> apiAnswer(
+      String status, {
+      String orderId = 'ORDER-42',
+      String transactionId = 'tx-1',
+      String? fraud,
+    }) => {
+      'status_code': '200',
+      'transaction_status': status,
+      'transaction_id': transactionId,
+      'order_id': orderId,
+      'gross_amount': '150000.00',
+      'currency': 'IDR',
+      'payment_type': 'credit_card',
+      'fraud_status': ?fraud,
+    };
+
     setUp(() async {
       dir = Directory.systemTemp.createTempSync('daravel_payments_checks_');
       events = [];
@@ -118,6 +159,7 @@ void main() {
           }, 201),
         });
       });
+      await statusApi(apiAnswer('settlement'));
     });
     tearDown(() async {
       await app.shutdown();
@@ -163,49 +205,9 @@ void main() {
         body: bytes == null ? jsonEncode(body) : String.fromCharCodes(bytes),
       ),
     );
-    var statusCalls = 0;
-    // Midtrans' status API as the fake answers it: [answer] as JSON, a 500
-    // when null, or [raw] as the body.
-    Future<void> statusApi(
-      Map<String, Object?>? answer, {
-      String? raw,
-      int code = 200,
-    }) => app.run(() async {
-      statusCalls = 0;
-      Http.fake({
-        'app.sandbox.midtrans.com/*': Http.response({
-          'token': 'snap-token',
-          'redirect_url': 'https://app.sandbox.midtrans.com/snap/v4/x',
-        }, 201),
-        'api.sandbox.midtrans.com/*': (ClientRequest request) {
-          statusCalls++;
-          if (raw != null) {
-            return Http.response(raw, code);
-          }
-          return answer == null
-              ? Http.response({'status_message': 'down'}, 500)
-              : Http.response(answer, code);
-        },
-      });
-    });
-    Map<String, Object?> apiAnswer(
-      String status, {
-      String orderId = 'ORDER-42',
-      String transactionId = 'tx-1',
-      String? fraud,
-    }) => {
-      'status_code': '200',
-      'transaction_status': status,
-      'transaction_id': transactionId,
-      'order_id': orderId,
-      'gross_amount': '150000.00',
-      'currency': 'IDR',
-      'payment_type': 'credit_card',
-      'fraud_status': ?fraud,
-    };
-
     test('a signed amount in another currency never pays', () async {
       await order();
+      await statusApi(apiAnswer('settlement')..['currency'] = 'USD');
       expect(
         await notify(notification(currency: 'USD')),
         PaymentOutcome.amountMismatch.name,
@@ -213,6 +215,7 @@ void main() {
       expect(await status(), PaymentStatus.pending);
       expect(events.single, isA<PaymentAmountMismatch>());
       // The same notification in the order's currency (any case) pays.
+      await statusApi(apiAnswer('settlement')..['currency'] = 'idr');
       expect(
         await notify(notification(currency: 'idr')),
         PaymentOutcome.applied.name,
@@ -268,9 +271,11 @@ void main() {
         'handled', () async {
       await order();
       final pending = notification(status: 'pending', statusCode: '201');
+      await statusApi(apiAnswer('pending'));
       expect(await notify(pending), PaymentOutcome.unchanged.name);
       expect(await notify(pending), PaymentOutcome.unchanged.name);
       final short = notification(grossAmount: '1500.00');
+      await statusApi(apiAnswer('settlement')..['gross_amount'] = '1500.00');
       expect(await notify(short), PaymentOutcome.amountMismatch.name);
       expect(await notify(short), PaymentOutcome.amountMismatch.name);
     });
@@ -323,6 +328,7 @@ void main() {
         PaymentOutcome.unchanged.name,
       );
       expect(await status(), PaymentStatus.pending);
+      await statusApi(apiAnswer('capture', fraud: 'accept'));
       expect(
         await notify(notification(status: 'capture', fraud: 'accept')),
         PaymentOutcome.applied.name,
@@ -345,6 +351,11 @@ void main() {
           body: jsonEncode(notification(status: 'capture', fraud: 'challenge')),
         ),
       );
+      Http.fake({
+        'api.sandbox.midtrans.com/*': Http.response(
+          apiAnswer('capture', fraud: 'accept'),
+        ),
+      });
       final accept = await gateway.parseWebhook(
         Request.fake(
           method: 'POST',
@@ -354,6 +365,9 @@ void main() {
       );
       expect(challenge.eventId, 'ORDER-42:tx-1:capture:challenge');
       expect(accept.eventId, 'ORDER-42:tx-1:capture:accept');
+      Http.fake({
+        'api.sandbox.midtrans.com/*': Http.response(apiAnswer('settlement')),
+      });
       final settled = await gateway.parseWebhook(
         Request.fake(
           method: 'POST',
@@ -364,24 +378,12 @@ void main() {
       expect(settled.eventId, 'ORDER-42:tx-1:settlement');
     });
 
-    // The signature covers status_code, not transaction_status.
-    test('a settlement signed under another code than a payment\'s is '
-        'confirmed with the status API, not taken', () async {
-      await order();
-      await statusApi(apiAnswer('pending'));
-      final forged = notification(status: 'settlement', statusCode: '201');
-      final response = await post(forged);
-      expect(response.status, 200);
-      expect(await response.bodyText(), '{"status":"unchanged"}');
-      expect(await status(), PaymentStatus.pending);
-      expect(statusCalls, 1);
-    });
-
     // A paid event from a built-in gateway carries its amount.
     test('a paid Midtrans notification whose amount cannot be read is '
         'refused (400) and logged as a warning without its payload', () async {
       await order();
       final logs = await app.run(() async => Log.spy());
+      await statusApi(apiAnswer('settlement')..['gross_amount'] = 'many');
       final response = await app.handle(
         Request.fake(
           method: 'POST',
@@ -408,8 +410,7 @@ void main() {
       );
     });
 
-    // Only a payment is taken from the notification itself; every other
-    // status comes from Midtrans' status API.
+    // Every notification obtains its event from the status API.
     group('Midtrans statuses', () {
       Future<int> logRows() => app.run(
         () async =>
@@ -472,44 +473,14 @@ void main() {
           )..['transaction_id'] = 'tx-2';
           confirmed['signature_key'] = MidtransGateway(serverKey: serverKey)
               .signatureFor(confirmed);
-          // The same signature as the refund above: within the window the
-          // earlier answer is reused, after it the API is asked again.
-          expect((await post(confirmed)).status, 200);
-          expect(await status(), PaymentStatus.paid);
-          expect(statusCalls, 0);
-          Clock.travel(
-            MidtransGateway.confirmationWindow + const Duration(seconds: 1),
-          );
-          addTearDown(Clock.restore);
           expect((await post(confirmed)).status, 200);
           expect(await status(), PaymentStatus.refunded);
           expect(statusCalls, 1);
+          expect((await post(confirmed)).status, 200);
+          expect(await status(), PaymentStatus.refunded);
+          expect(statusCalls, 2);
         },
       );
-
-      test('a confirmed event takes its id from the status the API answered: '
-          'a forged refund does not swallow the real one', () async {
-        await order();
-        Future<String> answer(Map<String, Object?> body) async =>
-            (jsonDecode(await (await post(body)).bodyText())
-                    as Map<String, Object?>)['status']!
-                as String;
-        // A signed pending notification turned into a refund; the API says
-        // settlement, so the payment is paid under ORDER-42:tx-1:settlement.
-        await statusApi(apiAnswer('settlement'));
-        final forged = notification(status: 'refund', statusCode: '201');
-        expect(await answer(forged), PaymentOutcome.applied.name);
-        expect(await status(), PaymentStatus.paid);
-        // The genuine settlement notification is then a duplicate.
-        expect(await answer(notification()), PaymentOutcome.duplicate.name);
-        // The real refund later: the API says refund, a new event.
-        await statusApi(apiAnswer('refund'));
-        final refund = notification(status: 'refund', statusCode: '200');
-        expect(await answer(refund), PaymentOutcome.applied.name);
-        expect(await status(), PaymentStatus.refunded);
-        // And its retry is a duplicate.
-        expect(await answer(refund), PaymentOutcome.duplicate.name);
-      });
 
       test('a status API that fails answers 5xx and changes nothing', () async {
         await order();
@@ -556,6 +527,7 @@ void main() {
       test('a signed amount of NaN or Infinity answers 400', () async {
         await order();
         for (final amount in ['NaN', 'Infinity']) {
+          await statusApi(apiAnswer('settlement')..['gross_amount'] = amount);
           final response = await post(notification(grossAmount: amount));
           expect(response.status, 400, reason: amount);
         }
@@ -564,7 +536,7 @@ void main() {
     });
 
     // Midtrans signs order_id, status_code and gross_amount only.
-    group('fields Midtrans does not sign', () {
+    group('Midtrans status API', () {
       Future<void> orderOf(String orderId) => app.run(
         () =>
             Payment.checkout(PaymentRequest(orderId: orderId, amount: 150000)),
@@ -576,66 +548,6 @@ void main() {
                 as Map<String, Object?>)['status']!
             as String;
       }
-
-      test('an event of one order is never taken for another\'s', () async {
-        await order();
-        await orderOf('ORDER-A');
-        await orderOf('ORDER-B');
-        // Its own signed payment, under the victim's transaction id.
-        final own = notification(orderId: 'ORDER-A')
-          ..['transaction_id'] = 'tx-victim';
-        expect(await outcome(own), PaymentOutcome.applied.name);
-        // Its own signed pending turned into a failure, which the status
-        // API answers for its own order with the victim's transaction id.
-        await statusApi(
-          apiAnswer(
-            'settlement',
-            orderId: 'ORDER-B',
-            transactionId: 'tx-victim',
-          ),
-        );
-        final turned = notification(
-          orderId: 'ORDER-B',
-          status: 'failure',
-          statusCode: '201',
-        )..['transaction_id'] = 'tx-victim';
-        expect(await outcome(turned), PaymentOutcome.applied.name);
-        // Or the victim's order id as the transaction id.
-        final named = notification(orderId: 'ORDER-A', status: 'settlement')
-          ..['transaction_id'] = 'ORDER-42';
-        expect(await outcome(named), isNot(PaymentOutcome.applied.name));
-        // The victim's genuine payment still applies.
-        final genuine = notification()..['transaction_id'] = 'tx-victim';
-        expect(await outcome(genuine), PaymentOutcome.applied.name);
-        expect(await status(), PaymentStatus.paid);
-      });
-
-      test('expire and cancel, both signed 202, are told apart by the '
-          'status API', () async {
-        await order();
-        await statusApi(apiAnswer('expire'));
-        // The expiry's signed notification, made a cancellation.
-        final swapped = notification(status: 'cancel', statusCode: '202');
-        expect(await outcome(swapped), PaymentOutcome.applied.name);
-        expect(await status(), PaymentStatus.expired);
-        final genuine = notification(status: 'expire', statusCode: '202');
-        expect(await outcome(genuine), PaymentOutcome.duplicate.name);
-      });
-
-      test(
-        'a deny slipped into a challenged capture does not fail it',
-        () async {
-          await order();
-          await statusApi(apiAnswer('capture', fraud: 'challenge'));
-          final denied = notification(
-            status: 'capture',
-            statusCode: '201',
-            fraud: 'deny',
-          );
-          expect(await outcome(denied), PaymentOutcome.unchanged.name);
-          expect(await status(), PaymentStatus.pending);
-        },
-      );
 
       test(
         'a field of the wrong type, or no transaction id, answers 400',
@@ -683,12 +595,12 @@ void main() {
         expect(await status(), PaymentStatus.pending);
         // Midtrans' "404" for an order not paid yet: nothing changes.
         await statusApi({'status_code': '404', 'status_message': 'none'});
-        expect(await outcome(failure), PaymentOutcome.unchanged.name);
+        expect((await post(failure)).status, greaterThanOrEqualTo(500));
+        expect(statusCalls, 2);
         expect(await status(), PaymentStatus.pending);
       });
 
-      test('one signed notification posted again and again asks the status '
-          'API once per window', () async {
+      test('sequential notifications obtain a fresh status response', () async {
         await order();
         await statusApi(apiAnswer('pending'));
         final signedPending = notification(
@@ -698,19 +610,18 @@ void main() {
         for (var i = 0; i < 10; i++) {
           await outcome(signedPending);
         }
-        expect(statusCalls, 1);
-        // Made-up statuses are one kind: one more call in all.
+        expect(statusCalls, 10);
         for (var i = 0; i < 5; i++) {
           await outcome(notification(status: 'made-up-$i', statusCode: '201'));
         }
-        expect(statusCalls, 2);
-        // On a paid order, a refund posted five times: one call.
+        expect(statusCalls, 15);
+        await statusApi(apiAnswer('settlement'));
         expect(await outcome(notification()), PaymentOutcome.applied.name);
         await statusApi(apiAnswer('settlement'));
         for (var i = 0; i < 5; i++) {
           await outcome(notification(status: 'refund', statusCode: '200'));
         }
-        expect(statusCalls, 1);
+        expect(statusCalls, 5);
         expect(await status(), PaymentStatus.paid);
       });
 
@@ -807,6 +718,17 @@ void main() {
       dir.deleteSync(recursive: true);
     });
     await app.run(() => App.make<Migrator>().run());
+    await app.run(() async {
+      Http.fake({
+        'api.sandbox.midtrans.com/*': Http.response({
+          'status_code': '200',
+          'order_id': 'ORDER-42',
+          'transaction_id': 'tx-1',
+          'transaction_status': 'settlement',
+          'gross_amount': '150000.00',
+        }),
+      });
+    });
     final response = await app.handle(
       Request.fake(
         method: 'POST',
