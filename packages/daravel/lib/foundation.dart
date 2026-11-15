@@ -17,6 +17,7 @@ export 'src/foundation/exceptions.dart';
 export 'src/foundation/ids.dart';
 export 'src/foundation/html_escape.dart';
 export 'src/foundation/service_provider.dart';
+export 'src/foundation/shared_result.dart';
 export 'src/foundation/php.dart';
 export 'src/foundation/php_serialize.dart';
 export 'src/foundation/version.dart';
