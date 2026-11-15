@@ -93,6 +93,12 @@ final class WebSocketGuard {
   /// guarded socket.
   HttpRequest wrap(HttpRequest request) => _GuardedRequest(request, this);
 
+  /// Whether the upgrade has taken ownership of the connection.
+  bool get detached => _socket != null;
+
+  /// Destroys the connection after an upgrade failed during takeover.
+  void abort() => _socket?.destroy();
+
   /// The WebSocket a violation closes with its code, so the close frame is
   /// written between frames. Called twice per connection:
   /// 1. by the engine's `_upgrade` with the upgraded WebSocket, as soon as

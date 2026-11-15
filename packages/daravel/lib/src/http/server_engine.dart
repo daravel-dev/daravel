@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/application.dart';
 import '../foundation/env.dart';
 import '../logging/logger.dart';
@@ -621,26 +623,51 @@ final class ServerEngine {
   /// Open WebSocket connections on this engine.
   int get openWebSockets => _sockets.length;
 
-  /// Selects one upgrade request before checking its remaining handshake.
-  static bool _canUpgrade(HttpRequest raw, Request request) {
+  /// What upgrades a WebSocket request in place of
+  /// [WebSocketTransformer.upgrade], for deterministic failure tests.
+  @visibleForTesting
+  static Future<WebSocket> Function(
+    HttpRequest request, {
+    CompressionOptions compression,
+    int? maxPayloadLength,
+  })?
+  webSocketUpgradeOverride;
+
+  /// The 400 a handshake that cannot be upgraded gets
+  /// ([_refuseHandshake]), as `kernel.terminate` sees it.
+  static Response get _handshakeRefused =>
+      Response.text('Bad Request', status: 400);
+
+  /// Reads whether [raw] asks for one valid WebSocket handshake.
+  static _UpgradeAsk _upgradeAsk(HttpRequest raw, Request request) {
     if (!isWebSocketUpgrade(request)) {
-      return false;
+      return _UpgradeAsk.none;
     }
     try {
-      return WebSocketTransformer.isUpgradeRequest(raw);
+      return WebSocketTransformer.isUpgradeRequest(raw)
+          ? _UpgradeAsk.upgrade
+          : _UpgradeAsk.none;
     } on Object {
-      return false;
+      return _UpgradeAsk.malformed;
     }
   }
 
-  /// Upgrades [httpRequest] after [_handle] selected an upgrade; null when
-  /// the upgrade fails. Ordinary refusals use the normal response path.
-  Future<WebSocket?> _upgrade(
+  /// Upgrades [httpRequest], or returns the 400 seen by termination.
+  Future<({WebSocket? socket, Response? answered})> _upgrade(
     HttpRequest httpRequest,
     Request request,
     Response response,
     String id,
   ) async {
+    if (_upgradeAsk(httpRequest, request) == _UpgradeAsk.malformed) {
+      logger.warning(
+        'WebSocket handshake refused for request $id: its headers do not '
+        'read as one handshake',
+        <String, Object?>{'request_id': id},
+      );
+      await _refuseHandshake(httpRequest);
+      return (socket: null, answered: _handshakeRefused);
+    }
     // The server reads the frames itself (WebSocketGuard): a message is
     // limited as a whole, fragments are assembled before the WebSocket
     // reads them, control frames are rate limited, and what waits to be
@@ -668,21 +695,56 @@ final class ServerEngine {
       },
     );
     try {
-      final socket = await WebSocketTransformer.upgrade(
-        guard.wrap(httpRequest),
-        compression: response.webSocketCompression
-            ? CompressionOptions.compressionDefault
-            : CompressionOptions.compressionOff,
-        // With the guard's assembly, the limit of a whole message (and of
-        // what a compressed one inflates to).
-        maxPayloadLength: response.webSocketMaxPayloadBytes,
-      );
+      final socket =
+          await (webSocketUpgradeOverride ?? WebSocketTransformer.upgrade)(
+            guard.wrap(httpRequest),
+            compression: response.webSocketCompression
+                ? CompressionOptions.compressionDefault
+                : CompressionOptions.compressionOff,
+            // With the guard's assembly, the limit of a whole message (and
+            // of what a compressed one inflates to).
+            maxPayloadLength: response.webSocketMaxPayloadBytes,
+          );
       guard.attach(socket);
       _guards[socket] = guard;
-      return socket;
+      return (socket: socket, answered: null);
     } catch (error) {
-      logger.warning('WebSocket upgrade failed for request $id: $error');
-      return null;
+      logger.warning(
+        'WebSocket upgrade failed for request $id: $error',
+        <String, Object?>{'request_id': id},
+      );
+      if (guard.detached) {
+        guard.abort();
+      } else {
+        await _refuseHandshake(httpRequest);
+      }
+      return (socket: null, answered: _handshakeRefused);
+    }
+  }
+
+  static const List<String> _handshakeHeaders = [
+    'upgrade',
+    'sec-websocket-accept',
+    'sec-websocket-extensions',
+    'sec-websocket-protocol',
+  ];
+
+  /// Answers a handshake refusal with 400 and closes the connection.
+  static Future<void> _refuseHandshake(HttpRequest httpRequest) async {
+    try {
+      final response = httpRequest.response;
+      for (final name in _handshakeHeaders) {
+        response.headers.removeAll(name);
+      }
+      response
+        ..statusCode = HttpStatus.badRequest
+        ..persistentConnection = false
+        ..headers.set(HttpHeaders.connectionHeader, 'close')
+        ..headers.contentType = ContentType.text
+        ..write('Bad Request');
+      await response.close();
+    } on Object {
+      // The response was already sent, or the connection is gone.
     }
   }
 
@@ -921,20 +983,32 @@ final class ServerEngine {
                     'message': 'Server Error',
                   }, status: 500);
                 }
+                final upgradeAsk = response.webSocket == null
+                    ? null
+                    : _upgradeAsk(raw!, request);
                 if (response.webSocket != null &&
-                    (!_canUpgrade(raw!, request) || _stopping)) {
+                    (upgradeAsk == _UpgradeAsk.none ||
+                        (_stopping && upgradeAsk == _UpgradeAsk.upgrade))) {
                   response = Response.json(const <String, Object?>{
                     'message': 'Upgrade Required',
                   }, status: 426).withHeader('upgrade', 'websocket');
                 }
                 final onSocket = response.webSocket;
                 if (onSocket != null) {
-                  final socket = await _upgrade(raw!, request, response, id);
+                  final (:socket, :answered) = await _upgrade(
+                    raw!,
+                    request,
+                    response,
+                    id,
+                  );
                   raw = null;
                   request.detachBody();
-                  release();
                   if (socket != null) {
+                    release();
                     await _session(socket, request, response, onSocket, id);
+                  } else {
+                    await kernel.terminate(request, answered!);
+                    release();
                   }
                   return;
                 }
@@ -1019,3 +1093,5 @@ final class _DiscardedBody {
     }
   }
 }
+
+enum _UpgradeAsk { none, upgrade, malformed }
