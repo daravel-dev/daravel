@@ -453,6 +453,9 @@ jobs:
           --health-retries 20
     env:
       DARAVEL_TEST_MYSQL: mysql://daravel:secret@127.0.0.1:3306/daravel_test
+      # Triggers need a user with SUPER while binary logging is on
+      # (single_statement_test.dart).
+      DARAVEL_TEST_MYSQL_ROOT: mysql://root:secret@127.0.0.1:3306/daravel_test
       DARAVEL_TEST_MARIADB: ${{ startsWith(matrix.server, 'mariadb') && '1' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -494,9 +497,12 @@ jobs:
 
       - name: Test against ${{ matrix.server }}
         run: |
-          (cd packages/daravel_mysql && dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_mysql && dart test --tags integration --exclude-tags single-statement --reporter=expanded)
           # Timestamps come back without a zone: read them as UTC in any zone.
-          (cd packages/daravel_mysql && TZ=Asia/Makassar dart test --tags integration --reporter=expanded)
+          (cd packages/daravel_mysql && TZ=Asia/Makassar dart test --tags integration --exclude-tags single-statement --reporter=expanded)
+          # A process of its own: sharing one with the other files loaded
+          # their timing-sensitive tests (#403).
+          (cd packages/daravel_mysql && dart test test/single_statement_test.dart --reporter=expanded)
           (cd packages/daravel_permission && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_activitylog && dart test --tags integration --reporter=expanded)
           (cd packages/daravel_teorion && dart test --tags integration --reporter=expanded)
