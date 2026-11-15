@@ -940,11 +940,14 @@ final class ServerEngine {
                   unread = await _settleUnreadBody(raw!);
                 }
                 try {
-                  if (unread != null &&
-                      !unread.arrived &&
+                  if ((request.bodyReadAborted ||
+                          (unread != null && !unread.arrived)) &&
                       response.body is! StreamBody) {
                     await _writeClosing(raw!, response);
                   } else {
+                    if (request.bodyReadAborted) {
+                      raw!.response.persistentConnection = false;
+                    }
                     await response.writeTo(raw!.response);
                   }
                 } catch (error) {

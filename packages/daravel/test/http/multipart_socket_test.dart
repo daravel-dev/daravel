@@ -123,8 +123,7 @@ void main() {
 
     test('a body that ends inside a file answers 400', () async {
       // Content-Length covers exactly what is sent: the body is complete,
-      // its last part is not. The global MethodOverrideMiddleware parses
-      // it before routing.
+      // its last part is not. The POST handler parses it on this path.
       final body = [...head, ...List<int>.filled(64 * 1024, 7)];
       final socket = await Socket.connect('127.0.0.1', engine.port!);
       addTearDown(socket.destroy);
@@ -143,7 +142,7 @@ void main() {
           .timeout(const Duration(seconds: 10));
       expect(reply, startsWith('HTTP/1.1 400'));
       expect(reply, contains('Malformed multipart body'));
-      expect(reached, 0);
+      expect(reached, 1);
       await slotFreed();
     });
 
@@ -165,7 +164,7 @@ void main() {
       expect(engine.inFlight, 1);
       socket.destroy();
       await slotFreed();
-      expect(reached, 0);
+      expect(reached, 1);
     });
   });
 }

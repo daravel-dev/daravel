@@ -430,11 +430,55 @@ final class Request {
       return _bodyBytes = const <int>[];
     }
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in stream) {
+    await for (final chunk in _abortable(stream)) {
       builder.add(chunk);
       _enforceLimit(builder.length);
     }
     return _bodyBytes = builder.takeBytes();
+  }
+
+  /// Ends a pending body read with [error]. The server answers before it
+  /// closes the connection; the remaining body is left on that connection.
+  void abortBodyRead(Object error) => _abortRead?.call(error);
+
+  void Function(Object error)? _abortRead;
+  bool _bodyReadAborted = false;
+
+  /// Whether [abortBodyRead] ended a read while its body was still arriving.
+  bool get bodyReadAborted => _bodyReadAborted;
+
+  Stream<List<int>> _abortable(Stream<List<int>> source) {
+    late final StreamSubscription<List<int>> subscription;
+    var aborted = false;
+    final controller = StreamController<List<int>>(sync: true);
+    controller
+      ..onListen = () {
+        _abortRead = (error) {
+          aborted = true;
+          _bodyReadAborted = true;
+          _abortRead = null;
+          // Keep the body on its connection until the server writes the
+          // response and detaches the socket to close it.
+          subscription.pause();
+          controller.addError(error);
+          unawaited(controller.close());
+        };
+        subscription = source.listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: () {
+            _abortRead = null;
+            unawaited(controller.close());
+          },
+        );
+      }
+      ..onPause = (() => subscription.pause())
+      ..onResume = (() => subscription.resume())
+      ..onCancel = () {
+        _abortRead = null;
+        return aborted ? null : subscription.cancel();
+      };
+    return controller.stream;
   }
 
   /// Lets go of the socket's body: a request upgraded to a WebSocket has
@@ -496,7 +540,7 @@ final class Request {
       return;
     }
     var total = 0;
-    await for (final chunk in stream) {
+    await for (final chunk in _abortable(stream)) {
       total += chunk.length;
       _enforceLimit(total);
       yield chunk;
