@@ -7,8 +7,8 @@ import 'package:test/test.dart';
 /// What a conversion makes is bounded too, not only what it reads: a thin
 /// file resized to a width grows by its aspect ratio (1 x 15 000 to a width
 /// of 100 is 100 x 1 500 000), and making an image costs time with its
-/// pixels. A manipulation makes at most the larger of the image's own
-/// pixels and a quarter of the pixel limit, with sides of at most 65 535;
+/// pixels. A manipulation makes at most a quarter of the pixel limit,
+/// with sides of at most 65 535; blur has a separate work budget;
 /// an image read has sides of at most 65 535; a JPEG has at most as many
 /// scans as its size allows.
 void main() {
@@ -142,6 +142,40 @@ void main() {
       );
     });
 
+    test('a shrink is bounded by its output, not by its larger input', () {
+      final source = png(2000, 1000);
+      // maxPixels 4 000 000: each output may hold at most 1 000 000.
+      expect(
+        convert(source, {
+          'width': [1414],
+        }, maxPixels: 4000000),
+        converted,
+      );
+      expect(
+        convert(source, {
+          'width': [1500],
+        }, maxPixels: 4000000),
+        refused,
+      );
+    });
+
+    test('a crop is bounded by its output, not by its larger input', () {
+      final source = png(2000, 1000);
+      // maxPixels 4 000 000: each output may hold at most 1 000 000.
+      expect(
+        convert(source, {
+          'crop': [1000, 1000, 'center'],
+        }, maxPixels: 4000000),
+        converted,
+      );
+      expect(
+        convert(source, {
+          'crop': [1500, 1000, 'center'],
+        }, maxPixels: 4000000),
+        refused,
+      );
+    });
+
     test('1080p to 4K converts at the default limit', () {
       expect(
         convert(png(1920, 1080), {
@@ -150,6 +184,92 @@ void main() {
         converted,
       );
     }, timeout: const Timeout(Duration(minutes: 1)));
+  });
+
+  group('blur work is bounded', () {
+    test('still images and animations have separate budgets', () {
+      final still = png(1600, 1000);
+      expect(
+        convert(still, {
+          'blur': [100],
+        }, within: const Duration(seconds: 10)),
+        converted,
+      );
+      expect(
+        convert(png(1601, 1000), {
+          'blur': [100],
+        }),
+        refused,
+      );
+
+      Uint8List animation(int frames) {
+        final image = img.Image(width: 100, height: 100);
+        for (var i = 1; i < frames; i++) {
+          image.addFrame(img.Image(width: 100, height: 100));
+        }
+        return img.encodeGif(image);
+      }
+
+      expect(
+        convert(animation(100), {
+          'blur': [40],
+        }, within: const Duration(seconds: 10)),
+        converted,
+      );
+      expect(
+        convert(animation(101), {
+          'blur': [40],
+        }),
+        refused,
+      );
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a resize before blur reduces its work; the reverse does not', () {
+      final source = png(2000, 1000);
+      expect(
+        convert(source, {
+          'width': [1000],
+          'blur': [82],
+        }, within: const Duration(seconds: 10)),
+        converted,
+      );
+      expect(
+        convert(source, {
+          'blur': [82],
+          'width': [1000],
+        }),
+        refused,
+      );
+    }, timeout: const Timeout(Duration(seconds: 20)));
+  });
+
+  test('non-positive manipulation dimensions have one public error', () {
+    const message = 'Image manipulation dimensions must be greater than zero.';
+    final source = png(10, 10);
+    for (final manipulations in <Map<String, List<Object?>>>[
+      {
+        'width': [0],
+      },
+      {
+        'height': [-1],
+      },
+      {
+        'fit': ['crop', 0, 10],
+      },
+      {
+        'fit': ['stretch', 10, 0],
+      },
+      {
+        'crop': [0, 10, 'center'],
+      },
+      {
+        'crop': [10, -1, 'center'],
+      },
+    ]) {
+      final outcome = convert(source, manipulations);
+      expect(outcome.runtimeType, ImageConversionException);
+      expect((outcome! as ImageConversionException).message, message);
+    }
   });
 
   test('a side longer than 65 535 is refused before decoding; 65 535 '

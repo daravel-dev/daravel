@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/medialibrary.md`.
 const String pageIdMedialibrary =
-    r'''<!-- source: medialibrary.md sha256:e32fcfcd1024 -->
+    r'''<!-- source: medialibrary.md sha256:5c659b720367 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -141,6 +141,16 @@ butuh gigabyte untuk didekode. PNG 16-bit dihitung dua kali (dua byte per
 sampel), dan JPEG harus memiliki 1 atau 3 komponen warna. Konversi yang
 ditolak dengan cara ini langsung menggagalkan job-nya, tanpa diulang.
 
+Setiap gambar yang dibuat oleh `width`, `height`, `fit`, atau `crop` juga dibatasi
+seperempat `MEDIA_MAX_IMAGE_PIXELS`, dengan frame ikut dihitung, sekalipun
+hasilnya lebih kecil dari masukan. Blur memiliki anggaran kerja
+piksel-frame-radius tersendiri. Jika suatu konversi mengubah ukuran dan
+melakukan blur, tulis `width` atau `height` sebelum `blur` agar blur bekerja
+pada gambar yang lebih kecil. Manipulasi tetap berjalan dalam urutan yang
+ditentukan konversi. Dimensi harus lebih besar dari nol, dan tidak ada
+gambar yang dibaca atau dibuat boleh memiliki sisi lebih panjang dari
+65 535 piksel.
+
 Batas ini menjaga memori tetap terbatas, tetapi tidak kecil. Mengonversi
 gambar tepat di batas bawaan memakan (puncak terukur):
 
@@ -155,6 +165,11 @@ gambar tepat di batas bawaan memakan (puncak terukur):
 | sama, orientasi EXIF 6 | sekitar 245 MiB | 0,8 dtk |
 | WebP, 4 472 x 4 472, terburuk yang terukur | sekitar 395 MiB, sampai 470 MiB dengan orientasi | 2 sampai 2,6 dtk |
 | GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
+| JPEG pada batas scan-nya (40, 20, atau 5 MP) | sampai sekitar 430 MiB | sampai 9,1 dtk |
+| manipulasi yang membuat 10 juta piksel | sekitar 47 sampai 76 MiB | 4,5 sampai 7,2 dtk, bergantung bentuk dan mesin |
+| blur gambar diam pada anggaran 80 juta piksel-radius | sekitar 51 MiB untuk JPEG 10 MP | 3,5 sampai 5,0 dtk, bergantung mesin |
+| blur animasi pada anggaran 20 juta piksel-frame-radius | sekitar 125 MiB untuk GIF | 3,2 sampai 4,4 dtk, bergantung mesin |
+| penyandian gambar 40 juta piksel tanpa perubahan ukuran | sekitar 132 sampai 140 MiB | 3,0 sampai 6,7 dtk, bergantung format dan mesin |
 
 WebP dan PNG 16-bit dihitung terhadap separuh `MEDIA_MAX_IMAGE_PIXELS`.
 Batas ini membatasi ukuran gambar, bukan memori secara persis: pada batas

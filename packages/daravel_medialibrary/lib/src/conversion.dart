@@ -291,12 +291,11 @@ bool canConvert({String? mimeType, String? extension}) {
 /// 16-bit PNG), one frame for a still image; an animated PNG or WebP is not
 /// converted in this version. An image with a side longer than 65 535, or
 /// a JPEG with more scans than its size allows, is not converted. A
-/// manipulation does not make an image of more pixels than the larger of
-/// the one it starts from and a quarter of [maxPixels], nor one with a
-/// side longer than 65 535: past that, [ImageTooLargeException]. A
-/// manipulation's cost follows the pixels it makes (a resize to 10 million
-/// pixels takes 3.3 to 5 s, the most for a very elongated one; a blur,
-/// whose amount the conversion sets, costs more per pixel).
+/// manipulation does not make an image of more than a quarter of
+/// [maxPixels], frames counted, nor one with a side longer than 65 535:
+/// past that, [ImageTooLargeException]. Blur is limited separately by its
+/// pixels, frames and radius. Put a resize before blur to reduce its cost;
+/// manipulations still run in the order the conversion defines.
 ///
 /// The limit bounds an image's size, not memory exactly: at the default
 /// limit, plan about 500 MiB of memory per conversion running at once,
@@ -314,8 +313,11 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | WebP, 4 472 x 4 472, worst measured | about 395 MiB (470 with orientation) | 2.6 s |
 /// | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
-/// | JPEG at its scan limit (40, 20 or 5 MP) | about 245 MiB at 40 MP | 3.1 to 3.4 s |
-/// | a manipulation making 10 million pixels | 46 to 160 MiB | 3.3 to 5 s |
+/// | JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB at 40 MP | up to 9.1 s |
+/// | a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 5.2 s (6.3 to 7.2 s on a slower reference machine) |
+/// | still blur at its 80-million pixel-radius budget | about 51 MiB for a 10 MP JPEG | 3.5 to 3.6 s (4.8 to 5.0 s on a slower reference machine) |
+/// | animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 s (4.4 s on a slower reference machine) |
+/// | encoding an unchanged 40-million-pixel JPEG as JPEG or PNG | about 132 to 140 MiB | 3.0 to 4.8 s (4.2 to 6.7 s on a slower reference machine) |
 Future<Uint8List> convertImage(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
@@ -414,7 +416,7 @@ Uint8List convertImageSync(
       : img.bakeOrientation(decoded);
   int? quality;
   var format = 'jpg';
-  // How far a manipulation may grow the image past its own pixels.
+  // How large an image made by a manipulation may be.
   final growth = math.max(1, maxPixels ~/ _growthDivisor);
   for (final MapEntry(key: name, value: args) in manipulations.entries) {
     switch (name) {
@@ -431,6 +433,13 @@ Uint8List convertImageSync(
           growth,
         );
       case 'crop':
+        _checkTarget(
+          image,
+          args[0]! as int,
+          args[1]! as int,
+          image.numFrames,
+          growth,
+        );
         image = _crop(
           image,
           args[0]! as int,
@@ -446,20 +455,24 @@ Uint8List convertImageSync(
       case 'blur':
         final amount = (args[0]! as int).clamp(0, 100);
         if (amount > 0) {
-          image = img.gaussianBlur(image, radius: math.max(1, amount ~/ 2));
+          final radius = math.max(1, amount ~/ 2);
+          _checkBlur(image, radius);
+          image = img.gaussianBlur(image, radius: radius);
         }
       default:
         throw ImageConversionException('Unknown manipulation [$name].');
     }
   }
-  return switch (ImageFormat.fromExtension(format)) {
-    ImageFormat.png => img.encodePng(image),
-    ImageFormat.gif => img.encodeGif(image),
-    ImageFormat.bmp => img.encodeBmp(image),
-    ImageFormat.tiff => img.encodeTiff(image),
-    // GD's default JPEG quality when none is set.
-    ImageFormat.jpg || null => img.encodeJpg(image, quality: quality ?? 75),
-  };
+  return _guarded(
+    () => switch (ImageFormat.fromExtension(format)) {
+      ImageFormat.png => img.encodePng(image),
+      ImageFormat.gif => img.encodeGif(image),
+      ImageFormat.bmp => img.encodeBmp(image),
+      ImageFormat.tiff => img.encodeTiff(image),
+      // GD's default JPEG quality when none is set.
+      ImageFormat.jpg || null => img.encodeJpg(image, quality: quality ?? 75),
+    },
+  );
 }
 
 double _aspect(img.Image image) => image.width / image.height;
@@ -480,6 +493,7 @@ int _side(double value) => value.isFinite && value < 9007199254740992
     : 9007199254740992;
 
 img.Image _resize(img.Image image, int width, int height, int growth) {
+  _checkDimensions(width, height);
   if (width == image.width && height == image.height) {
     return image;
   }
@@ -494,11 +508,9 @@ img.Image _resize(img.Image image, int width, int height, int growth) {
 
 /// Refuses to make a [width] x [height] image of [frames] frames out of
 /// [image] when a side is longer than [_maxImageSide], or when it holds more
-/// pixels than both [image] and [growth]: making an image costs time with
-/// its pixels, and a thin file would otherwise grow into hundreds of
-/// millions of them. Shrinking is always allowed (its cost is bounded by
-/// the image's own limit). Divisions only, without a product that could
-/// overflow.
+/// pixels than [growth]: making an image costs time with its output pixels,
+/// even when it is smaller than its input. Divisions only, without a product
+/// that could overflow.
 void _checkTarget(
   img.Image image,
   int width,
@@ -506,8 +518,8 @@ void _checkTarget(
   int frames,
   int growth,
 ) {
-  final own = image.width * image.height * math.max(1, image.numFrames);
-  final allowed = math.max(own, growth);
+  _checkDimensions(width, height);
+  final allowed = growth;
   final count = math.max(1, frames);
   if (width < 1 ||
       height < 1 ||
@@ -565,6 +577,7 @@ void _checkTarget(
 }
 
 img.Image _fit(img.Image image, Fit fit, int? width, int? height, int growth) {
+  _checkDimensions(width, height);
   final desiredWidth = width ?? image.width;
   final desiredHeight = height ?? image.height;
   switch (fit) {
@@ -618,6 +631,8 @@ img.Image _fit(img.Image image, Fit fit, int? width, int? height, int growth) {
 /// spatie/image's `resizeCanvas()` centered: [image] on a white canvas of
 /// [width] × [height], cut where it is larger.
 img.Image _canvas(img.Image image, int width, int height, int growth) {
+  _checkDimensions(width, height);
+  _checkTarget(image, width, height, image.numFrames, growth);
   if (image.width == width && image.height == height) {
     return image;
   }
@@ -625,7 +640,6 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
   if (cut.width == width && cut.height == height) {
     return cut;
   }
-  _checkTarget(image, width, height, 1, growth);
   final canvas = img.Image(
     width: width,
     height: height,
@@ -642,6 +656,7 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
 
 /// spatie/image's `crop()` with its `calculateCropOffsets()`.
 img.Image _crop(img.Image image, int width, int height, CropPosition position) {
+  _checkDimensions(width, height);
   final w = math.min(width, image.width);
   final h = math.min(height, image.height);
   final dx = image.width - w;
@@ -658,6 +673,26 @@ img.Image _crop(img.Image image, int width, int height, CropPosition position) {
     CropPosition.bottomRight => (dx, dy),
   };
   return img.copyCrop(image, x: x, y: y, width: w, height: h);
+}
+
+void _checkDimensions(int? width, int? height) {
+  if ((width != null && width <= 0) || (height != null && height <= 0)) {
+    throw const ImageConversionException(
+      'Image manipulation dimensions must be greater than zero.',
+    );
+  }
+}
+
+void _checkBlur(img.Image image, int radius) {
+  final frames = math.max(1, image.numFrames);
+  final allowed = frames == 1 ? _maxStillBlurWork : _maxAnimatedBlurWork;
+  if (image.width > allowed ~/ frames ~/ image.height ~/ radius) {
+    throw ImageTooLargeException(
+      'Blur would process ${image.width} x ${image.height} pixels in '
+      '$frames frame(s) at radius $radius, past its work limit; resize the '
+      'image before applying blur.',
+    );
+  }
 }
 
 /// The decoder of [bytes] among the formats [canConvert] names (JPEG, PNG,
@@ -726,22 +761,27 @@ const bool _convertsAnimatedGif = true;
 /// 40 000 000 rows about 20 s; at 65 535, 64 ms or less in every format.
 const int _maxImageSide = 65535;
 
-/// A manipulation may make an image of up to the larger of its own pixels
-/// and `maxPixels ~/ _growthDivisor` (frames counted): 10 million pixels at
-/// the default limit. Making an image costs time with its pixels, not with
-/// those of the file it came from: a cubic resize, measured (a compiled
-/// process) from a 100 x 100 and from an 8 000 x 5 000 image:
-///
-/// | Result | from 100 x 100 | from 8 000 x 5 000 |
-/// | --- | --- | --- |
-/// | 5 MP | 1.6 s, 31 MiB | 1.9 s, 146 MiB |
-/// | 10 MP | 3.3 s, 46 MiB | 3.8 s, 160 MiB |
-/// | 20 MP | 6.8 s, 80 MiB | 8.3 s, 189 MiB |
-/// | 40 MP | 15 s, 137 MiB | 18 s, 252 MiB |
-///
-/// Shrinking is bounded by the image's own limit; growing stops at a
-/// quarter of it, so 1080p to 4K (8.3 MP) still converts.
+/// A manipulation may make an image of up to
+/// `maxPixels ~/ _growthDivisor` (frames counted): 10 million pixels at the
+/// default limit, whether it grows or shrinks the input. The quarter keeps a
+/// usual 1080p to 4K enlargement possible. Measured with cubic interpolation
+/// and JPEG or PNG output, one step at the boundary took 4.5 to 5.2 s on the
+/// current machine and 6.3 to 7.2 s on a slower reference machine. Every
+/// manipulation is checked separately: several resize steps pay that cost
+/// several times.
 const int _growthDivisor = 4;
+
+/// The maximum `pixels x radius` for a still image passed to Gaussian blur.
+///
+/// At 80 million, a 10 MP JPEG at the boundary took 3.5 to 3.6 s here and
+/// 4.8 to 5.0 s on a slower reference machine.
+const int _maxStillBlurWork = 80000000;
+
+/// The maximum `pixels x frames x radius` for an animated image.
+///
+/// At 20 million, an animated GIF at the boundary took 3.2 s here and 4.4 s
+/// on a slower reference machine. Forty million took 6.4 s and 8.9 s.
+const int _maxAnimatedBlurWork = 20000000;
 
 /// For a JPEG, refuses one with more scans than its size allows, from the
 /// raw bytes, without walking the file's structure. Each scan is a pass
