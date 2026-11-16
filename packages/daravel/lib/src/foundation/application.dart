@@ -1399,7 +1399,7 @@ final class Application {
               logger.warning('Readiness check [$key] failed', <String, Object?>{
                 // A check's error often quotes its DSN or URL.
                 'error': switch (check['error']) {
-                  final String text => redactUrl(text),
+                  final String text => redactUrlInText(text),
                   final other => other,
                 },
               });

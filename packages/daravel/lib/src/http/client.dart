@@ -105,22 +105,24 @@ abstract final class Http {
   /// A `when:` that retries a connection error, `429` and `5xx`, and not
   /// the other client errors, which another try does not change.
   ///
-  /// A timeout is retried only for an idempotent method ([isIdempotent]):
-  /// the server may have received and processed a `POST` whose answer
-  /// did not come in time ([ConnectionException.isTimeout]), and sending
-  /// it again would act twice.
+  /// A connection failure after the request may have been sent is retried
+  /// only for an idempotent method ([isIdempotent]); sending a `POST` or
+  /// `PATCH` again could act twice. A `429` or `5xx` is a response, not a
+  /// connection failure, so this predicate retries it for every method:
+  /// choosing this predicate opts into retrying a `POST` answered with 5xx.
   static bool retryOnConnectionOr5xx(ClientResponse? response, Object? error) =>
       (error != null && _mayRetry(error)) ||
       (response != null && (response.status == 429 || response.status >= 500));
 
-  /// A `when:` that retries only when the connection failed; a timeout
-  /// only for an idempotent method, as [retryOnConnectionOr5xx].
+  /// A `when:` that retries only when the connection failed. A failure after
+  /// the request may have been sent is retried only for an idempotent method,
+  /// as in [retryOnConnectionOr5xx].
   static bool retryOnConnectionOnly(ClientResponse? response, Object? error) =>
       error != null && _mayRetry(error);
 
   static bool _mayRetry(Object error) =>
       error is! ConnectionException ||
-      !error.isTimeout ||
+      !error.mayHaveBeenSent ||
       isIdempotent(error.method);
 
   /// Whether [method] is idempotent (RFC 9110 §9.2.2: `GET`, `HEAD`,
@@ -341,18 +343,21 @@ final class HttpClientFactory {
         'Request to ${_shown(request.url)} timed out after '
         '${_duration(timeout)}.',
         isTimeout: true,
+        mayHaveBeenSent: outgoing != null,
         method: request.method,
       );
     } on io.SocketException catch (error) {
       outgoing?.abort();
       throw ConnectionException(
         'Could not reach ${_shown(request.url)}: ${error.message}',
+        mayHaveBeenSent: outgoing != null,
         method: request.method,
       );
     } on io.HttpException catch (error) {
       outgoing?.abort();
       throw ConnectionException(
         'HTTP error for ${_shown(request.url)}: ${error.message}',
+        mayHaveBeenSent: outgoing != null,
         method: request.method,
       );
     } on io.IOException catch (error) {
@@ -361,6 +366,7 @@ final class HttpClientFactory {
       outgoing?.abort();
       throw ConnectionException(
         'Could not reach ${_shown(request.url)}: $error',
+        mayHaveBeenSent: outgoing != null,
         method: request.method,
       );
     }
@@ -978,6 +984,7 @@ final class ConnectionException extends DaravelException {
   const ConnectionException(
     super.message, {
     this.isTimeout = false,
+    this.mayHaveBeenSent = false,
     this.method,
   });
 
@@ -986,11 +993,13 @@ final class ConnectionException extends DaravelException {
   /// when unknown.
   final String? method;
 
-  /// Whether the request was sent and the answer did not come in time: it
-  /// may have been processed, unlike a connection that was refused or
-  /// reset before anything was sent, so a caller retrying must not
-  /// assume it was not.
+  /// Whether the operation ended because its request deadline elapsed.
   final bool isTimeout;
+
+  /// Whether the request had passed connection opening before the failure,
+  /// so the server may have received or processed it. A retry policy must
+  /// not resend a non-idempotent request when this is true.
+  final bool mayHaveBeenSent;
 }
 
 /// A response body larger than the request allows

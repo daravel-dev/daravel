@@ -45,10 +45,12 @@ response.throwIfFailed();                // RequestException pada 4xx/5xx
   `jitter:` (0 sampai 1) menyebar jeda, dan
   `when: Http.retryOnConnectionOr5xx` (error koneksi, 429, dan 5xx) atau
   `Http.retryOnConnectionOnly` membiarkan client error lainnya. Keduanya
-  mengulang timeout hanya untuk method yang idempoten (`GET`, `HEAD`,
-  `OPTIONS`, `TRACE`, `PUT`, `DELETE`; RFC 9110): `POST` atau `PATCH` yang
-  jawabannya tidak datang tepat waktu mungkin sudah diproses, dan
-  mengirimnya lagi akan menjalankannya dua kali.
+  mengulang kegagalan koneksi setelah request mungkin terkirim hanya untuk
+  method yang idempoten (`GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE`;
+  RFC 9110): mengirim `POST` atau `PATCH` lagi dapat menjalankannya dua kali.
+  Jawaban 429 atau 5xx bukan kegagalan koneksi, sehingga
+  `retryOnConnectionOr5xx` mengulangnya untuk setiap method; memilih predikat
+  itu berarti memilih mengulang `POST` yang dijawab 5xx.
   `honorRetryAfter: true` menunggu sesuai `Retry-After` dari respons `429`
   atau `503`, paling lama `maxRetryAfter` (10 detik):
 

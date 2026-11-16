@@ -42,10 +42,12 @@ response.throwIfFailed();                // RequestException on 4xx/5xx
   `Http.backoffSequence([...])` for Laravel's `retry(3, [100, 200])`),
   `jitter:` (0 to 1) spreads the waits, and `when: Http.retryOnConnectionOr5xx`
   (connection errors, 429 and 5xx) or `Http.retryOnConnectionOnly` leaves
-  the other client errors alone. Both retry a timeout only for an idempotent
-  method (`GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE`; RFC 9110): a
-  `POST` or `PATCH` whose answer did not come in time may have been
-  processed, and sending it again would act twice. `honorRetryAfter: true`
+  the other client errors alone. Both retry a connection failure after the
+  request may have been sent only for an idempotent method (`GET`, `HEAD`,
+  `OPTIONS`, `TRACE`, `PUT`, `DELETE`; RFC 9110): sending a `POST` or `PATCH`
+  again could act twice. A 429 or 5xx is a response, so
+  `retryOnConnectionOr5xx` retries it for every method; selecting that
+  predicate opts into retrying a `POST` answered with 5xx. `honorRetryAfter: true`
   waits what a
   `429` or `503` asks in `Retry-After`, at most `maxRetryAfter` (10 s):
 

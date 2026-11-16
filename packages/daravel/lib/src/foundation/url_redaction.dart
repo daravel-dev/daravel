@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+import 'dart:convert';
 
 /// [url] with the password in its user info masked as `***`, for error
 /// messages and logs: `pgsql://app:***@db/shop`.
@@ -16,9 +16,8 @@ import 'dart:math' as math;
 /// | no `:` | the segment before the last `@`, after the `/` before it, when it holds a `:` and no `?`, `#`, `&` or `=` | `postgres//app:secret@host` → `postgres//app:***@host` |
 ///
 /// Masking more than the password (`mailto:***@b`) is accepted; less is
-/// not. A known limit: a password of digits only followed by `/`
-/// (`u:1234/5@h`) reads as a port. A URL without user info, or with a user
-/// and no `:`, is returned as it is.
+/// not. A URL without user info, or with a user and no `:`, is returned as
+/// it is.
 ///
 /// With [loneUserIsPassword], user info without a `:` is masked whole,
 /// for schemes such as `redis://secret@host` where it is the password.
@@ -54,9 +53,33 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   }
   // A password holding `/`, `?` or `#`: a `:` in the authority that is not
   // a port's.
-  final colon = url.indexOf(':', start);
+  final colon = _authorityColon(url, start, end);
   if (colon >= 0 && colon < end) {
-    return _isPort(url, colon + 1, end) ? url : masked(colon + 1, last);
+    if (!_isPort(url, colon + 1, end)) {
+      return masked(colon + 1, last);
+    }
+    // A malformed password can look like a port until its `/`: mask it
+    // when the first path segment then continues to user info. Keep a
+    // normal `/@user` path and an `@` in a query unchanged.
+    if (end < n && url.codeUnitAt(end) == 0x2f) {
+      var segmentEnd = end + 1;
+      while (segmentEnd < n) {
+        final c = url.codeUnitAt(segmentEnd);
+        if (c == 0x2f || c == 0x3f || c == 0x23) {
+          break;
+        }
+        segmentEnd++;
+      }
+      final pathAt = url.indexOf('@', end + 1);
+      if (pathAt > end + 1 && pathAt < segmentEnd) {
+        return masked(colon + 1, pathAt);
+      }
+    }
+    return url;
+  }
+  if (start < end && url.codeUnitAt(start) == 0x5b) {
+    // An unmatched IPv6 bracket is not evidence of user info.
+    return url;
   }
   if (loneUserIsPassword) {
     return masked(start, last);
@@ -72,6 +95,21 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   }
   final inner = url.indexOf(':', segment);
   return inner >= 0 && inner < last ? masked(inner + 1, last) : url;
+}
+
+/// The `:` separating user info or a port in an authority. Colons inside
+/// an IPv6 literal are skipped.
+int _authorityColon(String url, int start, int end) {
+  if (start < end && url.codeUnitAt(start) == 0x5b) {
+    final close = url.indexOf(']', start + 1);
+    if (close < 0 || close >= end) {
+      return -1;
+    }
+    final colon = url.indexOf(':', close + 1);
+    return colon >= 0 && colon < end ? colon : -1;
+  }
+  final colon = url.indexOf(':', start);
+  return colon >= 0 && colon < end ? colon : -1;
 }
 
 /// Whether `url[from, to)` is a port: one or more digits.
@@ -206,6 +244,71 @@ String redactUrl(
   return out.toString();
 }
 
+/// Masks every URL-shaped token in free-form [text].
+///
+/// A token starts with a URL scheme followed by `://` and ends at
+/// whitespace, a quote, or surrounding parentheses/braces/angle brackets.
+/// Each token is passed to [redactUrl] independently, so one message may
+/// safely contain several URLs. Percent-encoded nested URLs, matrix
+/// parameters before a query, and text without a scheme remain outside the
+/// redactor's contract.
+String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
+  final out = StringBuffer();
+  var start = 0;
+  for (var i = 0; i <= text.length; i++) {
+    if (i != text.length && !_isTextBoundary(text.codeUnitAt(i))) {
+      continue;
+    }
+    final token = text.substring(start, i);
+    out.write(_redactTextToken(token, names));
+    if (i < text.length) {
+      out.writeCharCode(text.codeUnitAt(i));
+    }
+    start = i + 1;
+  }
+  return out.toString();
+}
+
+String _redactTextToken(String token, List<String> names) {
+  var separator = token.indexOf('://');
+  while (separator >= 0) {
+    var schemeStart = separator;
+    while (schemeStart > 0 &&
+        _isSchemeCharacter(token.codeUnitAt(schemeStart - 1))) {
+      schemeStart--;
+    }
+    if (_isScheme(
+      token.substring(schemeStart, separator),
+      separator - schemeStart,
+    )) {
+      return '${token.substring(0, schemeStart)}'
+          '${redactUrl(token.substring(schemeStart), names: names)}';
+    }
+    separator = token.indexOf('://', separator + 3);
+  }
+  return token;
+}
+
+bool _isSchemeCharacter(int c) {
+  final letter = (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;
+  return letter ||
+      (c >= 0x30 && c <= 0x39) ||
+      c == 0x2b ||
+      c == 0x2d ||
+      c == 0x2e;
+}
+
+bool _isTextBoundary(int c) =>
+    c <= 0x20 ||
+    c == 0x22 ||
+    c == 0x27 ||
+    c == 0x28 ||
+    c == 0x29 ||
+    c == 0x7b ||
+    c == 0x7d ||
+    c == 0x3c ||
+    c == 0x3e;
+
 String _maskPair(String pair, List<String> names) {
   final equals = pair.indexOf('=');
   if (equals < 0) {
@@ -224,44 +327,57 @@ String _maskPair(String pair, List<String> names) {
   return value.contains('://') ? '$raw=${redactUrlPassword(value)}' : pair;
 }
 
-bool _isSensitiveUrlName(String name, List<String> names) =>
-    isSensitiveKeyName(name, names) ||
-    _exactUrlKeyNames.contains(normalizeKeyName(name));
+bool _isSensitiveUrlName(String name, List<String> names) {
+  bool matches(String value) =>
+      isSensitiveKeyName(value, names) ||
+      _exactUrlKeyNames.contains(normalizeKeyName(value));
+  if (matches(name)) {
+    return true;
+  }
+  final open = name.lastIndexOf('[');
+  return open >= 0 &&
+      name.endsWith(']') &&
+      matches(name.substring(open + 1, name.length - 1));
+}
 
 /// [raw] percent-decoded (`+` as a space), a broken `%XX` dropped first,
-/// and without control characters.
+/// and reduced to ASCII name characters. Dropping malformed Unicode and
+/// punctuation makes the comparison mask more, never less.
 String _decodedName(String raw) {
-  String decoded;
-  try {
-    decoded = Uri.decodeQueryComponent(raw);
-  } on Object {
-    final kept = StringBuffer();
-    for (var i = 0; i < raw.length; i++) {
-      final c = raw.codeUnitAt(i);
-      if (c == 0x25 &&
-          !(i + 2 < raw.length &&
-              _isHex(raw.codeUnitAt(i + 1)) &&
-              _isHex(raw.codeUnitAt(i + 2)))) {
-        // A broken `%XX`: dropped with what follows it, up to two.
-        i += math.min(2, raw.length - 1 - i);
-        continue;
-      }
-      kept.writeCharCode(c);
+  final kept = StringBuffer();
+  for (var i = 0; i < raw.length; i++) {
+    final c = raw.codeUnitAt(i);
+    if (c == 0x25 &&
+        !(i + 2 < raw.length &&
+            _isHex(raw.codeUnitAt(i + 1)) &&
+            _isHex(raw.codeUnitAt(i + 2)))) {
+      // A broken `%XX`: dropped with what follows it, up to two.
+      i += (raw.length - 1 - i).clamp(0, 2);
+      continue;
     }
-    try {
-      decoded = Uri.decodeQueryComponent(kept.toString());
-    } on Object {
-      decoded = kept.toString();
-    }
+    kept.writeCharCode(c);
   }
+  final decoded = Uri.decodeQueryComponent(
+    kept.toString(),
+    encoding: const Utf8Codec(allowMalformed: true),
+  );
   final out = StringBuffer();
   for (final c in decoded.codeUnits) {
-    if (c >= 0x20 && c != 0x7f) {
+    if (_isNameCharacter(c)) {
       out.writeCharCode(c);
     }
   }
   return out.toString();
 }
+
+bool _isNameCharacter(int c) =>
+    (c >= 0x30 && c <= 0x39) ||
+    ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a) ||
+    c == 0x2d ||
+    c == 0x5f ||
+    c == 0x5b ||
+    c == 0x5d ||
+    c == 0x3d;
 
 bool _isHex(int c) =>
     (c >= 0x30 && c <= 0x39) || ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x66);
