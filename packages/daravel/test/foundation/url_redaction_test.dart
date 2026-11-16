@@ -94,6 +94,10 @@ void main() {
           'redis://u:***@[::1]:6379/0?token=***',
         ),
         ('https://[bad?token=$secret', 'https://[bad?token=***'),
+        (
+          'https://[bad?email=a@b&token=$secret',
+          'https://[bad?email=a@b&token=***',
+        ),
       ]) {
         expect(redactUrl(url), expected, reason: url);
       }
@@ -137,6 +141,7 @@ void main() {
         ('https://h/p?to%C3%28ken=$secret', 'https://h/p?to%C3%28ken=***'),
         ('https://h/p?Api%5FKey=$secret', 'https://h/p?Api%5FKey=***'),
         ('https://h/p?user[token]=$secret', 'https://h/p?user[token]=***'),
+        ('https://h/p?user[key]=$secret', 'https://h/p?user[key]=***'),
         (
           'https://h/p?data[password]=$secret',
           'https://h/p?data[password]=***',
@@ -159,6 +164,17 @@ void main() {
         redactUrlInText('Bad state: internal://u:PASS@host refused'),
         'Bad state: internal://u:***@host refused',
       );
+      expect(
+        redactUrlInText(
+          "'(pgsql://u:PASS@h)' [redis://u:OTHER@h] {https://h/p}",
+        ),
+        "'(pgsql://u:***@h)' [redis://u:***@h] {https://h/p}",
+      );
+      expect(
+        redactUrlInText('pgsql://u:PASS@h,redis://u:OTHER@h'),
+        'pgsql://u:***@h,redis://u:***@h',
+      );
+      expect(redactUrlInText('redis://se://PASS@h'), 'redis://se:***@h');
     });
 
     test('short names match whole only', () {
@@ -180,6 +196,15 @@ void main() {
       );
       // A fragment without `=` is left alone.
       expect(redactUrl('https://h/p#$secret'), 'https://h/p#$secret');
+      // Encoded nested URLs and pre-query matrix parameters are outside
+      // pair scanning.
+      expect(
+        redactUrl('https://h/p?next=https%3A%2F%2Fu%3Aopaque%40other'),
+        'https://h/p?next=https%3A%2F%2Fu%3Aopaque%40other',
+      );
+      expect(redactUrl('https://h/p;page=2'), 'https://h/p;page=2');
+      // Scheme-like text in a password is included in its masked span.
+      expect(redactUrl('redis://se://$secret@h'), 'redis://se:***@h');
     });
 
     test('1 MiB of each shape takes one pass', () {

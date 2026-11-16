@@ -21,6 +21,9 @@ import 'dart:convert';
 ///
 /// With [loneUserIsPassword], user info without a `:` is masked whole,
 /// for schemes such as `redis://secret@host` where it is the password.
+///
+/// The first authority `:` starts the masked password. Scheme-like text
+/// inside that password is therefore included in the masked span.
 String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   final n = url.length;
   final separator = url.indexOf('://');
@@ -58,9 +61,8 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
     if (!_isPort(url, colon + 1, end)) {
       return masked(colon + 1, last);
     }
-    // A malformed password can look like a port until its `/`: mask it
-    // when the first path segment then continues to user info. Keep a
-    // normal `/@user` path and an `@` in a query unchanged.
+    // When a port-shaped authority continues into user info, mask through
+    // that user info. Keep an ordinary `/@user` path and query `@` intact.
     if (end < n && url.codeUnitAt(end) == 0x2f) {
       var segmentEnd = end + 1;
       while (segmentEnd < n) {
@@ -208,7 +210,8 @@ const Set<String> _exactUrlKeyNames = {'sig', 'key', 'code', 'auth', 'pass'};
 ///   (`token%3Dvalue`).
 /// - Known limits: a name encoded twice (`%2574oken`) is not recognised,
 ///   as a server does not read it as `token` either; a fragment without
-///   `=` is left alone.
+///   `=` is left alone. Percent-encoded nested URLs and matrix parameters
+///   before the first query or fragment marker are outside pair scanning.
 ///
 /// One pass over the text; like [redactUrlPassword], it needs no valid
 /// URL.
@@ -270,6 +273,7 @@ String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
 }
 
 String _redactTextToken(String token, List<String> names) {
+  final starts = <int>[];
   var separator = token.indexOf('://');
   while (separator >= 0) {
     var schemeStart = separator;
@@ -278,15 +282,28 @@ String _redactTextToken(String token, List<String> names) {
       schemeStart--;
     }
     if (_isScheme(
-      token.substring(schemeStart, separator),
-      separator - schemeStart,
-    )) {
-      return '${token.substring(0, schemeStart)}'
-          '${redactUrl(token.substring(schemeStart), names: names)}';
+          token.substring(schemeStart, separator),
+          separator - schemeStart,
+        ) &&
+        (starts.isEmpty || _startsAnotherTextUrl(token, schemeStart))) {
+      starts.add(schemeStart);
     }
     separator = token.indexOf('://', separator + 3);
   }
-  return token;
+  if (starts.isEmpty) {
+    return token;
+  }
+  final out = StringBuffer(token.substring(0, starts.first));
+  for (var i = 0; i < starts.length; i++) {
+    final end = i + 1 < starts.length ? starts[i + 1] : token.length;
+    out.write(redactUrl(token.substring(starts[i], end), names: names));
+  }
+  return out.toString();
+}
+
+bool _startsAnotherTextUrl(String token, int start) {
+  final before = token.codeUnitAt(start - 1);
+  return before == 0x2c || before == 0x5b || before == 0x5d;
 }
 
 bool _isSchemeCharacter(int c) {
