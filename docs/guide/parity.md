@@ -369,6 +369,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::table('users')` | `DB.table('users')` |  |
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
+| `DB::unprepared($sql)` | `await DB.unprepared(sql)` | **async**; The only call that runs several statements; select, statement and insertGetId refuse a second one on every driver. Laravel on SQLite runs the first statement of a stack and drops the rest; Daravel refuses it. |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
 | `DB::afterRollBack(fn)` | `DB.afterRollback(fn)` | Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them). |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |

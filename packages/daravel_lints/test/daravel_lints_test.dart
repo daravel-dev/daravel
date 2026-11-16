@@ -71,12 +71,14 @@ Future<void> f(String name, int id) async {
   query.whereRaw('lower(email) = ${name.toLowerCase()}');
   final e = RawExpression('count(${name})');
   query.orderByRaw('created_at desc');
+  await DB.unprepared('DROP TABLE $name');
+  await DB.unprepared('CREATE TABLE t (id int); CREATE INDEX t_id ON t (id)');
   other.select('$name'); // daravel-lint-ignore: no_sql_string_interpolation
 }
 ''';
       final issues = lintSource(source, 'lib/app/repo.dart');
-      expect(rulesOf(issues), List.filled(4, 'no_sql_string_interpolation'));
-      expect(issues.map((i) => i.line), [3, 4, 5, 6]);
+      expect(rulesOf(issues), List.filled(5, 'no_sql_string_interpolation'));
+      expect(issues.map((i) => i.line), [3, 4, 5, 6, 8]);
       expect(issues.first.toString(), startsWith('lib/app/repo.dart:3:'));
     },
   );
