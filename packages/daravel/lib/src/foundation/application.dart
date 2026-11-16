@@ -855,7 +855,7 @@ final class Application {
       try {
         upstreamUri = Uri.parse(url);
       } on FormatException {
-        // Uri.parse's message quotes the URL, credentials included.
+        // Configuration errors display the redacted URL.
         throw ConfigException('Malformed upstream URL: "${redactUrl(url)}".');
       }
       final proxy = UpstreamProxy(
@@ -1399,7 +1399,7 @@ final class Application {
               logger.warning('Readiness check [$key] failed', <String, Object?>{
                 // A check's error often quotes its DSN or URL.
                 'error': switch (check['error']) {
-                  final String text => redactUrl(text),
+                  final String text => redactUrlInText(text),
                   final other => other,
                 },
               });

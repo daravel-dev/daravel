@@ -5,9 +5,7 @@ import 'package:daravel/daravel.dart';
 import 'package:daravel_redis/daravel_redis.dart';
 import 'package:test/test.dart';
 
-/// DB-1 (Reviewer RSEQ 49): a malformed REDIS_URL failed with
-/// `Uri.parse`'s own FormatException, which quotes the whole URL and its
-/// password.
+/// Redis configuration errors display redacted URLs.
 void main() {
   passwordWithColonTests();
   const secret = 'S3cr3tPW';
@@ -56,7 +54,7 @@ void main() {
 }
 
 void passwordWithColonTests() {
-  // The two-element pattern made such a password null.
+  // Configuration preserves the complete password.
   test('a password holding `:` reaches the config whole', () {
     expect(
       RedisConnectionConfig.fromUrl('redis://app:pa:ss@h').password,

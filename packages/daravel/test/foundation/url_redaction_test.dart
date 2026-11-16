@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// DB-1 (Reviewer RSEQ 49): one redactor for every URL that can carry a
-/// password (database, Redis, upstream), which needs no valid URL.
+/// Shared URL redaction supports database, Redis, and upstream messages
+/// without requiring a valid URL.
 void main() {
   const secret = 'S3cr3tPW';
 
@@ -79,6 +79,42 @@ void main() {
       }
     });
 
+    test('IPv6 authorities stay intact when a query contains `@`', () {
+      for (final (url, expected) in [
+        (
+          'https://[::1]:8080/p?email=a@b&token=$secret',
+          'https://[::1]:8080/p?email=a@b&token=***',
+        ),
+        (
+          'https://[2001:db8::1]/p?token=$secret&email=a@b',
+          'https://[2001:db8::1]/p?token=***&email=a@b',
+        ),
+        (
+          'redis://u:p@[::1]:6379/0?token=$secret',
+          'redis://u:***@[::1]:6379/0?token=***',
+        ),
+        ('https://[bad?token=$secret', 'https://[bad?token=***'),
+        (
+          'https://[bad?email=a@b&token=$secret',
+          'https://[bad?email=a@b&token=***',
+        ),
+      ]) {
+        expect(redactUrl(url), expected, reason: url);
+      }
+    });
+
+    test('a password that continues past a port-shaped prefix is masked', () {
+      expect(
+        redactUrlPassword('redis://my:1234/secret@h/0'),
+        'redis://my:***@h/0',
+      );
+      expect(redactUrlPassword('https://h:443/@user'), 'https://h:443/@user');
+      expect(
+        redactUrlPassword('https://h:8080/p?email=a@b'),
+        'https://h:8080/p?email=a@b',
+      );
+    });
+
     test('pairs split at `;`, nested queries, and a nested user info', () {
       for (final (url, expected) in [
         ('https://h/p?page=1;token=$secret', 'https://h/p?page=1;token=***'),
@@ -100,10 +136,45 @@ void main() {
         ('https://h/p?token%3D$secret', 'https://h/p?token=***'),
         ('https://h/p?t%00oken=$secret', 'https://h/p?t%00oken=***'),
         ('https://h/p?tok%ZZen=$secret', 'https://h/p?tok%ZZen=***'),
+        ('https://h/p?to%FFken=$secret', 'https://h/p?to%FFken=***'),
+        ('https://h/p?t%6f%FFken=$secret', 'https://h/p?t%6f%FFken=***'),
+        ('https://h/p?to%C3%28ken=$secret', 'https://h/p?to%C3%28ken=***'),
         ('https://h/p?Api%5FKey=$secret', 'https://h/p?Api%5FKey=***'),
+        ('https://h/p?user[token]=$secret', 'https://h/p?user[token]=***'),
+        ('https://h/p?user[key]=$secret', 'https://h/p?user[key]=***'),
+        (
+          'https://h/p?data[password]=$secret',
+          'https://h/p?data[password]=***',
+        ),
       ]) {
         expect(redactUrl(url), expected, reason: url);
       }
+    });
+
+    test('free-form text masks each URL without changing other text', () {
+      const text =
+          'GET /health failed; primary pgsql://u1:PASS1@h1/db '
+          'replica pgsql://u2:PASS2@h2/db (state: unavailable)';
+      expect(
+        redactUrlInText(text),
+        'GET /health failed; primary pgsql://u1:***@h1/db '
+        'replica pgsql://u2:***@h2/db (state: unavailable)',
+      );
+      expect(
+        redactUrlInText('Bad state: internal://u:PASS@host refused'),
+        'Bad state: internal://u:***@host refused',
+      );
+      expect(
+        redactUrlInText(
+          "'(pgsql://u:PASS@h)' [redis://u:OTHER@h] {https://h/p}",
+        ),
+        "'(pgsql://u:***@h)' [redis://u:***@h] {https://h/p}",
+      );
+      expect(
+        redactUrlInText('pgsql://u:PASS@h,redis://u:OTHER@h'),
+        'pgsql://u:***@h,redis://u:***@h',
+      );
+      expect(redactUrlInText('redis://se://PASS@h'), 'redis://se:***@h');
     });
 
     test('short names match whole only', () {
@@ -125,6 +196,15 @@ void main() {
       );
       // A fragment without `=` is left alone.
       expect(redactUrl('https://h/p#$secret'), 'https://h/p#$secret');
+      // Encoded nested URLs and pre-query matrix parameters are outside
+      // pair scanning.
+      expect(
+        redactUrl('https://h/p?next=https%3A%2F%2Fu%3Aopaque%40other'),
+        'https://h/p?next=https%3A%2F%2Fu%3Aopaque%40other',
+      );
+      expect(redactUrl('https://h/p;page=2'), 'https://h/p;page=2');
+      // Scheme-like text in a password is included in its masked span.
+      expect(redactUrl('redis://se://$secret@h'), 'redis://se:***@h');
     });
 
     test('1 MiB of each shape takes one pass', () {

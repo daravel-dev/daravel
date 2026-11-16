@@ -25,7 +25,9 @@ void main() {
             CallbackHealthCheck(
               'redis',
               () => throw StateError(
-                'Redis internal://:pass123@10.0.5.9:6379 refused connection',
+                'GET /health failed; primary '
+                'redis://:pass123@10.0.5.9:6379/0 replica '
+                'redis://:pass456@10.0.5.10:6379/0',
               ),
             ),
           ])
@@ -55,7 +57,12 @@ void main() {
         expect(logged, hasLength(1));
         // The logged error is redacted too.
         expect('${logged.single.context['error']}', isNot(contains('pass123')));
+        expect('${logged.single.context['error']}', isNot(contains('pass456')));
         expect('${logged.single.context['error']}', contains('10.0.5.9'));
+        expect(
+          '${logged.single.context['error']}',
+          startsWith('Bad state: GET /health failed; primary'),
+        );
       },
     );
 
