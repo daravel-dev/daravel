@@ -315,7 +315,8 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 /// | JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB at 40 MP | up to 9.1 s |
 /// | a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 5.2 s (6.3 to 7.2 s on a slower reference machine) |
-/// | blur at its 20-million pixel-frame-radius budget | about 125 MiB for an animated GIF | 3.2 s (4.4 s on a slower reference machine) |
+/// | still blur at its 80-million pixel-radius budget | about 51 MiB for a 10 MP JPEG | 3.5 to 3.6 s (4.8 to 5.0 s on a slower reference machine) |
+/// | animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 s (4.4 s on a slower reference machine) |
 /// | encoding an unchanged 40-million-pixel JPEG as JPEG or PNG | about 132 to 140 MiB | 3.0 to 4.8 s (4.2 to 6.7 s on a slower reference machine) |
 Future<Uint8List> convertImage(
   Uint8List bytes,
@@ -684,7 +685,8 @@ void _checkDimensions(int? width, int? height) {
 
 void _checkBlur(img.Image image, int radius) {
   final frames = math.max(1, image.numFrames);
-  if (image.width > _maxBlurWork ~/ frames ~/ image.height ~/ radius) {
+  final allowed = frames == 1 ? _maxStillBlurWork : _maxAnimatedBlurWork;
+  if (image.width > allowed ~/ frames ~/ image.height ~/ radius) {
     throw ImageTooLargeException(
       'Blur would process ${image.width} x ${image.height} pixels in '
       '$frames frame(s) at radius $radius, past its work limit; resize the '
@@ -769,11 +771,17 @@ const int _maxImageSide = 65535;
 /// several times.
 const int _growthDivisor = 4;
 
-/// The maximum `pixels x frames x radius` passed to Gaussian blur.
+/// The maximum `pixels x radius` for a still image passed to Gaussian blur.
+///
+/// At 80 million, a 10 MP JPEG at the boundary took 3.5 to 3.6 s here and
+/// 4.8 to 5.0 s on a slower reference machine.
+const int _maxStillBlurWork = 80000000;
+
+/// The maximum `pixels x frames x radius` for an animated image.
 ///
 /// At 20 million, an animated GIF at the boundary took 3.2 s here and 4.4 s
 /// on a slower reference machine. Forty million took 6.4 s and 8.9 s.
-const int _maxBlurWork = 20000000;
+const int _maxAnimatedBlurWork = 20000000;
 
 /// For a JPEG, refuses one with more scans than its size allows, from the
 /// raw bytes, without walking the file's structure. Each scan is a pass

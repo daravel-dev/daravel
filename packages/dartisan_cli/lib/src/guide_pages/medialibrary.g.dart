@@ -162,7 +162,8 @@ the default limit takes (measured peaks):
 | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 | JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB | up to 9.1 s |
 | a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 7.2 s, depending on shape and machine |
-| blur at its 20-million pixel-frame-radius budget | about 125 MiB for an animated GIF | 3.2 to 4.4 s, depending on machine |
+| still blur at its 80-million pixel-radius budget | about 51 MiB for a 10 MP JPEG | 3.5 to 5.0 s, depending on machine |
+| animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 to 4.4 s, depending on machine |
 | encoding an unchanged 40-million-pixel image | about 132 to 140 MiB | 3.0 to 6.7 s, depending on format and machine |
 
 A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.

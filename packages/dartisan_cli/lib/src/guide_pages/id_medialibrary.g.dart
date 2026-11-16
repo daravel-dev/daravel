@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/medialibrary.md`.
 const String pageIdMedialibrary =
-    r'''<!-- source: medialibrary.md sha256:2b4b50e3f7c6 -->
+    r'''<!-- source: medialibrary.md sha256:5c659b720367 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -167,7 +167,8 @@ gambar tepat di batas bawaan memakan (puncak terukur):
 | GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
 | JPEG pada batas scan-nya (40, 20, atau 5 MP) | sampai sekitar 430 MiB | sampai 9,1 dtk |
 | manipulasi yang membuat 10 juta piksel | sekitar 47 sampai 76 MiB | 4,5 sampai 7,2 dtk, bergantung bentuk dan mesin |
-| blur pada anggaran 20 juta piksel-frame-radius | sekitar 125 MiB untuk GIF beranimasi | 3,2 sampai 4,4 dtk, bergantung mesin |
+| blur gambar diam pada anggaran 80 juta piksel-radius | sekitar 51 MiB untuk JPEG 10 MP | 3,5 sampai 5,0 dtk, bergantung mesin |
+| blur animasi pada anggaran 20 juta piksel-frame-radius | sekitar 125 MiB untuk GIF | 3,2 sampai 4,4 dtk, bergantung mesin |
 | penyandian gambar 40 juta piksel tanpa perubahan ukuran | sekitar 132 sampai 140 MiB | 3,0 sampai 6,7 dtk, bergantung format dan mesin |
 
 WebP dan PNG 16-bit dihitung terhadap separuh `MEDIA_MAX_IMAGE_PIXELS`.

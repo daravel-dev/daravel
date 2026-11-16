@@ -187,17 +187,17 @@ void main() {
   });
 
   group('blur work is bounded', () {
-    test('pixels, frames and effective radius share one budget', () {
-      final still = png(1000, 1000);
+    test('still images and animations have separate budgets', () {
+      final still = png(1600, 1000);
       expect(
         convert(still, {
-          'blur': [40],
+          'blur': [100],
         }, within: const Duration(seconds: 10)),
         converted,
       );
       expect(
-        convert(still, {
-          'blur': [42],
+        convert(png(1601, 1000), {
+          'blur': [100],
         }),
         refused,
       );
