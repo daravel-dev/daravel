@@ -13,9 +13,18 @@ match Laravel more closely.
 
 ### Added
 
+- `SharedResult<T>` runs one asynchronous computation and shares its settled
+  value or error across callers and zones. `ServerEngine.webSocketUpgradeOverride`
+  lets deterministic tests substitute the WebSocket upgrader; restore it in
+  test teardown.
+
 ### Changed
 
 **Upgrading can change what an application sees:**
+
+- The new public names `SharedResult` and
+  `ServerEngine.webSocketUpgradeOverride` can conflict with names an
+  application already imports or declares.
 
 ### Fixed
 
