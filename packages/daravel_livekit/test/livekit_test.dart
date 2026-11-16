@@ -342,6 +342,85 @@ void main() {
         ),
       );
     });
+
+    test(
+      'Twirp response fields reject wrong types without a type error',
+      () async {
+        for (final value in <Object?>[
+          'bad',
+          1,
+          <Object?>[],
+          <String, Object?>{},
+          null,
+        ]) {
+          final client = HttpClientFactory();
+          client.fake({
+            '*/ListRooms': Http.response({'rooms': value}),
+            '*/ListParticipants': Http.response({'participants': value}),
+          });
+          final service = RoomServiceClient(
+            'https://lk.example.test',
+            apiKey: _key,
+            apiSecret: _secret,
+            http: client,
+          );
+          for (final read in <Future<Object?> Function()>[
+            () => service.listRooms(),
+            () => service.listParticipants('class-7a'),
+          ]) {
+            if (value is List<Object?> || value == null) {
+              expect(await read(), isEmpty, reason: '$value');
+            } else {
+              await expectLater(
+                read(),
+                throwsA(
+                  isA<LivekitException>().having(
+                    (error) => error is TypeError,
+                    'is TypeError',
+                    isFalse,
+                  ),
+                ),
+                reason: '$value',
+              );
+            }
+          }
+        }
+      },
+    );
+
+    test('Twirp error code types never become a type error', () async {
+      for (final value in <Object?>[
+        'not_found',
+        1,
+        <Object?>[],
+        <String, Object?>{},
+        null,
+      ]) {
+        final client = HttpClientFactory();
+        client.fake({
+          '*': Http.response({'code': value, 'msg': 'failed'}, 400),
+        });
+        final service = RoomServiceClient(
+          'https://lk.example.test',
+          apiKey: _key,
+          apiSecret: _secret,
+          http: client,
+        );
+        await expectLater(
+          service.listRooms(),
+          throwsA(
+            isA<LivekitException>()
+                .having((error) => error is TypeError, 'is TypeError', isFalse)
+                .having(
+                  (error) => error.code,
+                  'code',
+                  value is String ? value : null,
+                ),
+          ),
+          reason: '$value',
+        );
+      }
+    });
   });
 
   test('configuration from .env, with older names', () {

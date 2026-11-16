@@ -68,6 +68,22 @@ void main() {
       }
     });
 
+    test('an empty or blank API secret is refused before signing or '
+        'verifying', () async {
+      for (final secret in ['', '  ']) {
+        await expectLater(
+          LivekitToken(apiKey: _key, apiSecret: secret, identity: 'u').toJwt(),
+          throwsStateError,
+          reason: jsonEncode(secret),
+        );
+        await expectLater(
+          LivekitToken.verify('a.b.c', apiKey: _key, apiSecret: secret),
+          throwsStateError,
+          reason: jsonEncode(secret),
+        );
+      }
+    });
+
     test('an identity with a control character is refused', () async {
       for (final identity in ['u\n1', 'u\u00001', 'u\r', 'u\u007f', '\t']) {
         await expectLater(
@@ -121,6 +137,36 @@ void main() {
         );
       }
     });
+
+    test('NumericDate readers return null outside DateTime range', () {
+      const maxSeconds = 8640000000000;
+      for (final value in <num>[
+        maxSeconds + 1,
+        -maxSeconds - 1,
+        1 << 62,
+        0x7fffffffffffffff,
+        -0x8000000000000000,
+        1e308,
+      ]) {
+        expect(LivekitClaims({'exp': value}).expiresAt, isNull);
+        if (value is int) {
+          expect(LivekitRoom({'creation_time': value}).createdAt, isNull);
+          expect(LivekitParticipant({'joined_at': value}).joinedAt, isNull);
+        }
+      }
+      expect(
+        LivekitClaims({'exp': maxSeconds}).expiresAt,
+        DateTime.fromMillisecondsSinceEpoch(maxSeconds * 1000, isUtc: true),
+      );
+      expect(
+        LivekitRoom({'creation_time': -maxSeconds}).createdAt,
+        DateTime.fromMillisecondsSinceEpoch(-maxSeconds * 1000, isUtc: true),
+      );
+      expect(
+        LivekitClaims({'exp': 1700000000.5}).expiresAt,
+        DateTime.fromMillisecondsSinceEpoch(1700000000500, isUtc: true),
+      );
+    });
   });
 
   group('webhooks', () {
@@ -142,6 +188,73 @@ void main() {
         receiver.receive(payload, noExp),
         throwsA(isA<LivekitWebhookException>()),
       );
+    });
+
+    test('claim reads are converted to a webhook refusal', () async {
+      Clock.fake(t0);
+      final payload = body({'event': 'room_started'});
+      final expected = base64.encode(sha256.convert(payload).bytes);
+      const unchecked = LivekitWebhookReceiver(
+        apiKey: _key,
+        apiSecret: _secret,
+        maxAge: null,
+      );
+      for (final value in <Object?>[
+        expected,
+        123,
+        true,
+        <Object?>[],
+        <String, Object?>{},
+        null,
+      ]) {
+        final token = await JwtCodec.hs256(_secret)
+            .sign({'iss': _key, 'exp': epoch + 60, 'sha256': value});
+        final result = unchecked.receive(payload, token);
+        if (value is String) {
+          expect((await result).event, 'room_started');
+        } else {
+          await expectLater(
+            result,
+            throwsA(isA<LivekitWebhookException>()),
+            reason: '$value',
+          );
+        }
+      }
+    });
+
+    test('participant tracks of another type are refused without a type '
+        'error', () async {
+      Clock.fake(t0);
+      for (final value in <Object?>[
+        'bad',
+        1,
+        <Object?>[],
+        <String, Object?>{},
+        null,
+      ]) {
+        final payload = body({
+          'event': 'participant_joined',
+          'id': 'EV_tracks_$value',
+          'createdAt': '$epoch',
+          'participant': {'identity': 'u-1', 'tracks': value},
+        });
+        final result = receiver.receive(payload, await webhookToken(payload));
+        if (value is List<Object?> || value == null) {
+          expect((await result).participant?.tracks, isEmpty, reason: '$value');
+        } else {
+          await expectLater(
+            result,
+            throwsA(
+              isA<LivekitWebhookException>().having(
+                (error) => error is TypeError,
+                'is TypeError',
+                isFalse,
+              ),
+            ),
+            reason: '$value',
+          );
+        }
+      }
     });
 
     test('with maxAge, an event without an id or a readable created_at is '

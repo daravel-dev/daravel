@@ -142,9 +142,9 @@ final class LivekitToken {
     );
   }
 
-  /// [StateError] when [apiSecret] is empty.
+  /// [StateError] when [apiSecret] is empty or blank.
   static void requireSecret(String apiSecret) {
-    if (apiSecret.isEmpty) {
+    if (apiSecret.trim().isEmpty) {
       throw StateError(
         'LIVEKIT_API_SECRET is not set: LiveKit tokens cannot be signed or '
         'verified without it.',
@@ -209,12 +209,6 @@ final class LivekitClaims {
     _ => const {},
   };
 
-  /// When the token expires.
-  DateTime? get expiresAt => switch (claims['exp']) {
-    final num seconds => DateTime.fromMillisecondsSinceEpoch(
-      (seconds * 1000).round(),
-      isUtc: true,
-    ),
-    _ => null,
-  };
+  /// When the token expires, or null when no [DateTime] can hold it.
+  DateTime? get expiresAt => JwtClaims(claims).expiresAt;
 }

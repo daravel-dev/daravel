@@ -127,18 +127,19 @@ final class LivekitWebhookReceiver {
     final jwt = header.toLowerCase().startsWith('bearer ')
         ? header.substring(7).trim()
         : header;
-    final LivekitClaims claims;
+    final String? checksum;
     try {
-      claims = await LivekitToken.verify(
+      final claims = await LivekitToken.verify(
         jwt,
         apiKey: apiKey,
         apiSecret: apiSecret,
       );
+      checksum = claims.sha256;
     } on JwtException catch (error) {
       throw LivekitWebhookException('Invalid webhook token: ${error.message}');
     }
     final expected = base64.encode(sha256.convert(body).bytes);
-    if (!_same(claims.sha256 ?? '', expected)) {
+    if (!_same(checksum ?? '', expected)) {
       throw const LivekitWebhookException(
         'Sha256 checksum of the body does not match.',
       );
@@ -153,6 +154,13 @@ final class LivekitWebhookReceiver {
       throw const LivekitWebhookException('The body is not a JSON object.');
     }
     final event = LivekitWebhookEvent(json);
+    try {
+      event.participant?.tracks;
+    } on FormatException {
+      throw const LivekitWebhookException(
+        'The webhook participant tracks field is not a list.',
+      );
+    }
     final limit = maxAge;
     final createdAt = event.createdAt;
     if (limit != null) {

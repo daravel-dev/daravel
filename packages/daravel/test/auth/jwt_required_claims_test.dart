@@ -77,6 +77,41 @@ void main() {
       }
     });
 
+    test('a NumericDate outside DateTime range is refused for every time '
+        'claim', () async {
+      const maxSeconds = 8640000000000;
+      const outside = <num>[
+        maxSeconds + 1,
+        -maxSeconds - 1,
+        1 << 62,
+        0x7fffffffffffffff,
+        -0x8000000000000000,
+        1e308,
+      ];
+      for (final claim in const ['exp', 'nbf', 'iat']) {
+        for (final value in outside) {
+          final token = await codec().sign({'sub': '1', claim: value});
+          await expectLater(
+            codec().verify(token, checkTimes: false),
+            throwsA(isA<JwtException>()),
+            reason: '$claim: $value',
+          );
+        }
+        for (final value in const <num>[
+          maxSeconds,
+          -maxSeconds,
+          1700000000.5,
+        ]) {
+          final token = await codec().sign({'sub': '1', claim: value});
+          expect(
+            (await codec().verify(token, checkTimes: false))[claim],
+            value,
+            reason: '$claim: $value',
+          );
+        }
+      }
+    });
+
     test('a required claim of empty text counts as there, as in '
         'tymon/jwt-auth', () async {
       final strict = codec(required: ['iss']);
@@ -180,6 +215,19 @@ void main() {
       };
       expect(answers, hasLength(1), reason: '$answers');
       expect(answers.single.$1, 401);
+    });
+
+    test('a NumericDate outside DateTime range answers 401 for every time '
+        'claim', () async {
+      await boot({});
+      for (final claim in const ['exp', 'nbf', 'iat']) {
+        final token = await sign({
+          'sub': '${ana.id}',
+          'exp': epoch + 60,
+          claim: 1 << 62,
+        });
+        expect((await me(token)).$1, 401, reason: claim);
+      }
     });
   });
 

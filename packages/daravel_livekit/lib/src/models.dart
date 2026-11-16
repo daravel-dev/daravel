@@ -33,9 +33,20 @@ String stringField(Map<String, Object?> json, String name) =>
 bool boolField(Map<String, Object?> json, String name) =>
     field(json, name) == true;
 
-DateTime? _seconds(int seconds) => seconds == 0
-    ? null
-    : DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+DateTime? _seconds(int seconds) {
+  const maxSeconds = 8640000000000;
+  if (seconds == 0 || seconds > maxSeconds || seconds < -maxSeconds) {
+    return null;
+  }
+  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+}
+
+List<Object?> _listField(Map<String, Object?> json, String name) =>
+    switch (field(json, name)) {
+      null => const [],
+      final List<Object?> values => values,
+      _ => throw FormatException('The LiveKit [$name] field is not a list.'),
+    };
 
 /// A room on the LiveKit server.
 final class LivekitRoom {
@@ -127,7 +138,7 @@ final class LivekitParticipant {
 
   /// The tracks the participant publishes, as the server describes them.
   List<Map<String, Object?>> get tracks => [
-    for (final track in field(json, 'tracks') as List<Object?>? ?? const [])
+    for (final track in _listField(json, 'tracks'))
       if (track is Map<String, Object?>) track,
   ];
 

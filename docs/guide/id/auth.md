@@ -1,4 +1,4 @@
-<!-- source: auth.md sha256:0f15cc388925 -->
+<!-- source: auth.md sha256:d61977ea59e3 -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -59,7 +59,8 @@ klaim di `JWT_REQUIRED_CLAIMS` (dipisah koma, `exp` secara bawaan, seperti
 `required_claims` di tymon/jwt-auth; kosongkan agar tidak ada yang
 diwajibkan): token tanpa klaim itu ditolak seperti token tidak sah lainnya,
 sehingga token tanpa `exp` tidak lagi berlaku selamanya. `exp`, `nbf`, atau
-`iat` yang bukan bilangan selalu ditolak. Guard menulis `exp`, `iat`, `sub`,
+`iat` yang bukan NumericDate terbatas dalam rentang `DateTime` selalu
+ditolak. Guard menulis `exp`, `iat`, `sub`,
 dan `jti` ke token buatannya sendiri, serta `nbf` dan `iss` bila keduanya
 diwajibkan; saat boot muncul peringatan untuk klaim wajib yang tidak ditulis
 guard.

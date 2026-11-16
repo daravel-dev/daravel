@@ -154,7 +154,10 @@ final class RoomServiceClient {
       throw LivekitException(
         '$method: ${details['msg'] ?? response.body}',
         status: response.status,
-        code: details['code'] as String?,
+        code: switch (details['code']) {
+          final String code => code,
+          _ => null,
+        },
       );
     }
     return response.body.trim().isEmpty ? const {} : response.jsonMap();
@@ -186,7 +189,7 @@ final class RoomServiceClient {
       if (names.isNotEmpty) 'names': names,
     }, const VideoGrant(roomList: true));
     return [
-      for (final room in field(reply, 'rooms') as List<Object?>? ?? const [])
+      for (final room in _list(reply, 'rooms'))
         if (room is Map<String, Object?>) LivekitRoom(room),
     ];
   }
@@ -213,11 +216,20 @@ final class RoomServiceClient {
       'room': room,
     }, VideoGrant(room: room, roomAdmin: true));
     return [
-      for (final p
-          in field(reply, 'participants') as List<Object?>? ?? const [])
+      for (final p in _list(reply, 'participants'))
         if (p is Map<String, Object?>) LivekitParticipant(p),
     ];
   }
+
+  List<Object?> _list(Map<String, Object?> reply, String name) =>
+      switch (field(reply, name)) {
+        null => const [],
+        final List<Object?> values => values,
+        _ => throw LivekitException(
+          '$name: response field is not a list.',
+          status: 502,
+        ),
+      };
 
   /// One participant of a room.
   Future<LivekitParticipant> getParticipant(

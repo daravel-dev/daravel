@@ -229,8 +229,8 @@ final class JwtCodec {
 
   /// Claims a token must carry to verify (tymon/jwt-auth's
   /// `required_claims`): present and not null, and for `exp`, `nbf` and
-  /// `iat` a finite number. Empty by default: a token without `exp` then
-  /// never expires, as with firebase/php-jwt.
+  /// `iat` a finite NumericDate within [DateTime]'s range. Empty by default:
+  /// a token without `exp` then never expires, as with firebase/php-jwt.
   final List<String> requiredClaims;
 
   final DateTime Function() _clock;
@@ -328,6 +328,9 @@ final class JwtCodec {
       final value = payload[claim];
       if (value != null && (value is! num || !value.isFinite)) {
         throw JwtException('The token [$claim] claim is not a number.');
+      }
+      if (value is num && JwtClaims._time(value) == null) {
+        throw JwtException('The token [$claim] claim is not a date.');
       }
     }
     if (checkTimes) {

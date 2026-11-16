@@ -57,7 +57,8 @@ tokens. A token must also carry the claims in `JWT_REQUIRED_CLAIMS`
 (comma-separated, `exp` by default, as tymon/jwt-auth's `required_claims`;
 set it empty to require none): one without them is refused like any
 invalid token, so a token without `exp` no longer lasts for ever. An
-`exp`, `nbf` or `iat` that is not a number is always refused. The guard
+`exp`, `nbf` or `iat` that is not a finite NumericDate within `DateTime`'s
+range is always refused. The guard
 writes `exp`, `iat`, `sub` and `jti` into its own tokens, and `nbf` and
 `iss` when they are required; the boot warns about a required claim it
 does not write. `Auth.jwtGuard().invalidate()` revokes a token until it expires (plus
