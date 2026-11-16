@@ -229,13 +229,13 @@ void main() {
       expect(
         convert(source, {
           'width': [1000],
-          'blur': [22],
+          'blur': [82],
         }, within: const Duration(seconds: 10)),
         converted,
       );
       expect(
         convert(source, {
-          'blur': [22],
+          'blur': [82],
           'width': [1000],
         }),
         refused,
