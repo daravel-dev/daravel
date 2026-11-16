@@ -3,10 +3,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// A value whose `toString()` throws (an
-/// ordinary object in the context, the result of `toLogValue()`, the
-/// record's error) cost the whole record in the JSON handlers; the
-/// console wrote the channel name without escaping it.
+/// Handlers preserve records with values that cannot be converted to text,
+/// and the console escapes channel names.
 void main() {
   final cases = <String, LogRecord Function()>{
     'context value': () => LogRecord(

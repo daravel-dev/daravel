@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
-/// DB-1 (Reviewer RSEQ 49): one redactor for every URL that can carry a
-/// password (database, Redis, upstream), which needs no valid URL.
+/// Shared URL redaction supports database, Redis, and upstream messages
+/// without requiring a valid URL.
 void main() {
   const secret = 'S3cr3tPW';
 

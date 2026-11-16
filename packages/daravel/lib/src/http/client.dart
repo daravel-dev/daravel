@@ -1066,8 +1066,7 @@ String _duration(Duration duration) => duration < const Duration(seconds: 1)
     ? '${duration.inMilliseconds}ms'
     : '${duration.inSeconds}s';
 
-/// [url] parsed; `Uri.parse`'s own error quotes the URL whole, so a
-/// malformed one is reported with [redactUrl] instead.
+/// [url] parsed, with malformed values reported through [redactUrl].
 Uri _parseUrl(String url) {
   try {
     return Uri.parse(url);

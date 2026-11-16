@@ -524,9 +524,8 @@ final class S3Client {
   }
 }
 
-/// The endpoint URL parsed; a malformed one (`AWS_ENDPOINT`) is reported
-/// with its password and sensitive query values masked, since
-/// `Uri.parse`'s own error quotes it whole.
+/// The endpoint URL parsed, with malformed values reported through the
+/// shared URL redactor.
 Uri _endpoint(String url) {
   try {
     return Uri.parse(url);

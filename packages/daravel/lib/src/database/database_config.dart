@@ -83,8 +83,7 @@ final class ConnectionConfig {
   /// valid URL.
   static String redactUrl(String url) => redact_url.redactUrl(url);
 
-  /// [url] parsed, or a [FormatException] that names it only redacted:
-  /// `Uri.parse`'s own message quotes the whole URL, password included.
+  /// [url] parsed, or a [FormatException] that displays a redacted URL.
   static Uri _parse(String url) {
     try {
       return Uri.parse(url);

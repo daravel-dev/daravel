@@ -113,9 +113,8 @@ abstract interface class LogHandler {
 
 String _encodeContext(Map<String, Object?> context) => _jsonLine(context);
 
-/// [value]'s `toString()`, or `[UNLOGGABLE: <type>]` when it throws: a
-/// value or error whose `toString()` fails must not cost the record (the
-/// JSON handlers wrote nothing for it, only a line to stderr).
+/// [value]'s `toString()`, or `[UNLOGGABLE: <type>]` when it throws,
+/// so handlers can preserve the rest of the record.
 String _loggableString(Object? value) {
   try {
     return '$value';

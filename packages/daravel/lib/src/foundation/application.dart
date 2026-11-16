@@ -855,7 +855,7 @@ final class Application {
       try {
         upstreamUri = Uri.parse(url);
       } on FormatException {
-        // Uri.parse's message quotes the URL, credentials included.
+        // Configuration errors display the redacted URL.
         throw ConfigException('Malformed upstream URL: "${redactUrl(url)}".');
       }
       final proxy = UpstreamProxy(
