@@ -6,7 +6,7 @@
 
 ### Changed
 
-- Every verified Midtrans notification obtains its event from the status API for the authenticated order. A missing order lookup permits one transaction-id lookup, whose answer must still match that order. Status responses require a transaction id, status and code 2xx or 407 with `expire`; invalid or unavailable responses receive 5xx without applying an event. One lookup runs per order, with one shared subsequent batch for arrivals during it; completed responses are not cached.
+- Every verified Midtrans notification obtains its event from the status API for the authenticated order. A missing order lookup permits one transaction-id lookup, whose answer must still match that order. Status responses require a transaction id, status and code 2xx or 407 with `expire`; invalid or unavailable responses receive 5xx without applying an event. Per order, one batch of lookups runs and one waits for arrivals during it; a batch looks the order up once and, when Midtrans does not know it by its id, each distinct transaction id in turn (at most four, so at most five outgoing calls), each notification getting the answer for its own transaction id. A fifth distinct transaction id while the waiting batch is full receives 429 with `Retry-After: 1`. Completed responses are not cached.
 
 ### Upgrade notes
 

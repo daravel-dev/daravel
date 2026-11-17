@@ -476,4 +476,165 @@ void main() {
       });
     }
   });
+
+  group('a batch of lookups for one order', () {
+    const missing = {'status_code': '404'};
+
+    /// What each delivery ended with: its status, or the error's type.
+    Future<String> settle(Future<PaymentEvent> delivery) => delivery.then(
+      (event) => event.status!.name,
+      onError: (Object error) => '${error.runtimeType}',
+    );
+
+    test('each notification waiting with its own transaction id gets the '
+        'answer for that id', () async {
+      final first = settle(deliver(transaction: 'tx-unknown-1'));
+      await _settleCallers();
+      final second = settle(deliver(transaction: 'tx-unknown-2'));
+      final third = settle(deliver(transaction: 'tx-ORDER'));
+      await _settleCallers();
+      client.requests[0].answer(missing);
+      await _settleCallers();
+      expect(client.requests[1].url.path, '/v2/tx-unknown-1/status');
+      client.requests[1].answer(missing);
+      await _settleCallers();
+      // The waiting batch: the order once, then each id in turn.
+      expect(client.requests[2].url.path, '/v2/ORDER/status');
+      client.requests[2].answer(missing);
+      await _settleCallers();
+      expect(client.requests[3].url.path, '/v2/tx-unknown-2/status');
+      client.requests[3].answer(missing);
+      await _settleCallers();
+      expect(client.requests[4].url.path, '/v2/tx-ORDER/status');
+      client.requests[4].answer(_status('settlement'));
+      expect(await first, 'PaymentGatewayException');
+      expect(await second, 'PaymentGatewayException');
+      expect(await third, 'paid');
+      expect(client.requests, hasLength(5));
+    });
+
+    test('a waiting batch takes ${MidtransGateway.hintsPerBatch} distinct '
+        'transaction ids; another one is answered 429 with Retry-After, '
+        'and the batch makes at most 1 + '
+        '${MidtransGateway.hintsPerBatch} calls', () async {
+      final running = settle(deliver(transaction: 'tx-running'));
+      await _settleCallers();
+      final waiting = [
+        for (var i = 0; i < MidtransGateway.hintsPerBatch; i++)
+          settle(deliver(transaction: 'tx-w$i')),
+      ];
+      // The same id again joins without taking a place.
+      final again = settle(deliver(transaction: 'tx-w0'));
+      final refused = deliver(transaction: 'tx-one-more');
+      await expectLater(
+        refused,
+        throwsA(
+          isA<HttpException>()
+              .having((e) => e.status, 'status', 429)
+              .having((e) => e.headers['Retry-After'], 'Retry-After', '1'),
+        ),
+      );
+      await _settleCallers();
+      client.requests[0].answer(missing);
+      await _settleCallers();
+      client.requests[1].answer(missing);
+      for (var i = 0; i <= MidtransGateway.hintsPerBatch; i++) {
+        await _settleCallers();
+        client.requests[2 + i].answer(missing);
+      }
+      await _settleCallers();
+      expect(await running, 'PaymentGatewayException');
+      expect(await Future.wait([...waiting, again]), [
+        for (var i = 0; i <= MidtransGateway.hintsPerBatch; i++)
+          'PaymentGatewayException',
+      ]);
+      expect(client.requests, hasLength(2 + 1 + MidtransGateway.hintsPerBatch));
+    });
+
+    test('a transaction id that is the order id adds no lookup', () async {
+      final pending = settle(deliver(transaction: 'ORDER'));
+      await _settleCallers();
+      client.requests.single.answer(missing);
+      expect(await pending, 'PaymentGatewayException');
+      expect(client.requests, hasLength(1));
+    });
+
+    /// After a batch ended, nothing of it is left: the next notification
+    /// is looked up at once, and its waiting batch has every place free.
+    Future<void> expectNothingLeft() async {
+      final before = client.requests.length;
+      final next = settle(deliver(transaction: 'tx-after'));
+      await _settleCallers();
+      expect(client.requests, hasLength(before + 1), reason: 'looked up');
+      final waiting = [
+        for (var i = 0; i < MidtransGateway.hintsPerBatch; i++)
+          settle(deliver(transaction: 'tx-free-$i')),
+      ];
+      client.requests.last.answer(_status('pending'));
+      expect(await next, 'pending');
+      await _settleCallers();
+      client.requests.last.answer(_status('pending'));
+      expect(await Future.wait(waiting), [
+        for (var i = 0; i < MidtransGateway.hintsPerBatch; i++) 'pending',
+      ]);
+    }
+
+    test('nothing is left once a lookup failed', () async {
+      final failed = settle(deliver(transaction: 'tx-a'));
+      await _settleCallers();
+      client.requests[0].answer(const {'status_code': '500'}, status: 500);
+      expect(await failed, 'PaymentGatewayException');
+      await expectNothingLeft();
+    });
+
+    test(
+      'nothing is left once every transaction id of a batch failed',
+      () async {
+        final running = settle(deliver(transaction: 'tx-a'));
+        await _settleCallers();
+        final waiting = [
+          for (var i = 0; i < MidtransGateway.hintsPerBatch; i++)
+            settle(deliver(transaction: 'tx-f$i')),
+        ];
+        client.requests[0].answer(missing);
+        await _settleCallers();
+        client.requests[1].answer(missing);
+        for (var i = 0; i <= MidtransGateway.hintsPerBatch; i++) {
+          await _settleCallers();
+          client.requests.last.answer(missing);
+        }
+        expect(await running, 'PaymentGatewayException');
+        for (final result in await Future.wait(waiting)) {
+          expect(result, 'PaymentGatewayException');
+        }
+        await expectNothingLeft();
+      },
+    );
+
+    test('a notification that stops waiting (its request timed out) leaves '
+        'the lookup to the others, and nothing is left after it', () async {
+      final uncaught = <Object>[];
+      await runZonedGuarded(() async {
+        final running = settle(deliver(transaction: 'tx-running'));
+        await _settleCallers();
+        // Both wait in the next batch, each in a request scope of its own.
+        final leaving = deliver(transaction: 'tx-shared')
+            .timeout(const Duration(milliseconds: 1));
+        final staying = deliver(transaction: 'tx-shared');
+        await expectLater(leaving, throwsA(isA<TimeoutException>()));
+        client.requests[0].answer(missing);
+        await _settleCallers();
+        client.requests[1].answer(missing);
+        expect(await running, 'PaymentGatewayException');
+        await _settleCallers();
+        client.requests[2].answer(missing);
+        await _settleCallers();
+        expect(client.requests[3].url.path, '/v2/tx-shared/status');
+        client.requests[3].answer(_status('settlement'));
+        expect((await staying).status, PaymentStatus.paid);
+      }, (error, _) => uncaught.add(error));
+      expect(uncaught, isEmpty, reason: 'no error left unhandled');
+      await expectNothingLeft();
+    });
+  });
 }

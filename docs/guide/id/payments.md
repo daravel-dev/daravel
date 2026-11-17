@@ -1,4 +1,4 @@
-<!-- source: payments.md sha256:0522cf49381e -->
+<!-- source: payments.md sha256:7c144201e727 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -103,9 +103,16 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    `transaction_id` lebih dari 255 karakter, dengan `.` atau `..` sebagai
    id order atau transaksinya, atau dengan medan yang seharusnya teks
    tetapi bukan teks, dijawab 400 sebelum pencarian apa pun.
-   Per order hanya satu pencarian berjalan; notifikasi yang tiba selama
-   pencarian itu berbagi pencarian berikutnya, yang dimulai setelah
-   kedatangannya. Jawaban yang selesai tidak disimpan sebagai cache.
+   Per order satu batch pencarian berjalan dan satu menunggu: notifikasi
+   yang tiba selama sebuah batch masuk ke batch yang menunggu. Sebuah batch
+   mencari order sekali dan, bila Midtrans tidak mengenalnya lewat id-nya,
+   tiap `transaction_id` berbeda di batch itu bergiliran, sehingga tiap
+   notifikasi menerima jawaban untuk transaksinya sendiri: paling banyak
+   1 + 4 panggilan keluar per batch. `transaction_id` berbeda kelima saat
+   batch yang menunggu penuh dijawab 429 dengan `Retry-After: 1`, yang
+   diulang Midtrans. Tiap notifikasi untuk order lain membuat panggilannya
+   sendiri; `HTTP_MAX_IN_FLIGHT` membatasi jumlah yang berjalan serentak.
+   Jawaban yang selesai tidak disimpan sebagai cache.
    Atur pembatasan laju masuk melalui
    `Payment.webhookRoutes(middleware: ...)` dan perhitungkan panggilan
    status keluar serta ketersediaan gateway.

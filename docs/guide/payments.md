@@ -98,9 +98,16 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    a `transaction_id` over 255 characters, with `.` or `..` as its order
    or transaction id, or with a field that should be text and is not, gets
    400 before any lookup.
-   Per order, one lookup runs at a time; arrivals during it share the next
-   lookup, which starts after they arrive. Completed answers are not
-   cached. Configure an ingress rate limit through
+   Per order, one batch of lookups runs at a time and one waits: arrivals
+   during a batch join the waiting one. A batch looks the order up once
+   and, when Midtrans does not know it by its id, each distinct
+   `transaction_id` of the batch in turn, so each notification gets the
+   answer for its own transaction: at most 1 + 4 outgoing calls per batch.
+   A fifth distinct `transaction_id` while the waiting batch is full is
+   answered 429 with `Retry-After: 1`, which Midtrans retries. Each
+   notification about another order makes its own call;
+   `HTTP_MAX_IN_FLIGHT` bounds how many run at once. Completed answers are
+   not cached. Configure an ingress rate limit through
    `Payment.webhookRoutes(middleware: ...)` and
    account for outbound status calls and gateway availability.
    Allow outbound HTTPS to `api.midtrans.com` in production or
