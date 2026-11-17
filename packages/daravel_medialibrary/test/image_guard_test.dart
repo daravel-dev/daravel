@@ -62,6 +62,36 @@ void main() {
     );
   });
 
+  test('our own checks between the library calls throw as they are', () {
+    // Under a limit of 100 pixels a manipulation may make 25: each of these
+    // asks for more, refused by our size check before the library is called.
+    final png = img.encodePng(img.Image(width: 2, height: 2));
+    final tooLarge = isA<ImageTooLargeException>()
+        .having((e) => e is ImageLibraryException, 'library', isFalse)
+        .having(
+          (e) => e.message,
+          'message',
+          startsWith('The conversion would make'),
+        );
+    for (final manipulations in <Map<String, List<Object?>>>[
+      {
+        'width': [20],
+      },
+      {
+        'crop': [20, 20, 'center'],
+      },
+      {
+        'fit': ['fill', 20, 20],
+      },
+    ]) {
+      expect(
+        () => convertImageSync(png, manipulations, maxPixels: 100),
+        throwsA(tooLarge),
+        reason: '$manipulations',
+      );
+    }
+  });
+
   test('an Exception that is not the library\'s is not touched', () {
     expect(
       () => guardImageCall<void>(() => throw const FormatException('ours')),

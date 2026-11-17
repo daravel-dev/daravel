@@ -440,7 +440,7 @@ Uint8List convertImageSync(
   // whole image.
   var image = (decoded.exif.imageIfd.orientation ?? 1) == 1
       ? decoded
-      : img.bakeOrientation(decoded);
+      : guardImageCall(() => img.bakeOrientation(decoded));
   int? quality;
   var format = 'jpg';
   // How large an image made by a manipulation may be.
@@ -478,7 +478,7 @@ Uint8List convertImageSync(
       case 'format':
         format = args[0]! as String;
       case 'greyscale':
-        image = img.grayscale(image);
+        image = guardImageCall(() => img.grayscale(image));
       case 'blur':
         final amount = (args[0]! as int).clamp(0, 100);
         if (amount > 0) {
@@ -488,9 +488,11 @@ Uint8List convertImageSync(
             // Blurred at 1, 2 or 4 bits it would cost 10 to 50 times as much
             // and fall back to as few levels: made 8-bit first, which loses
             // nothing (a palette spreads to its channels).
-            image = image.convert(format: img.Format.uint8);
+            image = guardImageCall(
+              () => image.convert(format: img.Format.uint8),
+            );
           }
-          image = img.gaussianBlur(image, radius: radius);
+          image = guardImageCall(() => img.gaussianBlur(image, radius: radius));
         }
       default:
         throw ImageConversionException('Unknown manipulation [$name].');
@@ -531,11 +533,13 @@ img.Image _resize(img.Image image, int width, int height, int growth) {
     return image;
   }
   _checkTarget(image, width, height, image.numFrames, growth);
-  return img.copyResize(
-    image,
-    width: width,
-    height: height,
-    interpolation: img.Interpolation.cubic,
+  return guardImageCall(
+    () => img.copyResize(
+      image,
+      width: width,
+      height: height,
+      interpolation: img.Interpolation.cubic,
+    ),
   );
 }
 
@@ -677,18 +681,18 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
   img.Image? canvas;
   for (var i = 0; i < cut.numFrames; i++) {
     final frame = cut.frames[i];
-    final page = img.Image(
-      width: width,
-      height: height,
-      numChannels: math.max(3, cut.numChannels),
-    );
-    img.fill(page, color: img.ColorRgba8(255, 255, 255, 255));
-    img.compositeImage(
-      page,
-      frame,
-      dstX: (width - cut.width) ~/ 2,
-      dstY: (height - cut.height) ~/ 2,
-    );
+    final channels = math.max(3, cut.numChannels);
+    final dstX = (width - cut.width) ~/ 2;
+    final dstY = (height - cut.height) ~/ 2;
+    final page = guardImageCall(() {
+      final page = img.Image(
+        width: width,
+        height: height,
+        numChannels: channels,
+      );
+      img.fill(page, color: img.ColorRgba8(255, 255, 255, 255));
+      return img.compositeImage(page, frame, dstX: dstX, dstY: dstY);
+    });
     // From the frame before the crop, which keeps its duration.
     page.frameDuration = i < image.numFrames
         ? image.frames[i].frameDuration
@@ -698,7 +702,8 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
         ..loopCount = image.loopCount
         ..frameType = image.frameType;
     } else {
-      canvas.addFrame(page);
+      final frames = canvas;
+      guardImageCall(() => frames.addFrame(page));
     }
   }
   return canvas!;
@@ -722,7 +727,9 @@ img.Image _crop(img.Image image, int width, int height, CropPosition position) {
     CropPosition.bottom => (dx ~/ 2, dy),
     CropPosition.bottomRight => (dx, dy),
   };
-  return img.copyCrop(image, x: x, y: y, width: w, height: h);
+  return guardImageCall(
+    () => img.copyCrop(image, x: x, y: y, width: w, height: h),
+  );
 }
 
 void _checkDimensions(int? width, int? height) {
@@ -749,7 +756,7 @@ Uint8List _encodeGif(img.Image image, int limit) {
   // A GIF holds 8-bit palette colors; its encoder does not take 16 bits.
   return img.encodeGif(
     image.format == img.Format.uint16
-        ? image.convert(format: img.Format.uint8)
+        ? guardImageCall(() => image.convert(format: img.Format.uint8))
         : image,
   );
 }
