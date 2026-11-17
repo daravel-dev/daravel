@@ -29,6 +29,51 @@ relies on form method overrides. Run applications behind a reverse proxy
 that buffers responses (nginx's default, `proxy_buffering on`); a limit on
 clients that stop reading comes in Daravel 1.28.0.
 
+### Security
+
+- `daravel_excel` took a cell reference past `XFD`, the last of
+  the 16 384 columns a worksheet holds, at its word and padded the row with
+  an empty cell for every column before it: a 786-byte `.xlsx` with a cell
+  at `ZZZZZ1` became a row of 12 356 630 cells (225 MiB), and one at
+  `ZZZZZZ1` did not finish. `columnIndex` now refuses a column past `XFD`
+  with a `FormatException`, and so does a row of cells without references
+  that runs past it, so reading such a file fails at once in bounded
+  memory. A cell is written at its column, as PhpSpreadsheet writes a cell
+  by its coordinate: a reference given again, or going back, sets that cell
+  again (the last one wins), where 300 000 cells at `A1` used to make a row
+  of 300 000 cells and `B1` then `A1` put A1 in column C. A cell reference
+  is letters then digits (`""`, `1A1` and `12A34B5` are a
+  `FormatException`), and `columnIndex('')` throws instead of answering -1.
+  Since 1.0.0.
+
+### Fixed
+
+- Refused WebSocket upgrades use the ordinary response lifecycle, including
+  request body handling and request termination.
+- `daravel_payments` compares a payment's amount and currency with the
+  order, applies status changes transactionally, and records only events
+  that move the payment as handled. Gateway keys must be nonempty; Stripe
+  and Xendit paid notifications without a readable amount or currency
+  receive 400. Unknown orders receive 409 by default, configurable with
+  `unknownOrderStatus` on `withPayments` or `Payment.webhookRoutes`.
+- Payment order and event identifiers are checked against the 255 Unicode
+  character storage limit before database access. Webhooks receive 400,
+  and application calls to `Payment.checkout` and `PaymentManager.apply`
+  throw `ArgumentError` for longer identifiers before the gateway or the
+  database is reached. JSON log payloads larger than 65,535 UTF-8 bytes
+  store a size marker while the event retains its raw data, without a
+  schema migration.
+- A Midtrans status answer with a paid status and no readable
+  `gross_amount` is a gateway failure: the webhook receives 5xx and
+  `status()`/reconciling throws `PaymentGatewayException`, so a payment is
+  never marked paid without its amount compared. A Midtrans notification
+  whose `transaction_id` is longer than 255 characters, or whose order or
+  transaction id is `.` or `..`, receives 400 before any lookup.
+  `MidtransGateway.status(orderId, reference:)` looks the order up by
+  `reference` when Midtrans does not know it by its id; a reference that is
+  blank, the order id itself, longer than 255 characters, `.` or `..` is
+  not looked up.
+
 ### Added
 
 - `SharedResult<T>` runs one asynchronous computation and shares its settled
@@ -111,48 +156,6 @@ clients that stop reading comes in Daravel 1.28.0.
   again (with another status call for Midtrans): make its listeners
   idempotent. On MySQL, event ids that differ only in letter case are one
   event under the default collation; PostgreSQL and SQLite keep them apart.
-
-### Fixed
-
-- Refused WebSocket upgrades use the ordinary response lifecycle, including
-  request body handling and request termination.
-- Security: `daravel_excel` took a cell reference past `XFD`, the last of
-  the 16 384 columns a worksheet holds, at its word and padded the row with
-  an empty cell for every column before it: a 786-byte `.xlsx` with a cell
-  at `ZZZZZ1` became a row of 12 356 630 cells (225 MiB), and one at
-  `ZZZZZZ1` did not finish. `columnIndex` now refuses a column past `XFD`
-  with a `FormatException`, and so does a row of cells without references
-  that runs past it, so reading such a file fails at once in bounded
-  memory. A cell is written at its column, as PhpSpreadsheet writes a cell
-  by its coordinate: a reference given again, or going back, sets that cell
-  again (the last one wins), where 300 000 cells at `A1` used to make a row
-  of 300 000 cells and `B1` then `A1` put A1 in column C. A cell reference
-  is letters then digits (`""`, `1A1` and `12A34B5` are a
-  `FormatException`), and `columnIndex('')` throws instead of answering -1.
-  Since 1.0.0.
-- `daravel_payments` compares a payment's amount and currency with the
-  order, applies status changes transactionally, and records only events
-  that move the payment as handled. Gateway keys must be nonempty; Stripe
-  and Xendit paid notifications without a readable amount or currency
-  receive 400. Unknown orders receive 409 by default, configurable with
-  `unknownOrderStatus` on `withPayments` or `Payment.webhookRoutes`.
-- Payment order and event identifiers are checked against the 255 Unicode
-  character storage limit before database access. Webhooks receive 400,
-  and application calls to `Payment.checkout` and `PaymentManager.apply`
-  throw `ArgumentError` for longer identifiers before the gateway or the
-  database is reached. JSON log payloads larger than 65,535 UTF-8 bytes
-  store a size marker while the event retains its raw data, without a
-  schema migration.
-- A Midtrans status answer with a paid status and no readable
-  `gross_amount` is a gateway failure: the webhook receives 5xx and
-  `status()`/reconciling throws `PaymentGatewayException`, so a payment is
-  never marked paid without its amount compared. A Midtrans notification
-  whose `transaction_id` is longer than 255 characters, or whose order or
-  transaction id is `.` or `..`, receives 400 before any lookup.
-  `MidtransGateway.status(orderId, reference:)` looks the order up by
-  `reference` when Midtrans does not know it by its id; a reference that is
-  blank, the order id itself, longer than 255 characters, `.` or `..` is
-  not looked up.
 
 ## 1.27.5
 
