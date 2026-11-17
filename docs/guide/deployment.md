@@ -259,6 +259,11 @@ TrustProxiesMiddleware(proxies: ['10.0.0.0/8'])
 
 Without it, `X-Forwarded-*` headers are ignored.
 
+Let that proxy buffer responses (nginx `proxy_buffering on`, its default):
+it reads a large response at once, so a client that stops reading holds the
+proxy's buffer, not one of the application's in-flight slots. A limit on
+such clients in Daravel itself comes in 1.28.0.
+
 ## Secrets: encrypted environment files
 
 `dartisan env:encrypt` writes `.env.encrypted` (or `.env.production.encrypted`

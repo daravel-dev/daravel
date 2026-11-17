@@ -20,13 +20,121 @@ match Laravel more closely.
 
 ### Changed
 
+- Form method overrides read a body only on paths with a matching PUT,
+  PATCH or DELETE route, within the longest request timeout of the routes
+  that path may reach.
+- WebSocket upgrades use one GET/HTTP 1.1 predicate for routes and the
+  server: a single `Upgrade: websocket` value and an exact `upgrade` token
+  across all `Connection` lines select the upgrade path; other requests
+  receive an ordinary response.
+- `daravel_payments`: every verified Midtrans notification obtains its
+  event from the status API for the authenticated order. A missing order
+  lookup permits one transaction-id lookup, whose answer must still match
+  that order. Status responses require a transaction id, status and code
+  2xx or 407 with `expire`; invalid or unavailable responses receive 5xx
+  without applying an event. Per order, one batch of lookups runs and one
+  waits for arrivals during it; a batch looks the order up once and, when
+  Midtrans does not know it by its id, each distinct transaction id in turn
+  (at most four, so at most five outgoing calls), each notification getting
+  the answer for its own transaction id. A fifth distinct transaction id
+  while the waiting batch is full receives 429 with `Retry-After: 1`.
+  Completed responses are not cached.
+
 **Upgrading can change what an application sees:**
 
 - The new public names `SharedResult` and
   `ServerEngine.webSocketUpgradeOverride` can conflict with names an
   application already imports or declares.
+- A POST-only path keeps its POST method when `_method` is supplied in the
+  form body; header and query overrides still apply. Register the target
+  PUT, PATCH or DELETE route on that path to use a body override. Body size
+  defaults are unchanged. `MethodOverrideMiddleware` accepts optional
+  `router` and `defaultTimeout` callbacks; `Request.abortBodyRead` ends an
+  active body read, `Request.bodyRefusedWhileReading` says that the
+  response closes its connection, and `Request.releaseRefusedBody` releases
+  the source of an interrupted body read (request scopes and the server
+  call it after processing). Routes without a `domain` restriction apply to
+  all hosts. A malformed multipart body on a POST-only path now reaches the
+  POST handler; a handler that reads the body still receives a 400. When a
+  custom `middleware.priority` places method override before
+  `TrustProxiesMiddleware`, domain matching uses the direct `Host` value
+  rather than `X-Forwarded-Host`.
+- `isWebSocketUpgrade` accepts repeated `Connection` lines and matches
+  complete tokens. HEAD requests receive 426 on WebSocket routes, and
+  HTTP/1.0 requests are not upgraded. `Request.protocolVersion` records the
+  incoming HTTP version (1.1 for synthetic requests).
+- `daravel_excel`: reading an `.xlsx` that references a column past `XFD`
+  fails with a `FormatException`, and so does a malformed cell reference;
+  no file Excel writes holds either. A repeated cell reference keeps the
+  last value. New public name: `maxColumns` (16 384).
+- `daravel_payments`: Midtrans webhook handling requires outbound status API
+  access for every verified notification, including `pending`,
+  `settlement` and `capture`. Fake the status API (`/v2/*/status`) in
+  webhook tests, allow outbound HTTPS in production, configure ingress rate
+  limits, and handle 5xx responses during gateway outages. A missing order
+  lookup is followed once by a transaction-id lookup; two missing answers
+  receive 5xx. Direct `status(orderId)` calls continue to return `pending`
+  for missing transactions.
+- `daravel_payments`: Midtrans event ids use
+  `<order>:<transaction>:<status>[:<fraud_status>]` from the API response.
+  Retries of events recorded with earlier identifiers can be evaluated
+  again against the current payment state. Because the event id holds the
+  order id, a Midtrans order id must leave room for the transaction id and
+  status within 255 characters (Midtrans allows 50 characters for a Snap
+  order id). Unknown orders receive 409 by default; `unknownOrderStatus:
+  200` acknowledges them when a gateway account is shared with another
+  system.
+- `daravel_payments`: Stripe and Xendit notifications in another currency
+  than the order are `amountMismatch`, and a Midtrans notification without
+  a text `transaction_id` receives 400. Webhook log rows store
+  `{"truncated":true,"bytes":N}` above 65,535 UTF-8 bytes; listeners still
+  receive the full `raw` payload. An `amountMismatch` notification
+  delivered again is checked again and dispatches `PaymentAmountMismatch`
+  again (with another status call for Midtrans): make its listeners
+  idempotent. On MySQL, event ids that differ only in letter case are one
+  event under the default collation; PostgreSQL and SQLite keep them apart.
 
 ### Fixed
+
+- Refused WebSocket upgrades use the ordinary response lifecycle, including
+  request body handling and request termination.
+- Security: `daravel_excel` took a cell reference past `XFD`, the last of
+  the 16 384 columns a worksheet holds, at its word and padded the row with
+  an empty cell for every column before it: a 786-byte `.xlsx` with a cell
+  at `ZZZZZ1` became a row of 12 356 630 cells (225 MiB), and one at
+  `ZZZZZZ1` did not finish. `columnIndex` now refuses a column past `XFD`
+  with a `FormatException`, and so does a row of cells without references
+  that runs past it, so reading such a file fails at once in bounded
+  memory. A cell is written at its column, as PhpSpreadsheet writes a cell
+  by its coordinate: a reference given again, or going back, sets that cell
+  again (the last one wins), where 300 000 cells at `A1` used to make a row
+  of 300 000 cells and `B1` then `A1` put A1 in column C. A cell reference
+  is letters then digits (`""`, `1A1` and `12A34B5` are a
+  `FormatException`), and `columnIndex('')` throws instead of answering -1.
+  Since 1.0.0.
+- `daravel_payments` compares a payment's amount and currency with the
+  order, applies status changes transactionally, and records only events
+  that move the payment as handled. Gateway keys must be nonempty; Stripe
+  and Xendit paid notifications without a readable amount or currency
+  receive 400. Unknown orders receive 409 by default, configurable with
+  `unknownOrderStatus` on `withPayments` or `Payment.webhookRoutes`.
+- Payment order and event identifiers are checked against the 255 Unicode
+  character storage limit before database access. Webhooks receive 400,
+  and application calls to `Payment.checkout` and `PaymentManager.apply`
+  throw `ArgumentError` for longer identifiers before the gateway or the
+  database is reached. JSON log payloads larger than 65,535 UTF-8 bytes
+  store a size marker while the event retains its raw data, without a
+  schema migration.
+- A Midtrans status answer with a paid status and no readable
+  `gross_amount` is a gateway failure: the webhook receives 5xx and
+  `status()`/reconciling throws `PaymentGatewayException`, so a payment is
+  never marked paid without its amount compared. A Midtrans notification
+  whose `transaction_id` is longer than 255 characters, or whose order or
+  transaction id is `.` or `..`, receives 400 before any lookup.
+  `MidtransGateway.status(orderId, reference:)` looks the order up by
+  `reference` when Midtrans does not know it by its id; a reference that is
+  blank, the order id itself, longer than 255 characters, `.` or `..` is
+  not looked up.
 
 ## 1.27.5
 
