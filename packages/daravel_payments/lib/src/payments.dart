@@ -25,9 +25,10 @@ final class PaymentsConfig implements ConfigSection {
 
   /// The settings in `PAYMENT_*`, `MIDTRANS_*`, `XENDIT_*` and `STRIPE_*`.
   factory PaymentsConfig.fromEnv(Env env) {
+    // An empty or blank key is no key.
     String? read(String key) {
       final value = env.maybeString(key);
-      return value == null || value.isEmpty ? null : value;
+      return value == null || value.trim().isEmpty ? null : value;
     }
 
     return PaymentsConfig(
@@ -204,11 +205,11 @@ final class PaymentRefunded {
   final PaymentEvent event;
 }
 
-/// A verified notification whose amount is not the order's: nothing was
-/// changed. Worth an alert.
+/// A verified notification whose currency or amount is not the order's:
+/// nothing was changed. Worth an alert.
 final class PaymentAmountMismatch {
-  /// Dispatched when a notification's amount differs from [payment]'s; the
-  /// payment is left as it was.
+  /// Dispatched when a notification's currency or amount differs from
+  /// [payment]'s; the payment is left as it was.
   const PaymentAmountMismatch(this.payment, this.event);
 
   /// The payment.
@@ -223,7 +224,8 @@ enum PaymentOutcome {
   /// The payment moved to the event's status.
   applied,
 
-  /// This event was handled before (the idempotency log has it).
+  /// This event moved the payment before (the idempotency log has it
+  /// as handled).
   duplicate,
 
   /// The payment is in that status already.
@@ -236,7 +238,7 @@ enum PaymentOutcome {
   /// No payment with that order id and gateway.
   unknownOrder,
 
-  /// The amount is not the order's; nothing changed.
+  /// The amount or currency is not the order's; nothing changed.
   amountMismatch,
 }
 
@@ -307,11 +309,20 @@ final class PaymentManager {
   /// Undoes the fake.
   void removeFake() => _fake = null;
 
-  /// Starts a payment at [gateway] and records it as `pending`.
+  /// Starts a payment at [gateway] and records it as `pending`. An order id
+  /// longer than 255 Unicode characters throws [ArgumentError] before the
+  /// gateway is called or the database is touched.
   Future<PaymentCheckout> checkout(
     PaymentRequest request, {
     String? gateway,
   }) async {
+    if (request.orderId.runes.take(256).length > 255) {
+      throw ArgumentError.value(
+        request.orderId.runes.length,
+        'orderId',
+        'An order id holds at most 255 Unicode characters',
+      );
+    }
     final target = this.gateway(gateway);
     final checkout = await target.create(request);
     final now = Clock.now().toUtc();
@@ -343,9 +354,29 @@ final class PaymentManager {
     return row == null ? null : PaymentRecord.fromRow(row);
   }
 
-  /// Verifies a webhook for [gateway] and applies it.
-  Future<PaymentOutcome> handleWebhook(String gateway, Request request) async =>
-      apply(await this.gateway(gateway).parseWebhook(request));
+  /// Verifies a webhook for [gateway] and applies it. Order and event ids
+  /// longer than 255 Unicode characters receive a 400 before storage.
+  Future<PaymentOutcome> handleWebhook(String gateway, Request request) async {
+    final event = await this.gateway(gateway).parseWebhook(request);
+    if (!_identifiersFit(event)) {
+      throw const BadRequestHttpException(
+        'Payment identifiers must not exceed 255 characters.',
+      );
+    }
+    return apply(event);
+  }
+
+  static bool _identifiersFit(PaymentEvent event) =>
+      event.eventId.runes.take(256).length <= 255 &&
+      event.orderId.runes.take(256).length <= 255;
+
+  static String _logPayload(Map<String, Object?> raw) {
+    final payload = jsonEncode(raw);
+    final bytes = utf8.encode(payload).length;
+    return bytes <= 65535
+        ? payload
+        : jsonEncode({'truncated': true, 'bytes': bytes});
+  }
 
   /// Asks the gateway about [orderId] and applies the answer (for
   /// missed webhooks: `dartisan payment:check`).
@@ -360,102 +391,138 @@ final class PaymentManager {
   }
 
   /// Applies a verified event, exactly once: in one transaction, the event
-  /// id goes into the idempotency log (a second delivery stops there),
-  /// the payment row is locked, its amount compared with the event's, and
-  /// its status moved when the move is possible. Events are dispatched
-  /// after the commit.
-  Future<PaymentOutcome> apply(PaymentEvent event) => DB.transaction(() async {
-    final now = Clock.now().toUtc();
-    try {
-      // A savepoint: a duplicate fails only this insert.
-      await DB.transaction(
-        () => DB.table(webhookLogTable).insert({
-          'gateway': event.gateway,
-          'event_id': event.eventId,
-          'order_id': event.orderId,
-          'payload': jsonEncode(event.raw),
-          'processed': true,
-          'created_at': now,
-          'updated_at': now,
-        }),
+  /// id goes into the idempotency log, the payment row is locked, its
+  /// currency and amount compared with the event's, and its status moved
+  /// when the move is possible. Only an event that moved the payment counts
+  /// as handled: a second delivery of it is a [PaymentOutcome.duplicate],
+  /// while one that found no order, no change or another amount is looked
+  /// at again when it comes back (a notification can arrive before its
+  /// order is stored). An event without a currency is compared by amount
+  /// only. Deliveries of one event at once wait for each other on the log
+  /// row; should the database still report a deadlock or a serialization
+  /// failure, the transaction runs again, up to three times. Events are
+  /// dispatched after the commit. Order and event ids longer than 255
+  /// Unicode characters throw [ArgumentError] before database access.
+  /// Log payloads larger than 65,535 UTF-8 bytes store a size marker;
+  /// [PaymentEvent.raw] remains intact.
+  Future<PaymentOutcome> apply(PaymentEvent event) {
+    if (!_identifiersFit(event)) {
+      throw ArgumentError(
+        'Payment identifiers must not exceed 255 characters.',
       );
-    } on UniqueConstraintViolationException {
-      return PaymentOutcome.duplicate;
     }
-    Future<void> unprocessed() => DB
-        .table(webhookLogTable)
-        .where('gateway', event.gateway)
-        .where('event_id', event.eventId)
-        .update({'processed': false});
+    final payload = _logPayload(event.raw);
+    return DB.transaction(() async {
+      final now = Clock.now().toUtc();
+      QueryBuilder log() => DB
+          .table(webhookLogTable)
+          .where('gateway', event.gateway)
+          .where('event_id', event.eventId);
+      try {
+        // A savepoint: a known event fails only this insert.
+        await DB.transaction(
+          () => DB.table(webhookLogTable).insert({
+            'gateway': event.gateway,
+            'event_id': event.eventId,
+            'order_id': event.orderId,
+            'payload': payload,
+            'processed': false,
+            'created_at': now,
+            'updated_at': now,
+          }),
+        );
+      } on UniqueConstraintViolationException {
+        final seen = await log().lockForUpdate().first();
+        if (seen == null) {
+          // The row that clashed is not this event's (the delivery that wrote
+          // it rolled back, or another unique index): not applied, so not a
+          // duplicate. An error answers 5xx and the gateway sends it again.
+          throw StateError(
+            'The webhook log has no row for ${event.gateway} event '
+            '${event.eventId} after a unique violation; not applied.',
+          );
+        }
+        if (_isTrue(seen['processed'])) {
+          return PaymentOutcome.duplicate;
+        }
+        await log().update({'payload': payload, 'updated_at': now});
+      }
 
-    final row = await DB
-        .table(transactionsTable)
-        .where('gateway', event.gateway)
-        .where('order_id', event.orderId)
-        .lockForUpdate()
-        .first();
-    if (row == null) {
-      await unprocessed();
-      return PaymentOutcome.unknownOrder;
-    }
-    final payment = PaymentRecord.fromRow(row);
-    final next = event.status;
-    if (next == null) {
-      return PaymentOutcome.ignored;
-    }
-    final amount = event.amount;
-    if (amount != null &&
-        toMinorUnits(amount, payment.currency) !=
-            toMinorUnits(payment.amount, payment.currency)) {
-      await unprocessed();
-      await Event.dispatchAfterCommit(PaymentAmountMismatch(payment, event));
-      return PaymentOutcome.amountMismatch;
-    }
-    if (payment.status == next) {
-      return PaymentOutcome.unchanged;
-    }
-    if (!payment.status.canMoveTo(next)) {
-      return PaymentOutcome.ignored;
-    }
-    final paidAt = next == PaymentStatus.paid
-        ? (event.occurredAt ?? now).toUtc()
-        : payment.paidAt;
-    await DB.table(transactionsTable).where('id', payment.id).update({
-      'status': next.name,
-      'payment_type': event.paymentType ?? payment.paymentType,
-      'paid_at': paidAt,
-      'updated_at': now,
-    });
-    final updated = PaymentRecord(
-      id: payment.id,
-      orderId: payment.orderId,
-      gateway: payment.gateway,
-      reference: payment.reference,
-      amount: payment.amount,
-      currency: payment.currency,
-      status: next,
-      paymentType: event.paymentType ?? payment.paymentType,
-      paidAt: paidAt,
-      metadata: payment.metadata,
-    );
-    await switch (next) {
-      PaymentStatus.paid => Event.dispatchAfterCommit(
-        PaymentPaid(updated, event),
-      ),
-      PaymentStatus.failed => Event.dispatchAfterCommit(
-        PaymentFailed(updated, event),
-      ),
-      PaymentStatus.expired => Event.dispatchAfterCommit(
-        PaymentExpired(updated, event),
-      ),
-      PaymentStatus.refunded => Event.dispatchAfterCommit(
-        PaymentRefunded(updated, event),
-      ),
-      PaymentStatus.pending => Future<void>.value(),
-    };
-    return PaymentOutcome.applied;
-  });
+      final row = await DB
+          .table(transactionsTable)
+          .where('gateway', event.gateway)
+          .where('order_id', event.orderId)
+          .lockForUpdate()
+          .first();
+      if (row == null) {
+        return PaymentOutcome.unknownOrder;
+      }
+      final payment = PaymentRecord.fromRow(row);
+      final next = event.status;
+      if (next == null) {
+        return PaymentOutcome.ignored;
+      }
+      final amount = event.amount;
+      final currency = event.currency;
+      if ((currency != null &&
+              currency.toUpperCase() != payment.currency.toUpperCase()) ||
+          (amount != null &&
+              toMinorUnits(amount, payment.currency) !=
+                  toMinorUnits(payment.amount, payment.currency))) {
+        await Event.dispatchAfterCommit(PaymentAmountMismatch(payment, event));
+        return PaymentOutcome.amountMismatch;
+      }
+      if (payment.status == next) {
+        return PaymentOutcome.unchanged;
+      }
+      if (!payment.status.canMoveTo(next)) {
+        return PaymentOutcome.ignored;
+      }
+      await log().update({'processed': true});
+      final paidAt = next == PaymentStatus.paid
+          ? (event.occurredAt ?? now).toUtc()
+          : payment.paidAt;
+      await DB.table(transactionsTable).where('id', payment.id).update({
+        'status': next.name,
+        'payment_type': event.paymentType ?? payment.paymentType,
+        'paid_at': paidAt,
+        'updated_at': now,
+      });
+      final updated = PaymentRecord(
+        id: payment.id,
+        orderId: payment.orderId,
+        gateway: payment.gateway,
+        reference: payment.reference,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: next,
+        paymentType: event.paymentType ?? payment.paymentType,
+        paidAt: paidAt,
+        metadata: payment.metadata,
+      );
+      await switch (next) {
+        PaymentStatus.paid => Event.dispatchAfterCommit(
+          PaymentPaid(updated, event),
+        ),
+        PaymentStatus.failed => Event.dispatchAfterCommit(
+          PaymentFailed(updated, event),
+        ),
+        PaymentStatus.expired => Event.dispatchAfterCommit(
+          PaymentExpired(updated, event),
+        ),
+        PaymentStatus.refunded => Event.dispatchAfterCommit(
+          PaymentRefunded(updated, event),
+        ),
+        PaymentStatus.pending => Future<void>.value(),
+      };
+      return PaymentOutcome.applied;
+    }, attempts: 3);
+  }
 }
+
+/// A boolean column as the drivers return it (`true`, or `1` from SQLite
+/// and MySQL).
+bool _isTrue(Object? value) => value == true || value == 1;
 
 /// The payments facade.
 abstract final class Payment {
@@ -478,13 +545,37 @@ abstract final class Payment {
   static FakePaymentGateway fake() => manager.installFake();
 
   /// `POST <path>/{gateway}`: verifies and applies the gateway's
-  /// notifications, answering 200 (the gateway stops retrying) with what
-  /// happened, 401 for a bad signature, 404 for an unknown gateway.
+  /// notifications, answering with what happened (`{"status": …}`).
+  ///
+  /// - [unknownOrderStatus] (409 by default) for a notification about an
+  ///   order not stored yet: Stripe, Midtrans and Xendit send a
+  ///   notification again only after a non-2xx answer, so the payment is
+  ///   applied once its order exists. Midtrans retries a status outside
+  ///   its table (409 among them) five times, 400 and 404 twice and 500
+  ///   once (https://docs.midtrans.com/reference/best-practices-to-handle-notification).
+  ///   An order that is not this application's (a gateway account shared
+  ///   with another system) is then retried until the gateway gives up;
+  ///   pass 200 to acknowledge such orders.
+  /// - 200 for every other outcome: `applied`, `duplicate`, `unchanged`,
+  ///   `ignored`, and `amountMismatch` (whose alert is
+  ///   [PaymentAmountMismatch]). Another delivery of an `amountMismatch`
+  ///   notification is checked again and raises the alert again, so its
+  ///   listeners should be idempotent.
+  /// - 401 for a bad signature, 400 for a malformed notification, 404 for
+  ///   an unknown gateway.
   static void webhookRoutes(
     Router router, {
     String path = '/payments/webhook',
     List<Object> middleware = const [],
+    int unknownOrderStatus = 409,
   }) {
+    if (unknownOrderStatus < 200 || unknownOrderStatus > 599) {
+      throw ArgumentError.value(
+        unknownOrderStatus,
+        'unknownOrderStatus',
+        'must be an HTTP status from 200 to 599',
+      );
+    }
     router.group((r) {
       r
           .post('$path/{gateway}', (Request request) async {
@@ -492,7 +583,12 @@ abstract final class Payment {
               request.param<String>('gateway'),
               request,
             );
-            return Response.json({'status': outcome.name});
+            return Response.json(
+              {'status': outcome.name},
+              status: outcome == PaymentOutcome.unknownOrder
+                  ? unknownOrderStatus
+                  : 200,
+            );
           })
           .name('payments.webhook');
     }, middleware: middleware);

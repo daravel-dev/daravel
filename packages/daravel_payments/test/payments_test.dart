@@ -239,6 +239,7 @@ void main() {
           'status': 'PAID',
           'amount': 50000,
           'paid_amount': 50000,
+          'currency': 'IDR',
           'payment_channel': 'QRIS',
           'paid_at': '2026-10-29T08:00:00.000Z',
         });
@@ -271,10 +272,12 @@ void main() {
     late Directory dir;
     late Application app;
     late List<Object> events;
+    Map<String, Object?> apiStatus = {};
 
     setUp(() async {
       dir = Directory.systemTemp.createTempSync('daravel_payments_');
       events = [];
+      apiStatus = midtransNotification()..remove('signature_key');
       app = Application.configure(basePath: dir.path)
           .withEnv({
             'APP_ENV': 'testing',
@@ -300,6 +303,8 @@ void main() {
             'redirect_url':
                 'https://app.sandbox.midtrans.com/snap/v4/redirection/x',
           }, 201),
+          'api.sandbox.midtrans.com/*': (ClientRequest request) =>
+              Http.response(apiStatus),
         });
         await Payment.checkout(
           const PaymentRequest(orderId: 'ORDER-42', amount: 150000),
@@ -351,6 +356,7 @@ void main() {
 
     test('a signed amount that is not the order\'s changes nothing', () async {
       final short = midtransNotification(grossAmount: '1500.00');
+      apiStatus = short;
       expect(await notify(short), (200, '{"status":"amountMismatch"}'));
       expect((await record()).status, PaymentStatus.pending);
       expect(events.single, isA<PaymentAmountMismatch>());
@@ -363,20 +369,63 @@ void main() {
         statusCode: '201',
         transactionId: 'tx-1',
       );
+      apiStatus = late;
       expect(await notify(late), (200, '{"status":"ignored"}'));
       expect((await record()).status, PaymentStatus.paid);
     });
 
     test('expired, then paid after all; unknown orders are reported', () async {
+      // An expiry is confirmed with Midtrans' status API.
+      await app.run(() async {
+        Http.fake({
+          'api.sandbox.midtrans.com/*': Http.response({
+            'status_code': '407',
+            'transaction_status': 'expire',
+            'transaction_id': 'tx-1',
+            'order_id': 'ORDER-42',
+            'gross_amount': '150000.00',
+            'currency': 'IDR',
+          }),
+        });
+      });
       expect(
-        await notify(midtransNotification(status: 'expire', statusCode: '407')),
+        await notify(midtransNotification(status: 'expire', statusCode: '202')),
         (200, '{"status":"applied"}'),
       );
       expect((await record()).status, PaymentStatus.expired);
+      await app.run(() async {
+        Http.fake({
+          'api.sandbox.midtrans.com/*': Http.response(
+            midtransNotification(orderId: 'ORDER-404'),
+          ),
+        });
+      });
+      // 409, so the gateway sends it again once the order exists.
       expect(await notify(midtransNotification(orderId: 'ORDER-404')), (
-        200,
+        409,
         '{"status":"unknownOrder"}',
       ));
+    });
+
+    test('an order id over 255 characters is refused before the gateway '
+        'and the database', () async {
+      await app.run(() async {
+        final fake = Payment.fake();
+        for (final orderId in ['Z' * 256, '\u{1F600}' * 256]) {
+          await expectLater(
+            Payment.checkout(PaymentRequest(orderId: orderId, amount: 1)),
+            throwsArgumentError,
+          );
+        }
+        expect(() => fake.assertCreated((_) => true), throwsStateError);
+        for (final orderId in ['Z' * 256, '\u{1F600}' * 256]) {
+          expect(await Payment.find(orderId), isNull);
+        }
+        final accepted = await Payment.checkout(
+          PaymentRequest(orderId: '\u{1F600}' * 255, amount: 1),
+        );
+        expect(accepted.orderId, '\u{1F600}' * 255);
+      });
     });
 
     test('Payment.fake() records what the application starts', () async {
