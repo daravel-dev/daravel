@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/payments.md`.
 const String pageIdPayments =
-    r'''<!-- source: payments.md sha256:273327a967db -->
+    r'''<!-- source: payments.md sha256:0522cf49381e -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -96,12 +96,18 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    jalur tetap mensyaratkan jawaban tentang order terautentikasi, id dan
    status transaksi berupa teks tak kosong, serta kode 2xx atau 407 dengan
    `expire`. Id event, status, jumlah, mata uang, waktu, dan payload mentah
-   berasal dari API. Jawaban tidak sah atau dua jawaban tidak ditemukan
-   menghasilkan 5xx tanpa menerapkan maupun mencatat event. Pemanggilan
-   langsung `status(orderId)` tetap menghasilkan `pending` bila tidak ditemukan.
-   Notifikasi tanpa `transaction_id`, atau dengan medan yang seharusnya
-   teks tetapi bukan teks, dijawab 400, begitu pula notifikasi lunas yang
-   jumlah atau mata uangnya tidak terbaca.
+   berasal dari API. Jawaban tidak sah, jawaban lunas tanpa `gross_amount`
+   yang terbaca, atau dua jawaban tidak ditemukan menghasilkan 5xx tanpa
+   menerapkan maupun mencatat event, sehingga Midtrans mengirim ulang
+   notifikasinya. Pemanggilan langsung `status(orderId, reference:)`
+   mencari order lewat `reference` bila Midtrans tidak mengenalnya lewat
+   id-nya, dan menghasilkan `pending` bila keduanya tidak ditemukan; jawaban
+   lunas tanpa jumlah yang terbaca juga melempar `PaymentGatewayException`
+   di sana, sehingga rekonsiliasi tidak pernah melunaskan tanpa
+   membandingkan jumlah. Notifikasi tanpa `transaction_id`, dengan
+   `transaction_id` lebih dari 255 karakter, dengan `.` atau `..` sebagai
+   id order atau transaksinya, atau dengan medan yang seharusnya teks
+   tetapi bukan teks, dijawab 400 sebelum pencarian apa pun.
    Per order hanya satu pencarian berjalan; notifikasi yang tiba selama
    pencarian itu berbagi pencarian berikutnya, yang dimulai setelah
    kedatangannya. Jawaban yang selesai tidak disimpan sebagai cache.
@@ -131,8 +137,15 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    `refunded`. `pending` yang terlambat setelah `paid` diabaikan.
 
 Id order dan event dibatasi 255 karakter Unicode. Webhook yang melampaui
-batas dijawab 400; `Payment.manager.apply` dari aplikasi melempar
-`ArgumentError` sebelum akses basis data. Payload JSON log disimpan utuh
+batas dijawab 400; `Payment.checkout` dan `Payment.manager.apply` dari
+aplikasi melempar `ArgumentError` sebelum gateway atau basis data
+dihubungi. Id event Midtrans memuat id order, id transaksi, dan status,
+sehingga dengan Midtrans id order tetap jauh di bawah batas itu: Midtrans
+sendiri mengizinkan 50 karakter untuk id order Snap
+(`transaction_details.order_id`,
+https://docs.midtrans.com/reference/json-objects). Pada MySQL, id event
+yang hanya berbeda huruf besar-kecil dianggap satu event menurut kolasi
+bawaan, sedangkan PostgreSQL dan SQLite membedakannya. Payload JSON log disimpan utuh
 hingga 65.535 byte UTF-8; selebihnya hanya menyimpan
 `{"truncated":true,"bytes":N}`. Event untuk listener aplikasi tetap membawa
 payload mentahnya. Tidak diperlukan migrasi skema.
@@ -155,8 +168,9 @@ Pada akun gateway yang dipakai bersama sistem lain, notifikasi untuk
 order sistem itu lalu dikirim ulang sampai gateway menyerah dan tampil
 gagal di dasbornya; gunakan `withPayments(unknownOrderStatus: 200)` untuk
 menjawabnya 200 seperti sebelumnya. Pada semua kasus lain jawabannya 200
-(`applied`, `duplicate`, `unchanged`, `ignored`, `amountMismatch`), karena
-pengiriman ulang tidak akan mengubahnya.
+(`applied`, `duplicate`, `unchanged`, `ignored`, `amountMismatch`).
+Notifikasi `amountMismatch` yang dikirim ulang diperiksa lagi dan mengirim
+`PaymentAmountMismatch` lagi, jadi listener-nya sebaiknya idempoten.
 
 ## Rekonsiliasi
 

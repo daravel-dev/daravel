@@ -42,8 +42,13 @@ String? notificationText(Map<String, Object?> body, String key) =>
 /// built-in gateway never hands it a paid event without them. Events an
 /// application builds itself are not checked here.
 ///
-/// A paid event with unreadable amount or currency receives 400. The
-/// refusal is logged with the event id and reason, never the payload.
+/// The gateways send both: Xendit's invoice callback requires `amount` and
+/// `currency` (`InvoiceCallback`, xendit-php 7.0.0), and a Stripe Checkout
+/// Session created in payment mode carries the `currency` of its line
+/// items. Such an event is refused with 400 and the gateway retries; the
+/// refusal is logged with the event id and the reason, never the payload.
+/// Midtrans events come from its status API, whose answer without a
+/// readable amount on a paid status is a gateway failure (5xx) instead.
 PaymentEvent requireAmountWhenPaid(PaymentEvent event) {
   final currency = event.currency;
   final amount = event.amount;

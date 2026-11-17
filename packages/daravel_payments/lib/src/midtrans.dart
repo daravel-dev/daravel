@@ -112,9 +112,22 @@ final class MidtransGateway implements PaymentGateway {
     );
   }
 
+  /// The status of [orderId]; when Midtrans does not know the order by its
+  /// id, by [reference] (a transaction id), whose answer must still name
+  /// [orderId]. Pending when neither is known.
   @override
   Future<PaymentEvent> status(String orderId, {String? reference}) =>
-      _readStatus(orderId, allowMissing: true);
+      _readStatus(orderId, allowMissing: true, transactionHint: reference);
+
+  /// Whether [value] can be one segment of a status URL: `.` and `..` are
+  /// path steps, not identifiers.
+  static bool _segment(String value) => value != '.' && value != '..';
+
+  /// Midtrans' answer that it does not know what was asked for.
+  bool _isMissing(ClientResponse response, Map<String, Object?> body) =>
+      (response.successful || response.status == 404) &&
+      _code(body['status_code']) == '404' &&
+      !body.containsKey('transaction_status');
 
   Future<PaymentEvent> _readStatus(
     String orderId, {
@@ -122,16 +135,23 @@ final class MidtransGateway implements PaymentGateway {
     String? transactionHint,
     String eventPrefix = 'status:',
   }) async {
+    if (!_segment(orderId)) {
+      throw ArgumentError.value(orderId, 'orderId', 'Not an order id');
+    }
     var response = await _http.get(
       '$_api/v2/${Uri.encodeComponent(orderId)}/status',
     );
     var body = apiObject(response, 'Midtrans status');
-    final missing =
-        (response.successful || response.status == 404) &&
-        _code(body['status_code']) == '404' &&
-        !body.containsKey('transaction_status');
-    if (missing) {
-      if (allowMissing) {
+    if (_isMissing(response, body)) {
+      if (transactionHint != null && _segment(transactionHint)) {
+        // The reference selects a lookup; the returned order still has to
+        // be the authenticated order below.
+        response = await _http.get(
+          '$_api/v2/${Uri.encodeComponent(transactionHint)}/status',
+        );
+        body = apiObject(response, 'Midtrans status');
+      }
+      if (allowMissing && _isMissing(response, body)) {
         return PaymentEvent(
           gateway: name,
           eventId: 'status:$orderId:-:pending',
@@ -140,14 +160,6 @@ final class MidtransGateway implements PaymentGateway {
           amount: null,
           raw: body,
         );
-      }
-      if (transactionHint != null) {
-        // The reference selects a lookup; the returned order still has to
-        // be the authenticated order below.
-        response = await _http.get(
-          '$_api/v2/${Uri.encodeComponent(transactionHint)}/status',
-        );
-        body = apiObject(response, 'Midtrans status');
       }
     }
     final status = body['transaction_status'];
@@ -175,7 +187,20 @@ final class MidtransGateway implements PaymentGateway {
         body: response.body,
       );
     }
-    return _event(body, prefix: eventPrefix);
+    final event = _event(body, prefix: eventPrefix);
+    final amount = event.amount;
+    if (event.status == PaymentStatus.paid &&
+        (amount == null || !amount.isFinite)) {
+      // Nothing to compare with the order: a gateway failure (the webhook
+      // is answered 5xx and retried), never paid without a comparison.
+      throw PaymentGatewayException(
+        'Midtrans status answered a paid transaction without a readable '
+        'gross_amount.',
+        status: response.status,
+        body: response.body,
+      );
+    }
+    return event;
   }
 
   @override
@@ -202,7 +227,8 @@ final class MidtransGateway implements PaymentGateway {
     final orderId = notificationText(body, 'order_id');
     if (orderId == null ||
         orderId.trim().isEmpty ||
-        orderId.runes.take(256).length > 255) {
+        orderId.runes.take(256).length > 255 ||
+        !_segment(orderId)) {
       throw const BadRequestHttpException(
         'A payment order identifier must contain 1 to 255 characters.',
       );
@@ -211,6 +237,12 @@ final class MidtransGateway implements PaymentGateway {
     if (transaction == null || transaction.trim().isEmpty) {
       throw const BadRequestHttpException(
         'A Midtrans notification without its transaction_id.',
+      );
+    }
+    if (transaction.runes.take(256).length > 255 || !_segment(transaction)) {
+      throw const BadRequestHttpException(
+        'A Midtrans transaction_id holds 1 to 255 characters and is not a '
+        'path step.',
       );
     }
     for (final field in [

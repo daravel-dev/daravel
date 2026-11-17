@@ -378,36 +378,30 @@ void main() {
       expect(settled.eventId, 'ORDER-42:tx-1:settlement');
     });
 
-    // A paid event from a built-in gateway carries its amount.
-    test('a paid Midtrans notification whose amount cannot be read is '
-        'refused (400) and logged as a warning without its payload', () async {
+    // A paid status answer carries its amount; without one there is
+    // nothing to compare, and Midtrans is asked to send it again.
+    test('a paid Midtrans status answer whose amount cannot be read is a '
+        'gateway failure (5xx), and the order stays pending', () async {
       await order();
-      final logs = await app.run(() async => Log.spy());
-      await statusApi(apiAnswer('settlement')..['gross_amount'] = 'many');
-      final response = await app.handle(
-        Request.fake(
-          method: 'POST',
-          path: '/payments/webhook/midtrans',
-          headers: {'content-type': 'application/json'},
-          body: jsonEncode(notification(grossAmount: 'many')),
-        ),
-      );
-      expect(response.status, 400);
-      expect(await status(), PaymentStatus.pending);
-      final warned = logs.matching(
-        LogLevel.warning,
-        'Payment notification refused',
-      );
-      expect(warned, hasLength(1));
-      expect(Map.of(warned.single.context)..remove('request_id'), {
-        'gateway': 'midtrans',
-        'event_id': 'ORDER-42:tx-1:settlement',
-        'order_id': 'ORDER-42',
-      });
-      expect(
-        '${warned.single.message} ${warned.single.context}',
-        isNot(contains('signature')),
-      );
+      for (final amount in ['many', null]) {
+        final answer = apiAnswer('settlement');
+        if (amount == null) {
+          answer.remove('gross_amount');
+        } else {
+          answer['gross_amount'] = amount;
+        }
+        await statusApi(answer);
+        final response = await app.handle(
+          Request.fake(
+            method: 'POST',
+            path: '/payments/webhook/midtrans',
+            headers: {'content-type': 'application/json'},
+            body: jsonEncode(notification()),
+          ),
+        );
+        expect(response.status, greaterThanOrEqualTo(500), reason: amount);
+        expect(await status(), PaymentStatus.pending, reason: amount);
+      }
     });
 
     // Every notification obtains its event from the status API.
@@ -416,6 +410,22 @@ void main() {
         () async =>
             (await DB.table(PaymentManager.webhookLogTable).get()).length,
       );
+
+      test('one notification delivered again with other transaction ids is '
+          'one logged event, applied once', () async {
+        await order();
+        await statusApi(apiAnswer('settlement'));
+        final outcomes = <String>[];
+        for (var i = 0; i < 5; i++) {
+          // Its signature covers order_id, status_code and gross_amount.
+          outcomes.add(
+            await notify(notification()..['transaction_id'] = 'tx-other-$i'),
+          );
+        }
+        expect(outcomes, ['applied', ...List.filled(4, 'duplicate')]);
+        expect(await logRows(), 1);
+        expect(await status(), PaymentStatus.paid);
+      });
 
       test('official expire and cancel notifications (202) apply once the '
           'status API confirms them', () async {
@@ -524,15 +534,18 @@ void main() {
         }
       });
 
-      test('a signed amount of NaN or Infinity answers 400', () async {
-        await order();
-        for (final amount in ['NaN', 'Infinity']) {
-          await statusApi(apiAnswer('settlement')..['gross_amount'] = amount);
-          final response = await post(notification(grossAmount: amount));
-          expect(response.status, 400, reason: amount);
-        }
-        expect(await status(), PaymentStatus.pending);
-      });
+      test(
+        'a status answer of NaN or Infinity is a gateway failure (5xx)',
+        () async {
+          await order();
+          for (final amount in ['NaN', 'Infinity']) {
+            await statusApi(apiAnswer('settlement')..['gross_amount'] = amount);
+            final response = await post(notification(grossAmount: amount));
+            expect(response.status, greaterThanOrEqualTo(500), reason: amount);
+          }
+          expect(await status(), PaymentStatus.pending);
+        },
+      );
     });
 
     // Midtrans signs order_id, status_code and gross_amount only.

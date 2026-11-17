@@ -309,11 +309,20 @@ final class PaymentManager {
   /// Undoes the fake.
   void removeFake() => _fake = null;
 
-  /// Starts a payment at [gateway] and records it as `pending`.
+  /// Starts a payment at [gateway] and records it as `pending`. An order id
+  /// longer than 255 Unicode characters throws [ArgumentError] before the
+  /// gateway is called or the database is touched.
   Future<PaymentCheckout> checkout(
     PaymentRequest request, {
     String? gateway,
   }) async {
+    if (request.orderId.runes.take(256).length > 255) {
+      throw ArgumentError.value(
+        request.orderId.runes.length,
+        'orderId',
+        'An order id holds at most 255 Unicode characters',
+      );
+    }
     final target = this.gateway(gateway);
     final checkout = await target.create(request);
     final now = Clock.now().toUtc();
@@ -539,11 +548,19 @@ abstract final class Payment {
   /// notifications, answering with what happened (`{"status": …}`).
   ///
   /// - [unknownOrderStatus] (409 by default) for a notification about an
-  ///   order not stored yet. Pass 200 to acknowledge orders belonging to
-  ///   another application when sharing a gateway account.
-  /// - 200 for every other outcome, which another delivery would not
-  ///   change: `applied`, `duplicate`, `unchanged`, `ignored`, and
-  ///   `amountMismatch` (whose alert is [PaymentAmountMismatch]).
+  ///   order not stored yet: Stripe, Midtrans and Xendit send a
+  ///   notification again only after a non-2xx answer, so the payment is
+  ///   applied once its order exists. Midtrans retries a status outside
+  ///   its table (409 among them) five times, 400 and 404 twice and 500
+  ///   once (https://docs.midtrans.com/docs/https-notification-webhooks).
+  ///   An order that is not this application's (a gateway account shared
+  ///   with another system) is then retried until the gateway gives up;
+  ///   pass 200 to acknowledge such orders.
+  /// - 200 for every other outcome: `applied`, `duplicate`, `unchanged`,
+  ///   `ignored`, and `amountMismatch` (whose alert is
+  ///   [PaymentAmountMismatch]). Another delivery of an `amountMismatch`
+  ///   notification is checked again and raises the alert again, so its
+  ///   listeners should be idempotent.
   /// - 401 for a bad signature, 400 for a malformed notification, 404 for
   ///   an unknown gateway.
   static void webhookRoutes(
