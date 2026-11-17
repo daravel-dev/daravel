@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/http/file_response.dart' show matchesIfNoneMatch;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -11,6 +13,47 @@ Future<String> text(Response response) async {
 }
 
 void main() {
+  test('generated entity tag lists match weakly', () {
+    for (var seed = 0; seed < 500; seed++) {
+      final random = Random(seed);
+      final tags = <String>[];
+      var expected = false;
+      for (var i = 0; i < 1 + random.nextInt(12); i++) {
+        final kind = random.nextInt(5);
+        final tag = switch (kind) {
+          0 => '*',
+          1 => '"current"',
+          2 => 'W/"current"',
+          _ => '"other$i"',
+        };
+        if (kind < 3) expected = true;
+        tags.add(random.nextBool() ? ' $tag ' : tag);
+      }
+      expect(
+        matchesIfNoneMatch(tags.join(','), '"current"'),
+        expected,
+        reason: 'seed $seed',
+      );
+    }
+  });
+
+  test('CI reports entity tag matching costs', () {
+    final cases = <String, String>{
+      'long-value': '"${'a' * (1024 * 1024)}"',
+      'distinct-values': List.generate(10000, (i) => '"tag$i"').join(','),
+      'many-items': List.filled(10000, '"other"').join(','),
+    };
+    for (final entry in cases.entries) {
+      final timer = Stopwatch()..start();
+      for (var i = 0; i < 20; i++) {
+        expect(matchesIfNoneMatch(entry.value, '"current"'), isFalse);
+      }
+      timer.stop();
+      print(
+        'etag ${entry.key}: ${entry.value.length} bytes, 20 runs, ${timer.elapsedMicroseconds} us',
+      );
+    }
+  }, skip: Platform.environment['CI'] != 'true' ? 'CI timing only' : false);
   late Directory dir;
   late File file;
 
@@ -147,6 +190,28 @@ void main() {
         request: get({'if-none-match': etag}),
       );
       expect(second.status, 304);
+    });
+
+    test('If-None-Match accepts weak tags, lists and wildcard', () async {
+      final first = await Response.file(file, request: get());
+      final etag = first.headers.first('etag')!;
+      for (final value in ['W/$etag', '"other", $etag', '*']) {
+        expect(
+          (await Response.file(
+            file,
+            request: get({'if-none-match': value}),
+          )).status,
+          304,
+          reason: value,
+        );
+      }
+      expect(
+        (await Response.file(
+          file,
+          request: get({'if-none-match': '"other"'}),
+        )).status,
+        200,
+      );
     });
 
     test('a stale If-Range gives the whole file', () async {

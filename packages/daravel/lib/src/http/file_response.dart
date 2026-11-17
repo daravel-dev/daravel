@@ -72,6 +72,16 @@ Object? _parseRange(String? header, int size) {
 
 const Object _unsatisfiable = Object();
 
+/// Whether an If-None-Match value weakly matches an entity tag.
+bool matchesIfNoneMatch(String value, String etag) {
+  String weakless(String tag) => tag.startsWith('W/') ? tag.substring(2) : tag;
+  final current = weakless(etag);
+  return value
+      .split(',')
+      .map((tag) => weakless(tag.trim()))
+      .any((tag) => tag == '*' || tag == current);
+}
+
 /// What every file response shares: `Last-Modified`, an `ETag`, conditional
 /// requests and ranges. [open] gives the bytes from `start` up to `end`.
 Response _serve({
@@ -98,7 +108,10 @@ Response _serve({
     ...?headers,
   };
   final readable = request?.method == 'GET' || request?.method == 'HEAD';
-  if (readable && request!.headers.first('if-none-match') == etag) {
+  final ifNoneMatch = request?.headers.first('if-none-match');
+  if (readable &&
+      ifNoneMatch != null &&
+      matchesIfNoneMatch(ifNoneMatch, etag)) {
     return Response(status: 304, headers: Headers(common));
   }
   final ifRange = request?.headers.first('if-range');
