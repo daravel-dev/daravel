@@ -246,6 +246,31 @@ void followUpTests() {
     expect([config.maxImagePixels, config.maxImageFrames], [1000, 2]);
   });
 
+  test('MEDIA_MAX_GIF_PIXELS: a tenth of MEDIA_MAX_IMAGE_PIXELS unless set, '
+      'at least 1', () {
+    expect(MediaLibraryConfig.fromEnv(Env.fromMap({})).gifPixelLimit, 4000000);
+    expect(
+      MediaLibraryConfig.fromEnv(
+        Env.fromMap({'MEDIA_MAX_IMAGE_PIXELS': '1000'}),
+      ).gifPixelLimit,
+      100,
+    );
+    final set = MediaLibraryConfig.fromEnv(
+      Env.fromMap({'MEDIA_MAX_GIF_PIXELS': '15000000'}),
+    );
+    expect(set.gifPixelLimit, 15000000);
+    expect(set.toMap()['max_gif_pixels'], 15000000);
+    for (final value in ['0', '-1']) {
+      expect(
+        () => MediaLibraryConfig.fromEnv(
+          Env.fromMap({'MEDIA_MAX_GIF_PIXELS': value}),
+        ),
+        throwsA(isA<ConfigException>()),
+        reason: value,
+      );
+    }
+  });
+
   test('formats other than JPEG, PNG, GIF, WebP, TIFF and BMP are not '
       'decoded, whatever the name', () {
     final pixel = img.Image(width: 1, height: 1);

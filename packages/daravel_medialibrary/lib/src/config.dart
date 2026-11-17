@@ -14,16 +14,23 @@ final class MediaLibraryConfig implements ConfigSection {
     this.disallowedExtensions = defaultDisallowedExtensions,
     this.maxImagePixels = defaultMaxImagePixels,
     this.maxImageFrames = defaultMaxImageFrames,
+    this.maxGifPixels,
   });
 
   /// The settings in `MEDIA_*`.
   ///
-  /// `MEDIA_MAX_IMAGE_PIXELS` or `MEDIA_MAX_IMAGE_FRAMES` below 1 stops the
+  /// `MEDIA_MAX_IMAGE_PIXELS`, `MEDIA_MAX_IMAGE_FRAMES` or (when set)
+  /// `MEDIA_MAX_GIF_PIXELS` below 1 stops the
   /// boot with a [ConfigException] instead of refusing every image; one
   /// that is not a number does already ([EnvException]).
   factory MediaLibraryConfig.fromEnv(Env env) {
     final queue = env.maybeString('MEDIA_QUEUE');
-    for (final key in ['MEDIA_MAX_IMAGE_PIXELS', 'MEDIA_MAX_IMAGE_FRAMES']) {
+    final gif = env.maybeString('MEDIA_MAX_GIF_PIXELS');
+    for (final key in [
+      'MEDIA_MAX_IMAGE_PIXELS',
+      'MEDIA_MAX_IMAGE_FRAMES',
+      if (gif != null && gif.isNotEmpty) 'MEDIA_MAX_GIF_PIXELS',
+    ]) {
       final value = env.integer(key, 1);
       if (value < 1) {
         throw ConfigException('$key is at least 1, not $value.');
@@ -47,6 +54,9 @@ final class MediaLibraryConfig implements ConfigSection {
         'MEDIA_MAX_IMAGE_FRAMES',
         defaultMaxImageFrames,
       ),
+      maxGifPixels: gif == null || gif.isEmpty
+          ? null
+          : env.integer('MEDIA_MAX_GIF_PIXELS', 1),
     );
   }
 
@@ -85,6 +95,16 @@ final class MediaLibraryConfig implements ConfigSection {
   /// The most frames an image may hold before its conversions run
   /// (`MEDIA_MAX_IMAGE_FRAMES`, 1 000), read from the header as well.
   final int maxImageFrames;
+
+  /// The most pixels (width x height x frames) a conversion may write as a
+  /// GIF (`MEDIA_MAX_GIF_PIXELS`); a tenth of [maxImagePixels] when null,
+  /// 4 million by default. Encoding a GIF quantizes every frame: about 1.1
+  /// to 1.2 s per million pixels of a photograph, so raising it raises the
+  /// time a conversion may take by that much.
+  final int? maxGifPixels;
+
+  /// [maxGifPixels], or its default.
+  int get gifPixelLimit => maxGifPixels ?? maxImagePixels ~/ 10;
 
   /// The disk of files that choose none (`MEDIA_DISK`, `public`).
   final String diskName;
@@ -125,5 +145,6 @@ final class MediaLibraryConfig implements ConfigSection {
     'disallowed_extensions': disallowedExtensions,
     'max_image_pixels': maxImagePixels,
     'max_image_frames': maxImageFrames,
+    'max_gif_pixels': gifPixelLimit,
   };
 }

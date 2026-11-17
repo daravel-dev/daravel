@@ -211,7 +211,161 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 1)));
   });
 
+  group('GIF output is bounded', () {
+    Uint8List animation(int frames) {
+      final first = img.Image(width: 20, height: 20);
+      for (var i = 1; i < frames; i++) {
+        first.addFrame(img.Image(width: 20, height: 20));
+      }
+      return img.encodeGif(first);
+    }
+
+    test('an animation at the GIF limit is written, one frame more is '
+        'refused before encoding', () {
+      // maxPixels 400 000: the GIF limit is 40 000, 100 frames of 20 x 20.
+      expect(
+        convert(animation(100), {
+          'format': ['gif'],
+        }, maxPixels: 400000),
+        converted,
+      );
+      expect(
+        convert(animation(101), {
+          'format': ['gif'],
+        }, maxPixels: 400000),
+        refused,
+      );
+    });
+
+    test('maxGifPixels raises it', () {
+      expect(
+        convertImageSync(
+          animation(101),
+          {
+            'format': ['gif'],
+          },
+          maxPixels: 400000,
+          maxGifPixels: 50000,
+        ),
+        converted,
+      );
+    });
+
+    test('a small PNG enlarged to 10 million pixels is refused as a GIF '
+        'before encoding, and converts as a JPEG', () {
+      final small = png(100, 100);
+      final enlarge = <String, List<Object?>>{
+        'width': [3162],
+      };
+      // The resize itself takes a few seconds; encoding the GIF would add
+      // 6 to 11.
+      expect(
+        convert(small, {
+          ...enlarge,
+          'format': ['gif'],
+        }, within: const Duration(seconds: 5)),
+        refused,
+      );
+      expect(
+        convert(small, enlarge, within: const Duration(seconds: 10)),
+        converted,
+      );
+    });
+  });
+
   group('blur work is bounded', () {
+    Uint8List png16(int width, int height) => img.encodePng(
+      img.Image(width: width, height: height, format: img.Format.uint16),
+    );
+
+    Uint8List pngWith(int width, int height, int channels) => img.encodePng(
+      img.Image(width: width, height: height, numChannels: channels),
+    );
+
+    test('blur work counts the channels (measured on three)', () {
+      // 2 000 x 2 000 at radius 20: 80 million for three channels.
+      final blur40 = <String, List<Object?>>{
+        'blur': [40],
+      };
+      expect(convert(pngWith(2000, 2000, 4), blur40), refused);
+      expect(
+        convert(
+          pngWith(2000, 2000, 3),
+          blur40,
+          within: const Duration(seconds: 10),
+        ),
+        converted,
+      );
+      // 3 000 x 3 000: 180 million for three, 60 million for one.
+      expect(convert(pngWith(3000, 3000, 3), blur40), refused);
+      expect(
+        convert(
+          pngWith(3000, 3000, 1),
+          blur40,
+          within: const Duration(seconds: 10),
+        ),
+        converted,
+      );
+    });
+
+    test('a 1-bit image is blurred as 8 bits', () {
+      final oneBit = img.encodePng(
+        img.Image(width: 64, height: 64, format: img.Format.uint1),
+      );
+      final blurred = convert(oneBit, {
+        'blur': [4],
+        'format': ['png'],
+      });
+      expect(img.decodePng(blurred! as Uint8List)!.format, img.Format.uint8);
+      // Without blur the PNG written was 8-bit already, as before.
+      final unchanged = convert(oneBit, {
+        'format': ['png'],
+      });
+      expect(img.decodePng(unchanged! as Uint8List)!.format, img.Format.uint8);
+    });
+
+    test('a 16-bit image converts to a GIF', () {
+      // Varied 16-bit colors: flat ones never reach what the GIF encoder
+      // cannot take.
+      final image = img.Image(width: 64, height: 64, format: img.Format.uint16);
+      var seed = 7;
+      for (final p in image) {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        p
+          ..r = seed % 65536
+          ..g = (seed >> 3) % 65536
+          ..b = (seed >> 6) % 65536;
+      }
+      final out = convert(img.encodePng(image), {
+        'format': ['gif'],
+      });
+      expect(out, converted);
+      expect(img.decodeGif(out! as Uint8List)!.width, 64);
+    });
+
+    test('a 16-bit image counts eleven times an 8-bit one', () {
+      // 1 MP at radius 8: 8 million, 88 million counted for 16 bits.
+      expect(
+        convert(png16(1000, 1000), {
+          'blur': [16],
+        }),
+        refused,
+      );
+      expect(
+        convert(png(1000, 1000), {
+          'blur': [16],
+        }),
+        converted,
+      );
+      // 0.49 MP at radius 8: 43 million counted.
+      expect(
+        convert(png16(700, 700), {
+          'blur': [16],
+        }, within: const Duration(seconds: 5)),
+        converted,
+      );
+    });
+
     test('still images and animations have separate budgets', () {
       final still = png(1600, 1000);
       expect(

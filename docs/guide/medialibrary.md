@@ -135,8 +135,14 @@ refused this way fails its job at once, without retries.
 
 Every image made by `width`, `height`, `fit`, or `crop` is also limited to a
 quarter of `MEDIA_MAX_IMAGE_PIXELS`, frames counted, even when it is
-smaller than its input. Blur has a separate pixel-frame-radius work
-budget. When a conversion resizes and blurs, put `width` or `height`
+smaller than its input. Blur has a separate work budget: pixels x
+frames x radius, counted eleven times for a 16-bit image and by its
+channels (an RGBA image 4/3, a grayscale one 1/3); a 1, 2 or 4-bit image
+is blurred as 8 bits (its PNG was written 8-bit already). A GIF written
+by a conversion holds at most `MEDIA_MAX_GIF_PIXELS` pixels (width x
+height x frames; a tenth of `MEDIA_MAX_IMAGE_PIXELS`, 4 million, by
+default): encoding a GIF costs about 1.1 to 1.2 s per million pixels of a
+photograph. When a conversion resizes and blurs, put `width` or `height`
 before `blur` so the blur works on the smaller image. Manipulations keep
 the order in which the conversion defines them. Dimensions must be
 greater than zero, and no image read or made may have a side longer than
@@ -158,9 +164,12 @@ the default limit takes (measured peaks):
 | GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
 | JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB | up to 9.1 s |
 | a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 7.2 s, depending on shape and machine |
-| still blur at its 80-million pixel-radius budget | about 51 MiB for a 10 MP JPEG | 3.5 to 5.0 s, depending on machine |
+| still blur at its budget (8 or 16 bits, 1, 3 or 4 channels) | up to about 130 MiB (40 MP, radius 2) | 2.1 to 4.0 s here |
 | animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 to 4.4 s, depending on machine |
-| encoding an unchanged 40-million-pixel image | about 132 to 140 MiB | 3.0 to 6.7 s, depending on format and machine |
+| encoding an unchanged 40-million-pixel photograph as JPEG or PNG | about 132 to 140 MiB | 3.4 to 4.9 s here, up to 6.7 s on a slower machine |
+| a GIF written at its limit (4 million pixels of a photograph) | about 100 MiB | about 4.7 s to encode |
+| a crop or resize of a 1, 2 or 4-bit image | small | up to about 4 s at 40 MP (crop) |
+| **a whole conversion at the limits**, slowest measured: a 16-bit PNG of 20 MP resized, blurred and written as PNG (a 40 MP JPEG blurred and written as PNG: 16 s) | up to about 384 MiB | **up to about 19 s here, 26 s on a slower reference machine** |
 
 A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
 The limit bounds an image's size, not memory exactly: at the default
@@ -168,7 +177,8 @@ limit, plan about 500 MiB of memory per conversion running at once,
 whatever the size of the image, and lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
 requests.
 
-Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
+Run conversions on the queue, not inside a request, and give their job a
+timeout above that whole-conversion time. Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on
 the `sync` queue they run at once. The image work itself runs in a separate
 isolate, so a large photo does not hold up the requests beside it.
@@ -188,6 +198,7 @@ isolate, so a large photo does not hold up the requests beside it.
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
 | `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
 | `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
+| `MEDIA_MAX_GIF_PIXELS` | a tenth of `MEDIA_MAX_IMAGE_PIXELS` | The most pixels (width x height x frames) a conversion writes as a GIF; about 1.2 s per million |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |

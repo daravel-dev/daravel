@@ -315,33 +315,47 @@ bool canConvert({String? mimeType, String? extension}) {
 /// | GIF, 2 frames of 4 472 x 4 472 | about 110 MiB | 1 s |
 /// | JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB at 40 MP | up to 9.1 s |
 /// | a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 5.2 s (6.3 to 7.2 s on a slower reference machine) |
-/// | still blur at its 80-million pixel-radius budget | about 51 MiB for a 10 MP JPEG | 3.5 to 3.6 s (4.8 to 5.0 s on a slower reference machine) |
+/// | still blur at its budget (8 or 16 bits, 1, 3 or 4 channels) | up to about 130 MiB (40 MP, radius 2) | 2.1 to 4.0 s |
 /// | animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 s (4.4 s on a slower reference machine) |
-/// | encoding an unchanged 40-million-pixel JPEG as JPEG or PNG | about 132 to 140 MiB | 3.0 to 4.8 s (4.2 to 6.7 s on a slower reference machine) |
+/// | encoding an unchanged 40-million-pixel photograph as JPEG or PNG | about 132 to 140 MiB | 3.4 to 4.9 s (up to 6.7 s on a slower reference machine) |
+/// | a GIF written at its limit (4 million pixels of a photograph) | about 100 MiB | about 4.7 s to encode |
+/// | a crop or resize of a 1, 2 or 4-bit image | small | up to about 4 s at 40 MP (crop) |
+/// | a whole conversion at the limits, slowest measured: a 16-bit PNG of 20 MP resized, blurred, written as PNG (a 40 MP JPEG blurred, written as PNG: 16 s) | up to about 384 MiB | up to about 19 s (26 s on a slower reference machine) |
 Future<Uint8List> convertImage(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
   int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
   int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
+  int? maxGifPixels,
 }) => Isolate.run(
   () => convertImageSync(
     bytes,
     manipulations,
     maxPixels: maxPixels,
     maxFrames: maxFrames,
+    maxGifPixels: maxGifPixels,
   ),
 );
 
 /// [convertImage] on the calling isolate.
+///
+/// A GIF output holds at most [maxGifPixels] (width x height x frames;
+/// a tenth of [maxPixels] when null): encoding a GIF costs about 1.1 to
+/// 1.2 s per million pixels of a photograph.
 Uint8List convertImageSync(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
   int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
   int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
+  int? maxGifPixels,
 }) {
   if (maxPixels < 1 || maxFrames < 1) {
     throw ArgumentError('maxPixels and maxFrames are at least 1.');
   }
+  if (maxGifPixels != null && maxGifPixels < 1) {
+    throw ArgumentError.value(maxGifPixels, 'maxGifPixels', 'at least 1');
+  }
+  final gifLimit = maxGifPixels ?? math.max(1, maxPixels ~/ 10);
   // One decoder instance reads the file once: what is checked below is
   // the decoder's own reading, and the same instance then decodes it.
   final decoder = _decoderFor(bytes, maxPixels);
@@ -457,6 +471,12 @@ Uint8List convertImageSync(
         if (amount > 0) {
           final radius = math.max(1, amount ~/ 2);
           _checkBlur(image, radius);
+          if (_isLowBit(image.format)) {
+            // Blurred at 1, 2 or 4 bits it would cost 10 to 50 times as much
+            // and fall back to as few levels: made 8-bit first, which loses
+            // nothing (a palette spreads to its channels).
+            image = image.convert(format: img.Format.uint8);
+          }
           image = img.gaussianBlur(image, radius: radius);
         }
       default:
@@ -466,7 +486,7 @@ Uint8List convertImageSync(
   return _guarded(
     () => switch (ImageFormat.fromExtension(format)) {
       ImageFormat.png => img.encodePng(image),
-      ImageFormat.gif => img.encodeGif(image),
+      ImageFormat.gif => _encodeGif(image, gifLimit),
       ImageFormat.bmp => img.encodeBmp(image),
       ImageFormat.tiff => img.encodeTiff(image),
       // GD's default JPEG quality when none is set.
@@ -700,9 +720,64 @@ void _checkDimensions(int? width, int? height) {
   }
 }
 
-void _checkBlur(img.Image image, int radius) {
+/// [image] as a GIF, refused before encoding past [limit] pixels (width x
+/// height x frames): the encoder quantizes every frame, about 1.1 to 1.2 s
+/// per million pixels of a photograph, 0.2 to 0.6 s of flat colors.
+Uint8List _encodeGif(img.Image image, int limit) {
   final frames = math.max(1, image.numFrames);
-  final allowed = frames == 1 ? _maxStillBlurWork : _maxAnimatedBlurWork;
+  if (image.width > limit ~/ frames ~/ image.height) {
+    throw ImageTooLargeException(
+      'A GIF of ${image.width} x ${image.height} pixels in $frames frame(s) '
+      'is past the GIF limit of $limit pixels (encoding costs about 1.2 s '
+      'per million): make it smaller first, choose another format, or raise '
+      'MEDIA_MAX_GIF_PIXELS.',
+    );
+  }
+  // A GIF holds 8-bit palette colors; its encoder does not take 16 bits.
+  return img.encodeGif(
+    image.format == img.Format.uint16
+        ? image.convert(format: img.Format.uint8)
+        : image,
+  );
+}
+
+/// 1, 2 or 4 bits per channel (a PNG or BMP can be), made 8-bit before blur.
+bool _isLowBit(img.Format format) =>
+    format == img.Format.uint1 ||
+    format == img.Format.uint2 ||
+    format == img.Format.uint4;
+
+/// How much more a blur costs per pixel of [format] than of an 8-bit one,
+/// measured (a compiled process): about 10 to 11 times for 16 bits; a
+/// low-bit image is blurred as the 8-bit one it is made into. Null for a
+/// format the decoders here do not make, which is not blurred.
+int? _blurDepthFactor(img.Format format) => switch (format) {
+  img.Format.uint8 || img.Format.uint1 || img.Format.uint2 => 1,
+  img.Format.uint4 => 1,
+  img.Format.uint16 => 11,
+  _ => null,
+};
+
+/// Blur work is `pixels x frames x radius x depth factor x channels / 3`,
+/// the channels of the image blurred (a palette's spread to its own): the
+/// limits were measured on three channels, and the cost follows them (one
+/// channel about a third, four about 1.3 times).
+void _checkBlur(img.Image image, int radius) {
+  final factor = _blurDepthFactor(image.format);
+  if (factor == null) {
+    throw ImageConversionException(
+      'Blur is not applied to ${image.format.name} pixels.',
+    );
+  }
+  final channels = math.max(
+    1,
+    image.hasPalette ? image.palette!.numChannels : image.numChannels,
+  );
+  final frames = math.max(1, image.numFrames);
+  final allowed =
+      (frames == 1 ? _maxStillBlurWork : _maxAnimatedBlurWork) *
+      3 ~/
+      (factor * channels);
   if (image.width > allowed ~/ frames ~/ image.height ~/ radius) {
     throw ImageTooLargeException(
       'Blur would process ${image.width} x ${image.height} pixels in '
@@ -788,10 +863,12 @@ const int _maxImageSide = 65535;
 /// several times.
 const int _growthDivisor = 4;
 
-/// The maximum `pixels x radius` for a still image passed to Gaussian blur.
+/// The maximum blur work for a still image ([_checkBlur]): `pixels x radius`
+/// for three 8-bit channels.
 ///
-/// At 80 million, a 10 MP JPEG at the boundary took 3.5 to 3.6 s here and
-/// 4.8 to 5.0 s on a slower reference machine.
+/// At 80 million, blur alone took 2.1 to 4.0 s (a compiled process, a
+/// photograph-like image; 1, 3 and 4 channels and 16 bits at their own
+/// budgets land in that range).
 const int _maxStillBlurWork = 80000000;
 
 /// The maximum `pixels x frames x radius` for an animated image.
@@ -890,6 +967,10 @@ void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
     if (marker == 0xDA) {
       scans++;
     } else if (isFrame(marker)) {
+      // A fence: a frame header after the first scan is read by the
+      // decoder too, which refuses a second frame before this check runs,
+      // and in entropy-coded data `FF` is followed by `00`. No file that
+      // reaches this check is known to bring a larger frame here.
       frameAt(i);
     }
   }

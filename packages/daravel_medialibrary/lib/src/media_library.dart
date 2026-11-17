@@ -148,6 +148,7 @@ abstract final class MediaLibrary {
         conversion.manipulations,
         maxPixels: config.maxImagePixels,
         maxFrames: config.maxImageFrames,
+        maxGifPixels: config.gifPixelLimit,
       );
       await target.put(path, converted);
       media.markAsConversionGenerated(conversion.name);
