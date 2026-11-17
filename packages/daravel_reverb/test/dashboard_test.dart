@@ -14,33 +14,56 @@ Application appWith({
   Map<String, String> env = const {},
   String dashboard = '/reverb',
   List<Object> middleware = const [],
-}) =>
-    Application.configure(
-          basePath: Directory.systemTemp.createTempSync('reverb_dash_').path,
-        )
-        .withEnv({
-          'APP_ENV': 'testing',
-          'DB_DATABASE': ':memory:',
-          'METRICS_ENABLED': 'true',
-          'QUEUE_SIGNAL_STORE': 'file',
-          'REVERB_APP_ID': '42',
-          'REVERB_APP_KEY': 'key-a',
-          'REVERB_APP_SECRET': secretA,
-          'REVERB_APPS': jsonEncode([
-            {
-              'app_id': '7',
-              'key': 'key-b',
-              'secret': secretB,
-              'allowed_origins': ['b.example.com'],
-              'max_connections': 5,
-            },
-          ]),
-          ...env,
-        })
-        .withLogLevel(LogLevel.critical)
-        .withBroadcasting(authMiddleware: const [])
-        .withReverb(dashboard: dashboard, middleware: middleware)
-        .create();
+  List<ServiceProvider> beforeReverb = const [],
+  List<ServiceProvider> afterReverb = const [],
+}) {
+  final builder =
+      Application.configure(
+            basePath: Directory.systemTemp.createTempSync('reverb_dash_').path,
+          )
+          .withEnv({
+            'APP_ENV': 'testing',
+            'DB_DATABASE': ':memory:',
+            'METRICS_ENABLED': 'true',
+            'QUEUE_SIGNAL_STORE': 'file',
+            'REVERB_APP_ID': '42',
+            'REVERB_APP_KEY': 'key-a',
+            'REVERB_APP_SECRET': secretA,
+            'REVERB_APPS': jsonEncode([
+              {
+                'app_id': '7',
+                'key': 'key-b',
+                'secret': secretB,
+                'allowed_origins': ['b.example.com'],
+                'max_connections': 5,
+              },
+            ]),
+            ...env,
+          })
+          .withLogLevel(LogLevel.critical)
+          .withBroadcasting(authMiddleware: const []);
+  builder
+    ..withProviders(beforeReverb)
+    ..withReverb(dashboard: dashboard, middleware: middleware)
+    ..withProviders(afterReverb);
+  return builder.create();
+}
+
+final class _ApplicationRoute extends ServiceProvider {
+  const _ApplicationRoute({this.fallback = false});
+
+  final bool fallback;
+
+  @override
+  void boot(Container container) {
+    final router = container.make<Router>();
+    if (fallback) {
+      router.fallback((_) => 'application fallback');
+    } else {
+      router.get('/{slug}', (_) => 'application route');
+    }
+  }
+}
 
 /// Stands in for `['auth', 'can:viewReverb']`: refuses everyone.
 final class _Refuse implements Middleware {
@@ -66,6 +89,11 @@ Future<Application> booted(Application app) async {
 }
 
 void main() {
+  // APP_ENV=testing opens nothing: these tests let every request in. The
+  // gate itself: test/dashboard_gate_test.dart.
+  setUp(() => ReverbDashboard.auth((_) => true));
+  tearDown(() => ReverbDashboard.auth(null));
+
   test('no routes with an empty dashboard path', () async {
     final app = await booted(appWith(dashboard: ''));
     final client = TestClient(app);
@@ -93,6 +121,73 @@ void main() {
     expect((await client.get('/reverb/nope')).status, 404);
     expect(app.router.routes.map((r) => r.routeName), contains('reverb.index'));
   });
+
+  test('at the root, page URLs stay on this origin', () async {
+    final app = await booted(appWith(dashboard: '/'));
+    final page = await TestClient(app).get('/');
+    expect(page.status, 200);
+    expect(page.body, contains('data-base=""'));
+    expect(page.body, contains('href="/overview"'));
+    expect(page.body, isNot(contains('href="//')));
+    expect(page.body, isNot(contains('data-base="/"')));
+  });
+
+  test(
+    'at the root, application routes and fallback keep their paths',
+    () async {
+      ReverbDashboard.auth(null);
+      for (final environment in ['local', 'production']) {
+        final env = {
+          'APP_ENV': environment,
+          'APP_KEY': 'base64:${base64.encode(List.filled(32, 3))}',
+        };
+        for (final before in [true, false]) {
+          final route = const _ApplicationRoute();
+          final app = await booted(
+            appWith(
+              dashboard: '/',
+              env: env,
+              beforeReverb: before ? [route] : const [],
+              afterReverb: before ? const [] : [route],
+            ),
+          );
+          final response = await TestClient(app).get('/application-page');
+          expect(response.status, 200, reason: '$environment before=$before');
+          expect(response.body, 'application route');
+        }
+        final fallback = await booted(
+          appWith(
+            dashboard: '/',
+            env: env,
+            afterReverb: const [_ApplicationRoute(fallback: true)],
+          ),
+        );
+        final response = await TestClient(fallback).get('/missing-page');
+        expect(response.status, 200, reason: '$environment fallback');
+        expect(response.body, 'application fallback');
+      }
+    },
+    tags: 'security',
+  );
+
+  test('an unknown tab is a 404 in local and outside it', () async {
+    ReverbDashboard.auth(null);
+    for (final environment in ['local', 'production']) {
+      final app = await booted(
+        appWith(
+          env: {
+            'APP_ENV': environment,
+            'APP_KEY': 'base64:${base64.encode(List.filled(32, 3))}',
+          },
+        ),
+      );
+      expect(
+        (await TestClient(app).get('/reverb/unknown-tab')).status,
+        404,
+        reason: environment,
+      );
+    }
+  }, tags: 'security');
 
   test('api/stats is reverb:stats --json, api/apps has no secret', () async {
     final app = await booted(appWith());
@@ -124,8 +219,9 @@ void main() {
     expect(apps.body, isNot(contains(secretB)));
   }, tags: 'security');
 
-  test('outside local and testing, 403 without middleware, mutations '
+  test('outside local, 403 without a callback or gate, mutations '
       'too', () async {
+    ReverbDashboard.auth(null);
     final app = await booted(
       appWith(
         env: {
@@ -145,10 +241,11 @@ void main() {
     expect(await signals.get(reverbRestartKey), isNull);
   }, tags: 'security');
 
-  test('the middleware decides', () async {
+  test('middleware runs before the gate and cannot open it', () async {
     final refused = await booted(appWith(middleware: [const _Refuse()]));
     expect((await TestClient(refused).get('/reverb')).status, 403);
-    final allowed = await booted(
+    ReverbDashboard.auth(null);
+    final passed = await booted(
       appWith(
         env: {
           'APP_ENV': 'production',
@@ -157,7 +254,7 @@ void main() {
         middleware: [const _Allow()],
       ),
     );
-    expect((await TestClient(allowed).get('/reverb')).status, 200);
+    expect((await TestClient(passed).get('/reverb')).status, 403);
   });
 
   test('api/restart puts the reverb:restart signal', () async {

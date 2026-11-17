@@ -110,26 +110,12 @@ final class _HorizonRoutes extends ServiceProvider {
     // without withRedis()) stops the boot with its ConfigException, rather
     // than leaving the dashboard empty or failing at the first job.
     container.make<HorizonStore>();
-    final registry = container.make<MiddlewareRegistry>();
-    final List<Object> middleware;
-    if (given case final explicit?) {
-      try {
-        registry.resolveAll(explicit);
-      } on StateError catch (e) {
-        throw ConfigException(
-          'withHorizon(middleware: $explicit) names middleware this '
-          'application does not register (${e.message}). The web group '
-          'comes with withSession() (daravel_session); without sessions, '
-          'leave middleware out and authorize with '
-          'HorizonDashboard.auth((request) => ...).',
-        );
-      }
-      middleware = explicit;
-    } else {
-      // The session and its user when the application has them; the gate
-      // decides either way, so no session only means no user.
-      middleware = registry.groups.contains('web') ? const ['web'] : const [];
-    }
+    final middleware = DashboardGate.middleware(
+      container.make<MiddlewareRegistry>(),
+      given,
+      setup: 'withHorizon',
+      authHint: 'HorizonDashboard.auth',
+    );
     final configured = container
         .make<ConfigRepository>()
         .section<HorizonConfig>()

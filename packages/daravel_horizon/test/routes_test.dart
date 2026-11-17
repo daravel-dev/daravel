@@ -48,6 +48,8 @@ Application dashboardApp([Map<String, String> env = const {}]) =>
         .withLogLevel(LogLevel.critical)
         .withMigrations(const [CreateJobsTable()])
         .withJobs([JobDefinition('mail', (_) => const Mail())])
+        // The application's own route, for HORIZON_PATH=/.
+        .withRouting(web: (router) => router.get('/about', (_) => 'about'))
         .withHorizon(
           createApp: dashboardApp,
           plans: [
@@ -583,6 +585,61 @@ void main() {
     ]);
     expect(both.map((r) => r.status), [200, 200]);
     expect(queue.sizes, 3 * 2);
+  });
+
+  test('a status whose workers are not maps: stats and workload answer, '
+      'those workers on no queue', () async {
+    await boot();
+    final signals = app.container.make<QueueManager>().signalStore!;
+    await app.run(
+      () => signals.store.forever(
+        HorizonSignals.statusKey('horizon'),
+        jsonEncode({
+          'state': 'running',
+          'at': DateTime.now().millisecondsSinceEpoch,
+          'supervisors': {
+            's': ['x', 7, null],
+          },
+        }),
+      ),
+    );
+    expect((await client.get('/horizon/api/stats')).status, 200);
+    final workload = await client.get('/horizon/api/workload');
+    expect(workload.status, 200);
+    expect(((workload.json! as List).single! as Map)['processes'], 0);
+  });
+
+  test('a huge starting_at is held at maxOffset: a bounded number of '
+      'queries per queue', () async {
+    await boot({'TEST_QUEUES': 'a,b,c,d'});
+    await app.run(() => Queue.push(const Mail(), queue: 'a'));
+    var queries = 0;
+    final stop = app.container.make<DatabaseManager>().listen((_) => queries++);
+    addTearDown(stop);
+    final response = await client.get(
+      '/horizon/api/jobs/pending?starting_at=9223372036854775807',
+    );
+    expect(response.status, 200);
+    expect(response.jsonMap['jobs'], isEmpty);
+    // Per queue: one page read, then the bisection of at most
+    // log2(100 000) ≈ 17 one-job reads.
+    expect(queries, lessThanOrEqualTo(4 * (1 + 17)));
+    expect(HorizonDashboard.maxOffset, 100000);
+  });
+
+  test('HORIZON_PATH=/ outside local: a tab is behind the gate (403); any '
+      "other path is not the dashboard's (the application's own 200, an "
+      'unknown 404)', () async {
+    HorizonDashboard.auth(null);
+    await boot({
+      'APP_ENV': 'production',
+      'APP_KEY': 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      'HORIZON_PATH': '/',
+    });
+    expect((await client.get('/dashboard')).status, 403);
+    expect((await client.get('/failed')).status, 403);
+    expect((await client.get('/about')).status, 200);
+    expect((await client.get('/apa-saja')).status, 404);
   });
 }
 

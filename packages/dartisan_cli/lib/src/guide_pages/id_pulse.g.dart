@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/pulse.md`.
-const String pageIdPulse = r'''<!-- source: pulse.md sha256:95cde3b619b3 -->
+const String pageIdPulse = r'''<!-- source: pulse.md sha256:d8dfed23457a -->
 # Pulse
 
 `daravel_pulse` menyajikan sebuah dashboard, dari aplikasi Anda, tentang apa
@@ -26,7 +26,7 @@ Anda mendaftarkannya sendiri:
 import 'package:daravel_pulse/daravel_pulse.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
-    .withPulse(middleware: ['auth', 'can:viewPulse'])
+    .withPulse()
     // ...
     .create();
 ```
@@ -37,14 +37,29 @@ Dashboard ada di `/pulse` (`PULSE_PATH`, atau `withPulse(path:
 
 ## Siapa yang boleh melihat
 
-Di luar `APP_ENV=local` dan `testing`, dashboard menjawab 403 sampai
-`withPulse` diberi middleware, misalnya `auth` dan gate yang dipakai
-Laravel Pulse:
+Seperti di Laravel Pulse, dashboard hanya terbuka di `APP_ENV=local`. Di
+tempat lain (termasuk `testing`), gate `viewPulse` yang memutuskan, untuk
+user yang login lewat session:
 
 ```dart
 // bootstrap/policies.dart
 gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 ```
+
+Tanpa session, `Pulse.auth` memutuskan per request. Ini tambahan Daravel,
+karena Laravel Pulse hanya punya gate. Nilainya disimpan per isolate, jadi
+panggil di dalam `createApp`, yang dijalankan setiap worker isolate:
+
+```dart
+Pulse.auth(
+  (request) => constantTimeEquals(request.header('x-pulse-key') ?? '', key),
+);
+```
+
+Middleware tidak pernah membuka dashboard: `withPulse(middleware: [...])`
+hanya berjalan sebelum keputusan itu. Tanpa parameter ini, dashboard berada
+di belakang group `web` bila aplikasi punya session, dan tanpa middleware
+bila tidak.
 
 `PULSE_ENABLED=false` tidak mencatat apa pun dan menjawab 404.
 

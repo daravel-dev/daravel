@@ -39,7 +39,7 @@ Security audit of http://127.0.0.1:PORT
         Fix: Set METRICS_TOKEN so /metrics needs `Authorization: Bearer <token>`.
   [31mFAIL[0m  DARAVEL-SEC-012  Log viewer open to anyone
         [high] The log viewer answers without authentication.
-        Fix: Give it middleware: .withLogViewer(middleware: ['auth', 'can:view-logs']).
+        Fix: Upgrade daravel_log_viewer: outside APP_ENV=local it answers 403 unless the viewLogViewer gate or LogViewer.auth allows the request.
   [32mPASS[0m  DARAVEL-SEC-013  Served over plain HTTP
   [31mFAIL[0m  DARAVEL-SEC-014  Third-party scripts without integrity
         [medium] Script https://cdn.example.test/lib@1.0.0/lib.js is loaded from another origin without integrity: whoever controls that host controls the page.

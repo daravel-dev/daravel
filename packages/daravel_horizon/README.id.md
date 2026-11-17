@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:160bf9a0687c -->
+<!-- source: README.md sha256:19f39df8b295 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -88,6 +88,14 @@ HorizonDashboard.auth(
       constantTimeEquals(request.header('x-horizon-key') ?? '', horizonKey),
 );
 ```
+
+`HorizonDashboard.auth` disimpan per isolate: panggil di dalam `createApp`
+(bootstrap), bukan di `main()`, supaya setiap worker isolate server HTTP
+memilikinya; isolate tanpa callback ini bertanya ke gate.
+
+Payload job ditampilkan dengan key yang disebut `LOG_REDACT` disembunyikan,
+seperti di log; rahasia yang disimpan di properti job sendiri tampil apa
+adanya, jadi jangan simpan rahasia di properti job.
 
 `middleware: ['web', 'auth']` mengarahkan tamu ke halaman login, bukan 403;
 entri `middleware:` yang tidak didaftarkan aplikasi menghentikan boot. Di
