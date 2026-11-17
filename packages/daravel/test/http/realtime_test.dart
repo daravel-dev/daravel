@@ -46,6 +46,20 @@ Future<String> readToEnd(StreamIterator<String> chunks) async {
 
 void main() {
   group('SseEvent', () {
+    test('event and id cannot add fields or frames', () {
+      expect(
+        const SseEvent(
+          'hello',
+          event: 'msg\r\n\ndata: injected',
+          id: '1\r\n\nevil',
+        ).encode(),
+        'event: msgdata: injected\nid: 1evil\ndata: hello\n\n',
+      );
+      expect(
+        const SseEvent.comment('one\r\ntwo\rthree').encode(),
+        ': one\n: two\n: three\n\n',
+      );
+    });
     test('frames follow the EventSource format', () {
       expect(const SseEvent('hi').encode(), 'event: update\ndata: hi\n\n');
       expect(

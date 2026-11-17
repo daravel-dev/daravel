@@ -53,7 +53,7 @@ final class SseEvent {
       return '${lines.isEmpty ? ':\n' : lines}\n';
     }
     if (event case final String name) {
-      lines.write('event: $name\n');
+      lines.write('event: ${name.replaceAll(RegExp('[\r\n]'), '')}\n');
     }
     if (id case final String value) {
       lines.write('id: ${value.replaceAll(RegExp('[\r\n]'), '')}\n');
