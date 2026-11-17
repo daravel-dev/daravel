@@ -5,13 +5,21 @@ import 'package:test/test.dart';
 
 /// That everything the WebSocket connections of this isolate held is
 /// released once they ended: messages being assembled, what was held for
-/// handlers that do not read, what waited to be written and what waited in
-/// the send queues all count zero. A count left over is data left over.
+/// handlers that do not read, what waited to be written, what waited in
+/// the send queues and what was left of a chunk unparsed all count zero.
+/// A count left over is data left over.
 ///
 /// Registered first in `main` (`tearDown(expectWebSocketCountsReleased)`),
 /// it runs after the tests' own tear-downs, the engine's stop included.
 Future<void> expectWebSocketCountsReleased() async {
-  const names = ['assembling', 'held', 'heldItems', 'waiting', 'queued'];
+  const names = [
+    'assembling',
+    'held',
+    'heldItems',
+    'waiting',
+    'queued',
+    'unparsed',
+  ];
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   var counts = WebSocketGuardStats.toJson();
   while (names.any((name) => counts[name] != 0) &&

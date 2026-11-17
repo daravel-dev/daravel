@@ -95,7 +95,14 @@ void main() {
   /// Every count back to zero once the connections ended: a count left
   /// over is data left over.
   Future<void> expectReleased({int? on}) async {
-    const names = ['assembling', 'held', 'heldItems', 'waiting', 'queued'];
+    const names = [
+      'assembling',
+      'held',
+      'heldItems',
+      'waiting',
+      'queued',
+      'unparsed',
+    ];
     final deadline = DateTime.now().add(const Duration(seconds: 15));
     var now = await stats(on: on);
     while (names.any((n) => now[n] != 0) && DateTime.now().isBefore(deadline)) {
@@ -128,20 +135,35 @@ void main() {
     await expectReleased();
     await resetPeaks();
     await attack(1);
-    final once = (await stats())['${count}Peak']!;
+    final countsOnce = await stats();
+    final once = countsOnce['${count}Peak']!;
     await expectReleased();
     await resetPeaks();
     await attack(4);
-    final four = (await stats())['${count}Peak']!;
+    final countsFour = await stats();
+    final four = countsFour['${count}Peak']!;
     await expectReleased();
     final grew = await rss() - start;
-    // Printed always, for the numbers on every system CI runs.
+    // Printed always, for the numbers on every system CI runs: the rest of
+    // a chunk kept unparsed is bounded by the largest chunk read, which
+    // the system decides, so it is printed, not bounded by a number.
+    String chunks(Map<String, int> c) =>
+        'heldPeak ${c['heldPeak']}, unparsedPeak ${c['unparsedPeak']}, '
+        'chunkPeak ${c['chunkPeak']}';
     print(
       '$name: $count peak $once at 1x, $four at 4x (bound $bound); '
-      'resident ${grew >> 20} MiB above the start',
+      'resident ${grew >> 20} MiB above the start; '
+      '1x: ${chunks(countsOnce)}; 4x: ${chunks(countsFour)}',
     );
     expect(once, lessThanOrEqualTo(bound), reason: '$count at 1x');
     expect(four, lessThanOrEqualTo(bound), reason: '$count at 4x');
+    for (final c in [countsOnce, countsFour]) {
+      expect(
+        c['unparsedPeak'],
+        lessThanOrEqualTo(c['chunkPeak']!),
+        reason: 'what is left unparsed is part of one chunk',
+      );
+    }
     expect(grew, lessThan((Platform.isMacOS ? 512 : 96) << 20));
     return (once, four);
   }
@@ -231,6 +253,90 @@ void main() {
       bound: 65536 + 127,
     );
   });
+
+  /// [count] frames of a 64 KiB binary payload, in one buffer.
+  Uint8List frames64k(int count) {
+    final frame = RawWsClient.frame(0x2, Uint8List(65536));
+    final all = BytesBuilder(copy: false);
+    for (var i = 0; i < count; i++) {
+      all.add(frame);
+    }
+    return all.takeBytes();
+  }
+
+  /// One connection to [path] that writes [bytes] at once and then waits
+  /// [wait] for the server to read what it will: what is held stays within
+  /// [bound], what is left unparsed within the largest chunk read, and
+  /// everything is released once the connection ended.
+  Future<void> oneWrite(
+    String name,
+    String path,
+    Uint8List bytes, {
+    required int bound,
+    Future<void> Function(RawWsClient client)? before,
+    Duration wait = const Duration(seconds: 3),
+  }) async {
+    final client = await connect(path);
+    await before?.call(client);
+    await resetPeaks();
+    client.socket.add(bytes);
+    await Future<void>.delayed(wait);
+    final counts = await stats();
+    client.socket.destroy();
+    await expectReleased();
+    print(
+      '$name: heldPeak ${counts['heldPeak']} (bound $bound), heldItemsPeak '
+      '${counts['heldItemsPeak']}, unparsedPeak ${counts['unparsedPeak']}, '
+      'chunkPeak ${counts['chunkPeak']}',
+    );
+    expect(counts['heldPeak'], lessThanOrEqualTo(bound));
+    expect(counts['unparsedPeak'], lessThanOrEqualTo(counts['chunkPeak']!));
+  }
+
+  test('one write of 16 MiB of 64 KiB frames to a handler that does not '
+      'read: held within the bound, the rest of a chunk left unparsed', () {
+    return oneWrite(
+      '64 KiB frames, 16 MiB',
+      '/silent',
+      frames64k(256),
+      bound: _heldBound,
+    );
+  });
+
+  test('one write of 4 MiB of full-size messages in fragments to a handler '
+      'that does not read: held within the bound plus one message', () {
+    final piece = Uint8List(16 << 10);
+    final all = BytesBuilder(copy: false);
+    for (var i = 0; i < 64; i++) {
+      all
+        ..add(RawWsClient.frame(0x2, piece, fin: false))
+        ..add(RawWsClient.frame(0x0, piece, fin: false))
+        ..add(RawWsClient.frame(0x0, piece, fin: false))
+        ..add(RawWsClient.frame(0x0, piece));
+    }
+    return oneWrite(
+      'fragmented messages, 4 MiB',
+      '/silent',
+      all.takeBytes(),
+      bound: _heldBound + 65536 + 128,
+    );
+  });
+
+  test('a connection whose TCP window grew (16 MiB read first), then 32 MiB '
+      'in one write while the server is busy for 250 ms: held within the '
+      'bound', () {
+    return oneWrite(
+      'warmed window, busy server, 32 MiB',
+      '/warm?n=256&lag=250&hold=4000',
+      frames64k(512),
+      bound: _heldBound,
+      before: (client) async {
+        client.socket.add(frames64k(256));
+        final ready = await client.nextMessage();
+        expect(utf8.decode(ready.payload), 'READY');
+      },
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('a handler that does not read: the client is held back by TCP, what '
       'is held stays within the bound', () async {
@@ -420,7 +526,9 @@ void main() {
     final counts = await stats(on: ownPort);
     print(
       'empty frames: held peak ${counts['heldPeak']}, items peak '
-      '${counts['heldItemsPeak']}; grew ${grew >> 20} MiB for 50 connections',
+      '${counts['heldItemsPeak']}, unparsedPeak ${counts['unparsedPeak']}, '
+      'chunkPeak ${counts['chunkPeak']}; grew ${grew >> 20} MiB for 50 '
+      'connections',
     );
     // An object per frame would be about 10 000 items per connection.
     expect(counts['heldItemsPeak'], lessThanOrEqualTo(50 * _heldItemsBound));

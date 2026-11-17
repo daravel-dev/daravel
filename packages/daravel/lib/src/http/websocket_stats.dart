@@ -6,7 +6,9 @@ import 'package:meta/meta.dart';
 /// - what is held for handlers that do not read (bytes and a cost per
 ///   item) and its items;
 /// - what waits to be written below the WebSocket (PONGs included);
-/// - what waits in the applications' send queues (`BufferedWebSocket`).
+/// - what waits in the applications' send queues (`BufferedWebSocket`);
+/// - the rest of a chunk read from a client and not parsed yet, and the
+///   largest chunk read.
 ///
 /// For tests, which read these counts instead of the process's resident
 /// memory: [assemblingBy] and the others are called by the guard and the
@@ -24,8 +26,11 @@ abstract final class WebSocketGuardStats {
   static int _waitingPeak = 0;
   static int _queued = 0;
   static int _queuedPeak = 0;
+  static int _unparsed = 0;
+  static int _unparsedPeak = 0;
+  static int _chunkPeak = 0;
 
-  /// Peaks back to the current counts.
+  /// Peaks back to the current counts (the largest chunk to none).
   @visibleForTesting
   static void reset() {
     _assemblingPeak = _assembling;
@@ -33,6 +38,8 @@ abstract final class WebSocketGuardStats {
     _heldItemsPeak = _heldItems;
     _waitingPeak = _waiting;
     _queuedPeak = _queued;
+    _unparsedPeak = _unparsed;
+    _chunkPeak = 0;
   }
 
   /// Every count and peak, by name.
@@ -48,7 +55,25 @@ abstract final class WebSocketGuardStats {
     'waitingPeak': _waitingPeak,
     'queued': _queued,
     'queuedPeak': _queuedPeak,
+    'unparsed': _unparsed,
+    'unparsedPeak': _unparsedPeak,
+    'chunkPeak': _chunkPeak,
   };
+
+  /// The rest of a chunk kept unparsed changed by [delta].
+  static void unparsedBy(int delta) {
+    _unparsed += delta;
+    if (_unparsed > _unparsedPeak) {
+      _unparsedPeak = _unparsed;
+    }
+  }
+
+  /// A chunk of [length] bytes was read from a client.
+  static void chunkRead(int length) {
+    if (length > _chunkPeak) {
+      _chunkPeak = length;
+    }
+  }
 
   /// The bytes being assembled changed by [delta].
   static void assemblingBy(int delta) {

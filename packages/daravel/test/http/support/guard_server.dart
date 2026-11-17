@@ -70,6 +70,41 @@ Future<void> main() async {
               compress: false,
               maxPayloadBytes: 65536,
             )
+            // Reads `n` messages (which lets the connection's TCP window
+            // grow), then stops reading and says READY; with `lag`, this
+            // isolate is then busy for that many ms, as a loaded server.
+            // After `hold` ms it cancels its subscription: a paused reader
+            // keeps what is held, and the end of the client is seen only
+            // once nothing is held back.
+            ..ws(
+              '/warm',
+              (socket, request) async {
+                final query = request.uri.queryParameters;
+                final n = int.parse(query['n']!);
+                final lag = int.parse(query['lag'] ?? '0');
+                final hold = int.parse(query['hold'] ?? '0');
+                var read = 0;
+                late final StreamSubscription<dynamic> reading;
+                reading = socket.listen((_) {
+                  if (++read == n) {
+                    reading.pause();
+                    socket.add('READY');
+                    if (lag > 0) {
+                      Timer(const Duration(milliseconds: 30), () {
+                        sleep(Duration(milliseconds: lag));
+                      });
+                    }
+                    if (hold > 0) {
+                      Timer(Duration(milliseconds: hold), reading.cancel);
+                    }
+                  }
+                });
+                await socket.done;
+                await reading.cancel();
+              },
+              compress: false,
+              maxPayloadBytes: 65536,
+            )
             ..ws(
               '/flood',
               echo,
