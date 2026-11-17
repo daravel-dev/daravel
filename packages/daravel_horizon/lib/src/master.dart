@@ -129,10 +129,12 @@ final class HorizonMaster {
     this.onRestartNeeded,
     this.terminateSession,
     this.workerIdleTransactionTimeout,
+    Duration? idleLease,
     this.onEvent,
     this.failsAfterTimeout,
     Duration Function(int crashes)? crashDelay,
   }) : _crashDelay = crashDelay ?? _defaultCrashDelay,
+       idleLease = idleLease ?? HorizonConfig.idleLease(config.heartbeat),
        horizonStore =
            horizonStore ??
            (store == null ? null : ProcessHorizonStore(() => store));
@@ -197,6 +199,16 @@ final class HorizonMaster {
   /// `DB_IDLE_TRANSACTION_TIMEOUT` for the workers' applications
   /// ([HorizonConfig.workerIdleTransactionTimeout]); null leaves theirs.
   final Duration? workerIdleTransactionTimeout;
+
+  /// How long an idle worker may stay silent before it is killed (reason
+  /// `lease`): [HorizonConfig.idleLease], four heartbeats unless given (the
+  /// commands give the SQLite file queue its longer one).
+  final Duration idleLease;
+
+  /// When the lease check last ran, and how many late rounds in a row it
+  /// deferred ([HorizonConfig.deferLeaseRound]).
+  DateTime? _lastLeaseCheck;
+  int _deferredLeaseRounds = 0;
 
   /// Told about kills and scaling decisions.
   final HorizonEventSink? onEvent;
@@ -851,13 +863,39 @@ final class HorizonMaster {
     w._limitFor = null;
   }
 
-  /// Idle workers silent for three heartbeats (beyond the next one) are
-  /// killed (reason `lease`) and the job they may have reserved without
-  /// reporting it yet is reclaimed. Workers running a job are left to
-  /// [_checkGrace].
+  /// Idle workers silent longer than [idleLease] are killed (reason
+  /// `lease`). A job is reclaimed only when the worker reported it (a
+  /// worker reports a job the moment it reserves it); one reserved but not
+  /// reported yet comes back after `retry_after`. Workers running a job
+  /// are left to [_checkGrace], every round.
+  ///
+  /// A round that runs late (this isolate was busy) may read heartbeats it
+  /// has not handled yet, which wait behind it: it kills nobody, at most
+  /// three rounds in a row ([HorizonConfig.deferLeaseRound]), and the first
+  /// one deferred is logged as a warning with how late it ran.
   void _checkLeases() {
-    final limit = config.heartbeat * 3;
     final now = DateTime.now();
+    final previous = _lastLeaseCheck;
+    _lastLeaseCheck = now;
+    final late = previous == null
+        ? Duration.zero
+        : now.difference(previous) - config.heartbeat;
+    final defer = HorizonConfig.deferLeaseRound(
+      late: late,
+      deferred: _deferredLeaseRounds,
+      heartbeat: config.heartbeat,
+    );
+    if (defer) {
+      if (_deferredLeaseRounds == 0) {
+        logger.warning(
+          'Horizon master ${late.inMilliseconds} ms late: idle workers are '
+          'judged on the next round.',
+        );
+      }
+      _deferredLeaseRounds++;
+    } else if (late <= config.heartbeat ~/ 2) {
+      _deferredLeaseRounds = 0;
+    }
     for (final pool in _pools.values) {
       for (final w in [...pool]) {
         if (w._isolate == null || !w.ready || w._exited.isCompleted) {
@@ -866,7 +904,7 @@ final class HorizonMaster {
         if (_checkGrace(w)) {
           continue;
         }
-        if (now.difference(w.lastSeen) > limit + config.heartbeat) {
+        if (!defer && now.difference(w.lastSeen) > idleLease) {
           _kill(w, 'lease', reclaim: true);
         }
       }

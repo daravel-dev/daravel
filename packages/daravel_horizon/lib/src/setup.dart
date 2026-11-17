@@ -260,6 +260,10 @@ Future<int> runHorizon(
     config,
     terminateSession: policy.terminate,
     workerIdleTransactionTimeout: policy.idleTransactionTimeout,
+    idleLease: HorizonConfig.idleLease(
+      config.heartbeat,
+      sqliteBusyTimeout: HorizonConfig.sqliteBusyTimeout(app.config),
+    ),
     driver: queues.connection,
     logger: app.logger,
     coordinator: control.coordinator,

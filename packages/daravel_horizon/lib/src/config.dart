@@ -320,6 +320,65 @@ final class HorizonConfig implements ConfigSection {
       ? heartbeat
       : const Duration(seconds: 1);
 
+  /// How long an idle worker may stay silent before the master kills it
+  /// (reason `lease`): four heartbeats, and on a SQLite file queue at least
+  /// its [sqliteBusyTimeout] plus two heartbeats. A worker waiting for the
+  /// SQLite write lock waits inside one blocking call and sends nothing
+  /// meanwhile; killed there, it would force a restart of the process
+  /// ([sqliteWarning]) for a wait SQLite itself ends.
+  static Duration idleLease(Duration heartbeat, {Duration? sqliteBusyTimeout}) {
+    final beats = heartbeat * 4;
+    if (sqliteBusyTimeout == null) {
+      return beats;
+    }
+    final sqlite = sqliteBusyTimeout + heartbeat * 2;
+    return sqlite > beats ? sqlite : beats;
+  }
+
+  /// The `busy_timeout` of the SQLite file a supervisor of [config] works
+  /// as its queue ([onSqliteFile]): the connection's option in
+  /// milliseconds, 5 s when unset (as `SqliteDriver.fromConfig`), zero when
+  /// zero. Null for any other queue: its lease is four heartbeats.
+  static Duration? sqliteBusyTimeout(ConfigRepository config) {
+    if (!onSqliteFile(config)) {
+      return null;
+    }
+    final database = config.section<DatabaseConfig>();
+    final connection = database.connections[database.defaultConnection];
+    final busy = switch (connection?.options['busy_timeout']) {
+      final int ms => ms,
+      final String ms => int.tryParse(ms),
+      _ => null,
+    };
+    return busy == null || busy < 0
+        ? const Duration(seconds: 5)
+        : Duration(milliseconds: busy);
+  }
+
+  /// Whether a lease round of the master is deferred: it ran [late] (past
+  /// its heartbeat), more than half a [heartbeat], and fewer than three
+  /// rounds in a row were deferred already ([deferred]). A late round may
+  /// read heartbeats the master has not handled yet; deferring lets them
+  /// in. The bound keeps a master that is always late killing a silent
+  /// worker at most three rounds later.
+  static bool deferLeaseRound({
+    required Duration late,
+    required int deferred,
+    required Duration heartbeat,
+  }) => late > heartbeat ~/ 2 && deferred < maxDeferredLeaseRounds;
+
+  /// The most lease rounds deferred in a row ([deferLeaseRound]).
+  static const int maxDeferredLeaseRounds = 3;
+
+  /// The sentence the SQLite warning ends with: how long an idle worker is
+  /// given ([idleLease]) for the queue's [busyTimeout].
+  static String sqliteLeaseNote(Duration heartbeat, Duration busyTimeout) {
+    final lease = idleLease(heartbeat, sqliteBusyTimeout: busyTimeout);
+    return 'An idle worker is given busy_timeout '
+        '(${busyTimeout.inMilliseconds} ms) plus two heartbeats, '
+        '${lease.inMilliseconds} ms, before it counts as gone.';
+  }
+
   /// The shortest time the queue named [connection] keeps a job reserved
   /// after its pop or an extension, for a [retryAfter]: a second less on
   /// the database queue, which counts whole seconds; [retryAfter] on Redis.

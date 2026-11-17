@@ -149,7 +149,14 @@ final class HorizonCommand extends DaravelCommand {
       stderr.writeln('Warning: ${HorizonConfig.storeProcessWarning}');
     }
     if (sqlite) {
-      stderr.writeln('Warning: ${HorizonConfig.sqliteWarning}');
+      final busy = HorizonConfig.sqliteBusyTimeout(app.config);
+      stderr.writeln(
+        [
+          'Warning: ${HorizonConfig.sqliteWarning}',
+          if (busy != null)
+            HorizonConfig.sqliteLeaseNote(config.heartbeat, busy),
+        ].join(' '),
+      );
     }
     final master = HorizonMaster(
       createApp,
@@ -174,6 +181,10 @@ final class HorizonCommand extends DaravelCommand {
       restartAfterKill: policy.restartAfterKill,
       terminateSession: policy.terminate,
       workerIdleTransactionTimeout: policy.idleTransactionTimeout,
+      idleLease: HorizonConfig.idleLease(
+        config.heartbeat,
+        sqliteBusyTimeout: HorizonConfig.sqliteBusyTimeout(app.config),
+      ),
       onRestartNeeded: () {
         // EX_TEMPFAIL: restart this process, which frees the locks.
         code = 75;

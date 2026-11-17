@@ -995,6 +995,84 @@ void main() {
       await until(() => marks().contains('a:held:1'), 'after continue');
     },
   );
+
+  group('the lease of an idle worker', () {
+    // Heartbeat 500 ms: four heartbeats are 2 s.
+    const beat = Duration(milliseconds: 500);
+
+    /// Pushes a short job due in 1 s, then holds the SQLite write lock: the
+    /// idle worker sees the job and waits for the lock to reserve it, inside
+    /// one blocking call, sending nothing. The lock is held 4 s, or, with
+    /// [whileHeld], 1.5 s, then while [whileHeld] runs, and released at
+    /// once after it.
+    Future<void> blockTheWorker({void Function()? whileHeld}) async {
+      await app.run(
+        () => app.container.make<QueueManager>().later(
+          const Duration(seconds: 1),
+          const Hang('blocked', ms: 10),
+          queue: 'a',
+        ),
+      );
+      await app.run(
+        () => DB.transaction(() async {
+          await DB.statement('CREATE TABLE IF NOT EXISTS _lease_lock (x)');
+          await DB.statement('INSERT INTO _lease_lock VALUES (1)');
+          await Future<void>.delayed(const Duration(milliseconds: 1500));
+          if (whileHeld == null) {
+            await Future<void>.delayed(const Duration(milliseconds: 2500));
+          } else {
+            whileHeld();
+          }
+        }),
+      );
+    }
+
+    test(
+      'an idle worker waiting for the SQLite write lock is not killed with '
+      'the lease of a SQLite file queue (busy_timeout + 2 heartbeats)',
+      timeout: const Timeout(Duration(minutes: 2)),
+      () async {
+        final m = HorizonMaster(
+          masterApp,
+          HorizonConfig(plans: [plan()], heartbeat: beat),
+          driver: (c) => app.container.make<QueueManager>().connection(c),
+          logger: Logger(minimumLevel: LogLevel.critical),
+          onEvent: (event, data) => events.add((event, data)),
+          idleLease: HorizonConfig.idleLease(
+            beat,
+            sqliteBusyTimeout: const Duration(seconds: 5),
+          ),
+        );
+        addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+        await m.start();
+        await until(() => m.workers('s').any((w) => w.ready), 'a ready worker');
+        await blockTheWorker();
+        await until(() => marks().contains('a:blocked:1'), 'the job done');
+        expect(eventsNamed('WorkerKilled'), isEmpty);
+      },
+    );
+
+    test(
+      'a master late while an idle worker is silent does not kill it on '
+      'the late round: the next round hears from it',
+      timeout: const Timeout(Duration(minutes: 2)),
+      () async {
+        final m = master(plan(), heartbeat: beat);
+        addTearDown(() => m.stop(timeout: const Duration(seconds: 20)));
+        await m.start();
+        await until(() => m.workers('s').any((w) => w.ready), 'a ready worker');
+        await blockTheWorker(
+          whileHeld: () {
+            // This isolate (the master's) busy, for real, 2.5 s.
+            final watch = Stopwatch()..start();
+            while (watch.elapsed < const Duration(milliseconds: 2500)) {}
+          },
+        );
+        await until(() => marks().contains('a:blocked:1'), 'the job done');
+        expect(eventsNamed('WorkerKilled'), isEmpty);
+      },
+    );
+  });
 }
 
 /// This file's own directory, by name and pid: the master and its worker
