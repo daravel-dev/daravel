@@ -224,7 +224,10 @@ void main() {
   }
 
   /// A connection whose session has started (the server counts it a
-  /// moment after its 101).
+  /// moment after its 101). Only for routes whose session waits for the
+  /// client: one that can end it on its own (a handler that closes, or
+  /// writes until the client counts as slow) may be over before the count
+  /// is seen.
   Future<RawWsClient> open(String path) async {
     final client = await RawWsClient.connect(engine.port!, path);
     final deadline = DateTime.now().add(const Duration(seconds: 5));
@@ -448,7 +451,11 @@ void main() {
       ('slow-code', 'closed as a slow client with 4100'),
     ]) {
       test('$why: no code, before and after the connection ends', () async {
-        final client = await open('/$route?id=$route');
+        // Not [open]: the handler ends the session on its own.
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/$route?id=$route',
+        );
         client.pauseReading();
         final deadline = DateTime.now().add(const Duration(seconds: 15));
         while ((seen[route]?.length ?? 0) < 2 &&
@@ -463,10 +470,22 @@ void main() {
 
   group('slow clients end their session with the 1 s grace', () {
     test('the application\'s queue overflows', () async {
-      final client = await open('/slow');
+      // Not [open]: the handler writes until the queue overflows, which a
+      // client reading in this isolate cannot always keep up with, so the
+      // session can end before its count is seen. The overflow is waited
+      // for instead, and the grace measured from it.
+      final client = await RawWsClient.connect(engine.port!, '/slow');
       client.pauseReading();
+      bool overflowed() =>
+          log.records.any((r) => r.message.contains('read too slowly'));
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!overflowed() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(overflowed(), isTrue, reason: 'the queue overflowed');
+      // From the overflow, the session ends within the grace.
       final ms = await sessionEndsWithin(const Duration(seconds: 10));
-      printOnFailure('ended after $ms ms');
+      printOnFailure('ended $ms ms after the overflow');
       expect(engine.openWebSockets, 0);
       expect(ms, lessThan(2500));
       client.socket.destroy();
