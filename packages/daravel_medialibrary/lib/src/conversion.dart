@@ -629,7 +629,8 @@ img.Image _fit(img.Image image, Fit fit, int? width, int? height, int growth) {
 }
 
 /// spatie/image's `resizeCanvas()` centered: [image] on a white canvas of
-/// [width] × [height], cut where it is larger.
+/// [width] × [height], cut where it is larger. Every frame of an animation
+/// gets its own canvas, with its duration ([_checkTarget] counts them all).
 img.Image _canvas(img.Image image, int width, int height, int growth) {
   _checkDimensions(width, height);
   _checkTarget(image, width, height, image.numFrames, growth);
@@ -640,18 +641,34 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
   if (cut.width == width && cut.height == height) {
     return cut;
   }
-  final canvas = img.Image(
-    width: width,
-    height: height,
-    numChannels: math.max(3, cut.numChannels),
-  );
-  img.fill(canvas, color: img.ColorRgba8(255, 255, 255, 255));
-  return img.compositeImage(
-    canvas,
-    cut,
-    dstX: (width - cut.width) ~/ 2,
-    dstY: (height - cut.height) ~/ 2,
-  );
+  img.Image? canvas;
+  for (var i = 0; i < cut.numFrames; i++) {
+    final frame = cut.frames[i];
+    final page = img.Image(
+      width: width,
+      height: height,
+      numChannels: math.max(3, cut.numChannels),
+    );
+    img.fill(page, color: img.ColorRgba8(255, 255, 255, 255));
+    img.compositeImage(
+      page,
+      frame,
+      dstX: (width - cut.width) ~/ 2,
+      dstY: (height - cut.height) ~/ 2,
+    );
+    // From the frame before the crop, which keeps its duration.
+    page.frameDuration = i < image.numFrames
+        ? image.frames[i].frameDuration
+        : frame.frameDuration;
+    if (canvas == null) {
+      canvas = page
+        ..loopCount = image.loopCount
+        ..frameType = image.frameType;
+    } else {
+      canvas.addFrame(page);
+    }
+  }
+  return canvas!;
 }
 
 /// spatie/image's `crop()` with its `calculateCropOffsets()`.
@@ -788,9 +805,10 @@ const int _maxAnimatedBlurWork = 20000000;
 /// over the frame, so a small file of many scans takes a long time to
 /// decode.
 ///
-/// - The scans are counted as every `FF DA` (start of scan) in the file,
-///   an upper bound on those a decoder can see (an EXIF thumbnail's and
-///   other data count too).
+/// - The scans are counted as the first `FF DA` (start of scan), reached
+///   by walking the segments before it by their lengths (what APPn and COM
+///   carry, an EXIF thumbnail included, is skipped as a decoder skips it),
+///   and every `FF DA` after it: an upper bound on those a decoder can see.
 /// - The frame is the largest of [width] x [height] (the decoder's own
 ///   reading) and of every frame header candidate anywhere in the bytes:
 ///   each `FF Cn` (n from 0 to 15 but 4, 8 and 12) whose 16-bit height and
@@ -809,29 +827,70 @@ void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
   var frameWidth = width;
   var frameHeight = height;
   final n = bytes.length;
-  for (var i = 0; i + 1 < n; i++) {
+
+  bool isFrame(int marker) =>
+      marker >= 0xC0 &&
+      marker <= 0xCF &&
+      marker != 0xC4 &&
+      marker != 0xC8 &&
+      marker != 0xCC;
+
+  void frameAt(int i) {
+    if (i + 8 >= n) {
+      return;
+    }
+    final h = (bytes[i + 5] << 8) | bytes[i + 6];
+    final w = (bytes[i + 7] << 8) | bytes[i + 8];
+    // Both at most 65 535: the products fit.
+    if (w >= 1 &&
+        h >= 1 &&
+        w <= maxPixels ~/ h &&
+        w * h > frameWidth * frameHeight) {
+      frameWidth = w;
+      frameHeight = h;
+    }
+  }
+
+  // The segments before the first scan (APPn with an EXIF thumbnail, COM,
+  // DQT, DHT, SOFn) are walked by their lengths, so what they carry is not
+  // read as markers; from the first scan on, every byte is looked at.
+  var i = 0;
+  if (n >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+    i = 2;
+    while (i + 3 < n && bytes[i] == 0xFF) {
+      final marker = bytes[i + 1];
+      if (marker == 0xFF) {
+        i++; // fill byte
+        continue;
+      }
+      if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) {
+        i += 2; // no length
+        continue;
+      }
+      final length = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (length < 2) {
+        break;
+      }
+      if (isFrame(marker)) {
+        frameAt(i);
+      }
+      if (marker == 0xDA) {
+        scans++;
+        i += 2 + length;
+        break;
+      }
+      i += 2 + length;
+    }
+  }
+  for (; i + 1 < n; i++) {
     if (bytes[i] != 0xFF) {
       continue;
     }
     final marker = bytes[i + 1];
     if (marker == 0xDA) {
       scans++;
-    } else if (marker >= 0xC0 &&
-        marker <= 0xCF &&
-        marker != 0xC4 &&
-        marker != 0xC8 &&
-        marker != 0xCC &&
-        i + 8 < n) {
-      final h = (bytes[i + 5] << 8) | bytes[i + 6];
-      final w = (bytes[i + 7] << 8) | bytes[i + 8];
-      // Both at most 65 535: the products fit.
-      if (w >= 1 &&
-          h >= 1 &&
-          w <= maxPixels ~/ h &&
-          w * h > frameWidth * frameHeight) {
-        frameWidth = w;
-        frameHeight = h;
-      }
+    } else if (isFrame(marker)) {
+      frameAt(i);
     }
   }
   if (scans == 0) {

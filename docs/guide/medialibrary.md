@@ -110,7 +110,7 @@ result of the one before, as in Spatie:
 | Method | Result |
 | :-- | :-- |
 | `width(w)`, `height(h)` | That width or height, the other side following the aspect ratio; `width(200).height(200)` therefore resizes twice |
-| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white |
+| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white (every frame of an animation) |
 | `fit(Fit.crop, w, h)` | Exactly the box, cut from the middle |
 | `fit(Fit.stretch, w, h)` | Exactly the box, aspect ratio ignored |
 | `crop(w, h, CropPosition.top)` | A cut-out at a position |

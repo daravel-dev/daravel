@@ -65,6 +65,31 @@ void main() {
       );
     });
 
+    test('Fit.fill and Fit.fillMax keep every frame of an animation', () {
+      final animation = img.Image(width: 40, height: 20)..frameDuration = 10;
+      for (var i = 1; i < 3; i++) {
+        animation.addFrame(
+          img.Image(width: 40, height: 20)..frameDuration = 10 * (i + 1),
+        );
+      }
+      final gif = img.encodeGif(animation);
+      for (final fit in ['fill', 'fillMax']) {
+        final out = convert(gif, {
+          'fit': [fit, 30, 30],
+          'format': ['gif'],
+        });
+        expect(out, converted, reason: fit);
+        final decoded = img.decodeGif(out! as Uint8List)!;
+        expect(decoded.numFrames, 3, reason: fit);
+        expect([decoded.width, decoded.height], [30, 30], reason: fit);
+        expect(
+          [for (final frame in decoded.frames) frame.frameDuration],
+          [10, 20, 30],
+          reason: fit,
+        );
+      }
+    });
+
     test('each Fit on a thin image: only crop would grow it', () {
       final thin = png(1, 300);
       expect(
@@ -299,28 +324,65 @@ void main() {
       expect(convert(_scansOnly(64, 48, 17), {}), isNot(refused));
     });
 
-    test('the scans are counted against the largest frame header in the '
-        'file, not only the first', () {
-      // The first frame is 64 x 48; a second header of 8 000 x 5 000 sits
-      // in a comment. 17 scans are too many for the larger one.
+    test('a second frame header after the first scan is not converted', () {
+      // The first frame is 64 x 48; a second header of 8 000 x 5 000 comes
+      // after the first scan, where every byte is looked at (and where the
+      // decoder reads it as a second frame).
       expect(convert(_scansOnly(64, 48, 17), {}), isNot(refused));
       expect(
-        convert(_scansOnly(64, 48, 17, comment: _frameHeader(8000, 5000)), {}),
+        convert(
+          _scansOnly(64, 48, 17, afterFirstScan: _frameHeader(8000, 5000)),
+          {},
+        ),
+        isNot(converted),
+      );
+    });
+
+    // What a segment before the first scan carries is skipped by its
+    // length, as a decoder skips it.
+    for (final (segment, marker) in [('APP1', 0xE1), ('COM', 0xFE)]) {
+      test('20 FF DA pairs inside $segment do not count as scans', () {
+        final inside = [
+          for (var i = 0; i < 20; i++) ...[0xFF, 0xDA, 0x00],
+        ];
+        expect(
+          convert(_scansOnly(8000, 5000, 1, segment: (marker, inside)), {}),
+          isNot(refused),
+        );
+      });
+
+      test(
+        'a frame header inside $segment before the first scan is skipped',
+        () {
+          expect(
+            convert(
+              _scansOnly(
+                64,
+                48,
+                17,
+                segment: (marker, _frameHeader(8000, 5000)),
+              ),
+              {},
+            ),
+            isNot(refused),
+          );
+        },
+      );
+    }
+
+    test('an EXIF thumbnail (a JPEG inside APP1) is not counted with the '
+        'image', () {
+      // 16 scans is what 8 000 x 5 000 allows; the thumbnail has 16 more.
+      final thumbnail = _scansOnly(160, 120, 16);
+      final exif = [...'Exif'.codeUnits, 0, 0, ...thumbnail];
+      expect(
+        convert(_scansOnly(8000, 5000, 16, segment: (0xE1, exif)), {}),
+        isNot(refused),
+      );
+      // The image's own scans still count: one more is refused.
+      expect(
+        convert(_scansOnly(8000, 5000, 17, segment: (0xE1, exif)), {}),
         refused,
-      );
-      // Bytes that only look like a frame header (no components) count
-      // too: they only tighten the budget, and 16 scans or fewer always
-      // pass, since no candidate is larger than the pixel limit.
-      final lookAlike = _frameHeader(8000, 5000)..[9] = 0;
-      expect(convert(_scansOnly(64, 48, 17, comment: lookAlike), {}), refused);
-      expect(
-        convert(_scansOnly(64, 48, 16, comment: lookAlike), {}),
-        isNot(refused),
-      );
-      // A candidate past the pixel limit is not one.
-      expect(
-        convert(_scansOnly(64, 48, 17, comment: _frameHeader(9000, 5000)), {}),
-        isNot(refused),
       );
     });
   });
@@ -366,22 +428,29 @@ Uint8List _progressiveJpeg(int width, int height, int scans) {
   return out.takeBytes();
 }
 
-/// A JPEG header of [width] x [height] followed by [scans] empty scans, and
-/// [comment] in a comment segment after the frame: the count is checked
-/// before anything is decoded.
+/// A JPEG header of [width] x [height] followed by [scans] empty scans: the
+/// count is checked before anything is decoded. [segment] (a marker and
+/// its content) goes after the frame header, [afterFirstScan] (bytes) right
+/// after the first scan.
 Uint8List _scansOnly(
   int width,
   int height,
   int scans, {
-  List<int> comment = const [],
+  (int, List<int>)? segment,
+  List<int> afterFirstScan = const [],
 }) => Uint8List.fromList([
   0xFF, 0xD8, //
   0xFF, 0xDB, ..._be16(67), 0, ...List.filled(64, 1),
   ..._frameHeader(width, height),
-  if (comment.isNotEmpty) ...[0xFF, 0xFE, ..._be16(2 + comment.length)],
-  ...comment,
+  if (segment case (final marker, final content)) ...[
+    0xFF,
+    marker,
+    ..._be16(2 + content.length),
+    ...content,
+  ],
   for (var i = 0; i < scans; i++) ...[
     0xFF, 0xDA, ..._be16(8), 1, 1, 0x00, 0, 0, 0x00, //
+    if (i == 0) ...afterFirstScan,
   ],
   0xFF, 0xD9,
 ]);

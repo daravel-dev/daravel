@@ -1,4 +1,4 @@
-<!-- source: medialibrary.md sha256:5c659b720367 -->
+<!-- source: medialibrary.md sha256:13e92c50d8af -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -112,7 +112,7 @@ masing-masing pada hasil manipulasi sebelumnya, seperti di Spatie:
 | Method | Hasil |
 | :-- | :-- |
 | `width(w)`, `height(h)` | Lebar atau tinggi tersebut, sisi lain mengikuti rasio aspek; jadi `width(200).height(200)` me-resize dua kali |
-| `fit(Fit.contain, w, h)` | Di dalam kotak; `Fit.max` tanpa memperbesar; `Fit.fill` dan `Fit.fillMax` lalu mengisi kotak dengan putih |
+| `fit(Fit.contain, w, h)` | Di dalam kotak; `Fit.max` tanpa memperbesar; `Fit.fill` dan `Fit.fillMax` lalu mengisi kotak dengan putih (setiap frame animasi) |
 | `fit(Fit.crop, w, h)` | Tepat seukuran kotak, dipotong dari tengah |
 | `fit(Fit.stretch, w, h)` | Tepat seukuran kotak, rasio aspek diabaikan |
 | `crop(w, h, CropPosition.top)` | Potongan di posisi tertentu |
