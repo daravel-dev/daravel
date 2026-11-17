@@ -7,8 +7,9 @@ import 'package:meta/meta.dart';
 ///   item) and its items;
 /// - what waits to be written below the WebSocket (PONGs included);
 /// - what waits in the applications' send queues (`BufferedWebSocket`);
-/// - the rest of a chunk read from a client and not parsed yet, and the
-///   largest chunk read.
+/// - the rest of a chunk read from a client and not parsed yet, the whole
+///   buffer that rest keeps in memory ([pinnedBy]), and the largest chunk
+///   read.
 ///
 /// For tests, which read these counts instead of the process's resident
 /// memory: [assemblingBy] and the others are called by the guard and the
@@ -28,6 +29,8 @@ abstract final class WebSocketGuardStats {
   static int _queuedPeak = 0;
   static int _unparsed = 0;
   static int _unparsedPeak = 0;
+  static int _pinned = 0;
+  static int _pinnedPeak = 0;
   static int _chunkPeak = 0;
   static int _chunksWhileUnparsed = 0;
 
@@ -41,6 +44,7 @@ abstract final class WebSocketGuardStats {
     _waitingPeak = _waiting;
     _queuedPeak = _queued;
     _unparsedPeak = _unparsed;
+    _pinnedPeak = _pinned;
     _chunkPeak = 0;
     _chunksWhileUnparsed = 0;
   }
@@ -60,6 +64,8 @@ abstract final class WebSocketGuardStats {
     'queuedPeak': _queuedPeak,
     'unparsed': _unparsed,
     'unparsedPeak': _unparsedPeak,
+    'pinned': _pinned,
+    'pinnedPeak': _pinnedPeak,
     'chunkPeak': _chunkPeak,
     'chunksWhileUnparsed': _chunksWhileUnparsed,
   };
@@ -69,6 +75,16 @@ abstract final class WebSocketGuardStats {
     _unparsed += delta;
     if (_unparsed > _unparsedPeak) {
       _unparsedPeak = _unparsed;
+    }
+  }
+
+  /// The buffers kept in memory by the rests of chunks changed by [delta]:
+  /// a rest is a view, so the whole buffer of its chunk stays, with what
+  /// was parsed of it already.
+  static void pinnedBy(int delta) {
+    _pinned += delta;
+    if (_pinned > _pinnedPeak) {
+      _pinnedPeak = _pinned;
     }
   }
 

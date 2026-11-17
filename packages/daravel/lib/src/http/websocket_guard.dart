@@ -1254,11 +1254,23 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// read. A listener that stays paused keeps it, with [_held], until it
   /// reads on or cancels: while TCP is held back the client's going away
   /// is not seen.
+  ///
+  /// What it keeps is counted twice: its own bytes (`unparsed`) and the
+  /// buffer it is a view of (`pinned`), which holds the part of the chunk
+  /// already parsed too. At most one chunk per connection, so `pinned` is
+  /// at most the largest chunk read per connection; the part already
+  /// parsed is also held as a copy in [_held] when the WebSocket does not
+  /// read (up to [_heldLimit] plus one run), so a connection held back in
+  /// the middle of a chunk keeps that copy and the whole chunk.
   Uint8List? __unparsed;
   Uint8List? get _unparsed => __unparsed;
   set _unparsed(Uint8List? value) {
     WebSocketGuardStats.unparsedBy(
       (value?.length ?? 0) - (__unparsed?.length ?? 0),
+    );
+    WebSocketGuardStats.pinnedBy(
+      (value?.buffer.lengthInBytes ?? 0) -
+          (__unparsed?.buffer.lengthInBytes ?? 0),
     );
     __unparsed = value;
   }

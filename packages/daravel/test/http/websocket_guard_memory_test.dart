@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/vm_heap.dart';
 
 /// The WebSocket guard keeps a server's memory bounded against clients that
 /// send without end or never read.
@@ -19,10 +20,12 @@ import 'support/raw_ws_client.dart';
 /// counts (`GET /guard-stats`): the most a message being assembled, what
 /// is held for a handler that does not read, and what waits to be written
 /// reached during an attack stays within its bound at 1x and at 4x the
-/// attack, and every count is back to zero once the connections ended. The
-/// resident memory of that process is only a coarse fence: it moved from
-/// -222 to +15 MiB between the rounds of one attack (Linux, alone), more
-/// than any finer bound could tell apart.
+/// attack, and every count is back to zero once the connections ended.
+/// What the server's heap holds after a full collection (read through its
+/// VM service, `support/vm_heap.dart`) stays within what those counts
+/// allow ([heapAllowance]), so memory the counts miss shows. Resident
+/// memory is printed only: it moved by some 60 MiB between rounds of the
+/// same attack on the same code (Linux), the allocator's pages, not data.
 ///
 /// Heavy: it runs alone (`dart test --tags memory --run-skipped
 /// --concurrency=1`), see dart_test.yaml.
@@ -41,30 +44,53 @@ void main() {
         .path;
   }
 
-  Future<(Process, int)> startServer({List<String>? into}) async {
+  /// The server, with its VM service open (port 0, on loopback) for its
+  /// heap only: this test asks for it; the server does not open it itself.
+  Future<(Process, int, VmHeap)> startServer({List<String>? into}) async {
     final process = await Process.start(Platform.resolvedExecutable, [
+      '--enable-vm-service=0',
+      '--disable-service-auth-codes',
       await serverScript(),
     ]);
     final ready = Completer<int>();
+    final service = Completer<String>();
     process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-          if (line.startsWith('PORT ') && !ready.isCompleted) {
+          final listening = VmHeap.listening.firstMatch(line);
+          if (listening != null && !service.isCompleted) {
+            service.complete(listening.group(1));
+          } else if (line.startsWith('PORT ') && !ready.isCompleted) {
             ready.complete(int.parse(line.substring(5)));
           } else if (line.startsWith('LOG ')) {
             into?.add(line.substring(4));
           }
         });
     process.stderr.drain<void>().ignore();
-    return (process, await ready.future.timeout(const Duration(seconds: 60)));
+    final serverPort = await ready.future.timeout(const Duration(seconds: 60));
+    // No heap, no test: failing here says why, rather than a fence on
+    // resident memory that cannot tell data from the allocator's pages.
+    final String address;
+    try {
+      address = await service.future.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      process.kill();
+      throw StateError('The guard server printed no VM service address.');
+    }
+    return (process, serverPort, await VmHeap.connect(address));
   }
 
+  late VmHeap heap;
+
   setUpAll(() async {
-    (server, port) = await startServer(into: logs);
+    (server, port, heap) = await startServer(into: logs);
   });
 
-  tearDownAll(() => server.kill());
+  tearDownAll(() async {
+    await heap.close();
+    server.kill();
+  });
 
   Future<String> get(String path, {int? on}) async {
     final client = HttpClient();
@@ -102,6 +128,7 @@ void main() {
       'waiting',
       'queued',
       'unparsed',
+      'pinned',
     ];
     final deadline = DateTime.now().add(const Duration(seconds: 15));
     var now = await stats(on: on);
@@ -118,21 +145,44 @@ void main() {
 
   Future<RawWsClient> connect(String path) => RawWsClient.connect(port, path);
 
+  /// Each connection's rest of a chunk ([connections] of them): part of
+  /// one chunk, keeping at most that chunk's buffer, and no chunk read
+  /// while it waited.
+  void expectOneChunk(Map<String, int> c, {int connections = 1}) {
+    expect(
+      c['unparsedPeak'],
+      lessThanOrEqualTo(connections * c['chunkPeak']!),
+      reason: 'what is left unparsed is part of one chunk',
+    );
+    expect(
+      c['pinnedPeak'],
+      lessThanOrEqualTo(connections * c['chunkPeak']!),
+      reason: 'a rest keeps at most the buffer of its chunk',
+    );
+    expect(
+      c['chunksWhileUnparsed'],
+      0,
+      reason: 'no chunk read while a rest waited',
+    );
+  }
+
   /// That what an [attack] makes the guard keep does not grow with it: a
   /// warm-up round, then the attack at [scale] 1 and at 4, each with the
   /// peaks reset first; the peak of [count] in both stays within [bound],
-  /// and everything is released after each. The resident memory over the
-  /// rounds stays within a coarse fence (macOS: a coarser one, as its
-  /// runners move hundreds of MiB at once).
+  /// and everything is released after each. What the server's heap holds
+  /// after a full collection, from after the warm-up (which loads the code
+  /// the attack needs) to after the rounds, grows at most by what the
+  /// counts allow ([heapAllowance]); its resident memory is printed only.
   Future<(int, int)> expectBounded(
     String name,
     Future<void> Function(int scale) attack, {
     required String count,
     required int bound,
   }) async {
-    final start = await rss();
     await attack(1);
     await expectReleased();
+    final start = await rss();
+    final heapStart = await heap.usedAfterGc();
     await resetPeaks();
     await attack(1);
     final countsOnce = await stats();
@@ -144,32 +194,26 @@ void main() {
     final four = countsFour['${count}Peak']!;
     await expectReleased();
     final grew = await rss() - start;
+    final heapGrew = await heap.usedAfterGc() - heapStart;
+    final allowance = heapAllowance(1, [countsOnce, countsFour]);
     // Printed always, for the numbers on every system CI runs: the rest of
     // a chunk kept unparsed is bounded by the largest chunk read, which
     // the system decides, so it is printed, not bounded by a number.
     String chunks(Map<String, int> c) =>
         'heldPeak ${c['heldPeak']}, unparsedPeak ${c['unparsedPeak']}, '
-        'chunkPeak ${c['chunkPeak']}';
+        'pinnedPeak ${c['pinnedPeak']}, chunkPeak ${c['chunkPeak']}';
     print(
-      '$name: $count peak $once at 1x, $four at 4x (bound $bound); '
-      'resident ${grew >> 20} MiB above the start; '
+      '$name: $count peak $once at 1x, $four at 4x (bound $bound); heap '
+      '${heapGrew >> 10} KiB above the start (allowed ${allowance >> 10}); '
+      'resident ${grew >> 20} MiB (printed only); '
       '1x: ${chunks(countsOnce)}; 4x: ${chunks(countsFour)}',
     );
     expect(once, lessThanOrEqualTo(bound), reason: '$count at 1x');
     expect(four, lessThanOrEqualTo(bound), reason: '$count at 4x');
     for (final c in [countsOnce, countsFour]) {
-      expect(
-        c['unparsedPeak'],
-        lessThanOrEqualTo(c['chunkPeak']!),
-        reason: 'what is left unparsed is part of one chunk',
-      );
-      expect(
-        c['chunksWhileUnparsed'],
-        0,
-        reason: 'no chunk read while a rest waited',
-      );
+      expectOneChunk(c);
     }
-    expect(grew, lessThan((Platform.isMacOS ? 512 : 96) << 20));
+    expect(heapGrew, lessThanOrEqualTo(allowance), reason: 'heap');
     return (once, four);
   }
 
@@ -292,15 +336,10 @@ void main() {
     print(
       '$name: heldPeak ${counts['heldPeak']} (bound $bound), heldItemsPeak '
       '${counts['heldItemsPeak']}, unparsedPeak ${counts['unparsedPeak']}, '
-      'chunkPeak ${counts['chunkPeak']}',
+      'pinnedPeak ${counts['pinnedPeak']}, chunkPeak ${counts['chunkPeak']}',
     );
     expect(counts['heldPeak'], lessThanOrEqualTo(bound));
-    expect(counts['unparsedPeak'], lessThanOrEqualTo(counts['chunkPeak']!));
-    expect(
-      counts['chunksWhileUnparsed'],
-      0,
-      reason: 'no chunk read while a rest waited',
-    );
+    expectOneChunk(counts);
   }
 
   test('one write of 16 MiB of 64 KiB frames to a handler that does not '
@@ -497,6 +536,7 @@ void main() {
   test('200 connections sending fragments without end: each closed, what '
       'is assembled stays within the limit of each', () async {
     final before = await rss();
+    final heapBefore = await heap.usedAfterGc();
     await resetPeaks();
     final clients = await Future.wait([
       for (var i = 0; i < 200; i++) connect('/echo'),
@@ -518,9 +558,18 @@ void main() {
     final codes = await Future.wait([
       for (final client in clients) client.closeFrame(),
     ]);
-    final peak = (await stats())['assemblingPeak']!;
+    final counts = await stats();
+    final peak = counts['assemblingPeak']!;
     final grew = await rss() - before;
-    print('200 connections: assembling peak $peak; grew ${grew >> 20} MiB');
+    // The 200 clients have not closed their sockets yet: the server may
+    // still hold each connection.
+    final heapGrew = await heap.usedAfterGc() - heapBefore;
+    final allowance = heapAllowance(200, [counts]);
+    print(
+      '200 connections: assembling peak $peak; heap ${heapGrew >> 10} KiB '
+      'above the start (allowed ${allowance >> 10}); resident grew '
+      '${grew >> 20} MiB (printed only)',
+    );
     // Each connection was closed: with 1009, or, for a client still
     // sending when the guard's grace destroyed the socket and that had not
     // read the close frame yet, by a reset that drops it (null).
@@ -531,7 +580,7 @@ void main() {
     expect([for (final client in clients) client.ended], everyElement(true));
     // One server isolate: the peak is of all 200 together.
     expect(peak, lessThanOrEqualTo(200 * 65536));
-    expect(grew, lessThan(128 << 20));
+    expect(heapGrew, lessThanOrEqualTo(allowance), reason: 'heap');
     for (final client in clients) {
       client.socket.destroy();
     }
@@ -547,9 +596,12 @@ void main() {
       frames.add(RawWsClient.frame(0x1, const []));
     }
     final bytes = frames.takeBytes();
-    // A server of its own, whose resident memory only this test moves.
-    final (own, ownPort) = await startServer();
-    addTearDown(own.kill);
+    // A server of its own, whose memory only this test moves.
+    final (own, ownPort, ownHeap) = await startServer();
+    addTearDown(() async {
+      await ownHeap.close();
+      own.kill();
+    });
     Future<int> resident() async => int.parse(await get('/rss', on: ownPort));
 
     // One connection first, so the code its path needs is loaded.
@@ -558,6 +610,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     await resetPeaks(on: ownPort);
     final before = await resident();
+    final heapBefore = await ownHeap.usedAfterGc();
     final clients = <RawWsClient>[];
     for (var i = 0; i < 50; i++) {
       final client = await RawWsClient.connect(ownPort, '/silent');
@@ -567,18 +620,25 @@ void main() {
     // What the server reads before it holds TCP back.
     await Future<void>.delayed(const Duration(seconds: 2));
     final grew = await resident() - before;
+    // While the 50 connections hold what they read.
+    final heapGrew = await ownHeap.usedAfterGc() - heapBefore;
     final counts = await stats(on: ownPort);
+    final allowance = heapAllowance(51, [counts]);
     print(
       'empty frames: held peak ${counts['heldPeak']}, items peak '
       '${counts['heldItemsPeak']}, unparsedPeak ${counts['unparsedPeak']}, '
-      'chunkPeak ${counts['chunkPeak']}; grew ${grew >> 20} MiB for 50 '
-      'connections',
+      'pinnedPeak ${counts['pinnedPeak']}, chunkPeak ${counts['chunkPeak']}; '
+      'heap ${heapGrew >> 10} KiB above the start (allowed '
+      '${allowance >> 10}); resident grew ${grew >> 20} MiB (printed only), '
+      'for 50 connections',
     );
     // An object per frame would be about 10 000 items per connection.
     expect(counts['heldItemsPeak'], lessThanOrEqualTo(50 * _heldItemsBound));
     expect(counts['heldPeak'], lessThanOrEqualTo(51 * _heldBound));
-    // An object per frame was 62-67 MiB (Linux); held as buffers, 2-16.
-    expect(grew, lessThan((Platform.isMacOS ? 512 : 32) << 20));
+    expectOneChunk(counts, connections: 51);
+    // Memory the counts miss shows here: every chunk read kept after it
+    // was parsed took the heap past the allowance.
+    expect(heapGrew, lessThanOrEqualTo(allowance), reason: 'heap');
     for (final client in [warm, ...clients]) {
       client.socket.destroy();
     }
@@ -595,3 +655,38 @@ const int _heldBound = (64 << 10) + (64 << 10) + 64 * 128;
 /// The items of one connection's held data: small slices are merged into
 /// buffers of 16 KiB, so a chunk of 64 KiB is a few of them.
 const int _heldItemsBound = 64;
+
+/// How much the guard server's heap, after a full collection, may hold
+/// above where it started, with [connections] open and the peaks in
+/// [counts]: [_heapBase] plus [_heapPerConnection] each, plus
+/// [_heapFactorPercent] of the most held and pinned (data the guard
+/// counts, and what holding it costs beyond its bytes).
+int heapAllowance(int connections, List<Map<String, int>> counts) {
+  var counted = 0;
+  for (final c in counts) {
+    final both = c['heldPeak']! + c['pinnedPeak']!;
+    if (both > counted) {
+      counted = both;
+    }
+  }
+  return _heapBase +
+      connections * _heapPerConnection +
+      counted * _heapFactorPercent ~/ 100;
+}
+
+/// What the server's heap moves by between two full collections with
+/// nothing held: measured at 0.4 to 0.9 MiB above the start for 25 to 50
+/// idle connections (Linux, Dart 3.13), the connections included.
+const int _heapBase = 1 << 20;
+
+/// One open WebSocket connection with nothing held: measured at about
+/// 19 KB on the heap after a full collection (50 and 100 idle
+/// connections, Linux and Windows).
+const int _heapPerConnection = 32 << 10;
+
+/// The heap after a full collection held 4.5 to 9.1 MiB, the connections
+/// included, for 3.5 to 6.2 MB counted as held plus the unparsed rests
+/// (50 connections of empty frames, Linux, three rounds; the buffers those
+/// rests keep, counted now as pinned, were not counted then): at most
+/// about 1.5 times with the rests alone, less with the buffers they keep.
+const int _heapFactorPercent = 150;
