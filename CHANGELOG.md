@@ -13,6 +13,24 @@ match Laravel more closely.
 
 ### Added
 
+### Changed
+
+**Upgrading can change what an application sees:**
+
+### Fixed
+
+## 1.27.6
+
+A patch: fixes only, with the API two of them need. Upgrade every
+application that reads `.xlsx` files it receives (`daravel_excel`), every
+application that takes Midtrans, Stripe or Xendit payments
+(`daravel_payments`), and every application that serves WebSockets or
+relies on form method overrides. Run applications behind a reverse proxy
+that buffers responses (nginx's default, `proxy_buffering on`); a limit on
+clients that stop reading comes in Daravel 1.28.0.
+
+### Added
+
 - `SharedResult<T>` runs one asynchronous computation and shares its settled
   value or error across callers and zones. `ServerEngine.webSocketUpgradeOverride`
   lets deterministic tests substitute the WebSocket upgrader; restore it in
