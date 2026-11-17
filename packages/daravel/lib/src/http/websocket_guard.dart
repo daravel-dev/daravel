@@ -618,11 +618,7 @@ final class _Inbound {
           return _stop(1007, 'Invalid UTF-8 in the close reason');
         }
       }
-      final header = _frame(0x8, false, payload.length);
-      // Known before it goes: the WebSocket may stop reading while it is
-      // handed on.
-      _guard._socket?._closeEmitting(header.length + payload.length);
-      emit(header);
+      emit(_frame(0x8, false, payload.length));
       if (payload.isNotEmpty) {
         emit(payload);
       }
@@ -937,7 +933,6 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       // Checked already ([_Inbound]); nothing can read it: dropped.
       return;
     }
-    _emitted += bytes.length;
     if (!_passing || _held.isNotEmpty) {
       _hold(bytes);
       if (!_tcpHeldBack && _heldBytes > _heldLimit) {
@@ -951,8 +946,6 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       }
       return;
     }
-    // Counted before it goes: the WebSocket may stop reading inside.
-    _delivered += bytes.length;
     _in.add(
       (bytes.offsetInBytes & 15) == 0 ? bytes : Uint8List.fromList(bytes),
     );
@@ -1012,13 +1005,11 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         final item = _held.removeFirst();
         if (item is Uint8List) {
           _heldBytes -= heldItemCost + item.length;
-          _delivered += item.length;
           _in.add(item);
         } else if (item is _HeldBytes) {
           // A fresh buffer: at offset 0, so handed on as it is.
           final bytes = item.builder.takeBytes();
           _heldBytes -= heldItemCost + bytes.length;
-          _delivered += bytes.length;
           _in.add(bytes);
         } else if (item is _TcpEnd) {
           _endIn(item);
@@ -1041,7 +1032,6 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   }
 
   void _endIn(_TcpEnd end) {
-    _endDelivered = true;
     final error = end.error;
     if (error != null) {
       _in.addError(error, end.stackTrace);
@@ -1182,12 +1172,15 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     onCancel: () {
       if (!_destroyed &&
           !_guard._violated &&
-          !_protocolEnded &&
           _guard._attached?.readyState == WebSocket.open) {
-        // The application cancelled its subscription and kept the socket:
-        // the client is read on and what it sends dropped, as the server's
-        // own read for a handler that never listens does, so its close or
-        // its going away still ends the session. Frames are still checked.
+        // Nothing reads what arrives any more while the socket stays open:
+        // the application cancelled its subscription and kept the socket,
+        // or the WebSocket stopped reading at the client's CLOSE (it is
+        // handed on before the guard records it). The client is read on
+        // and what it sends dropped, as the server's own read for a
+        // handler that never listens does, so its close or its going away
+        // still ends the session, its close answered ([_closedUnread]).
+        // Frames are still checked.
         _readerGone = true;
         // What the client said before the cancel and nobody read: its
         // close, or the end of its TCP stream (no more will arrive). The
@@ -1216,32 +1209,11 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     },
   );
 
-  /// The application cancelled its subscription while the socket stayed
-  /// open: nothing reads what arrives any more, and nothing can (a
-  /// WebSocket is listened to once).
+  /// Nothing reads [_in] any more while the socket stayed open, and nothing
+  /// can (a WebSocket is listened to once): the application cancelled its
+  /// subscription, or the WebSocket stopped reading at the client's CLOSE.
+  /// It does not tell which.
   bool _readerGone = false;
-
-  // Invariant: one unit (bytes for [_in], in order), never lowered.
-  /// Bytes [_Inbound] handed on ([_handOn]), held or not.
-  int _emitted = 0;
-
-  /// Bytes put into [_in]: the client's CLOSE reached the WebSocket once
-  /// this is at [_closeEndsAt].
-  int _delivered = 0;
-
-  /// [_emitted] where the client's CLOSE frame ends, once one is handed on.
-  int? _closeEndsAt;
-
-  /// The end of the client's TCP stream was put into [_in].
-  bool _endDelivered = false;
-
-  void _closeEmitting(int length) => _closeEndsAt ??= _emitted + length;
-
-  /// The WebSocket has the client's CLOSE or the end of its TCP stream: a
-  /// cancel now is the protocol ending, which ends the session the usual
-  /// way, not the application leaving its reading.
-  bool get _protocolEnded =>
-      _endDelivered || (_closeEndsAt != null && _delivered >= _closeEndsAt!);
 
   final Queue<List<int>> _waiting = Queue<List<int>>();
   int _waitingBytes = 0;
