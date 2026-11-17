@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import 'config.dart';
+import 'image_guard.dart';
 
 /// How [Conversion.fit] fits an image into a box (spatie/image's `Fit`).
 enum Fit {
@@ -252,6 +253,18 @@ final class ImageTooLargeException extends ImageConversionException {
   const ImageTooLargeException(super.message);
 }
 
+/// The image library threw an [Error] reading, decoding or encoding this
+/// file (a defect of it, met on this file): the file is not converted, and
+/// its conversion job fails at once instead of trying again.
+final class ImageLibraryException extends ImageConversionException {
+  /// The library threw [errorType] with [detail].
+  const ImageLibraryException(this.errorType, String detail)
+    : super('The image library failed ($errorType): $detail');
+
+  /// The type of what the library threw, as `RangeError`.
+  final String errorType;
+}
+
 /// Whether files of [mimeType] or with [extension] are converted (JPEG,
 /// PNG, GIF, WebP, BMP). TIFF is not, in this version: its conversions are
 /// skipped and the original kept. An animated PNG or WebP is told from its
@@ -364,7 +377,7 @@ Uint8List convertImageSync(
   }
   final info = decoder == null
       ? null
-      : _guarded(() => decoder.startDecode(bytes));
+      : guardImageCall(() => decoder.startDecode(bytes));
   if (decoder == null || info == null) {
     throw const ImageConversionException(
       'The file is not a JPEG, PNG, GIF, WebP or BMP image (TIFF is not '
@@ -414,7 +427,7 @@ Uint8List convertImageSync(
   // A still image: its one frame, from the reading checked above. An
   // animated GIF (still converted: its decoder checks every frame against
   // its screen while decoding) is decoded whole.
-  final decoded = _guarded(
+  final decoded = guardImageCall(
     () => decoder is img.GifDecoder && frames > 1
         ? decoder.decode(bytes)
         : decoder.decodeFrame(0),
@@ -483,7 +496,7 @@ Uint8List convertImageSync(
         throw ImageConversionException('Unknown manipulation [$name].');
     }
   }
-  return _guarded(
+  return guardImageCall(
     () => switch (ImageFormat.fromExtension(format)) {
       ImageFormat.png => img.encodePng(image),
       ImageFormat.gif => _encodeGif(image, gifLimit),
@@ -808,24 +821,6 @@ img.Decoder? _decoderFor(Uint8List bytes, int maxPixels) {
     }
   }
   return null;
-}
-
-/// [body], with `package:image`'s errors as this library's: its pixel
-/// budget (checked per frame and over all frames or pages, with our
-/// limit) as [ImageTooLargeException], a damaged file as
-/// [ImageConversionException]. The budget error is told by its message,
-/// which `package:image` does not type. Our own checks run first, on what
-/// the header read reports; the package's own budget still covers what
-/// only decoding reaches. Should that message change, such a file becomes
-/// an [ImageConversionException]: still refused, only named differently.
-T _guarded<T>(T Function() body) {
-  try {
-    return body();
-  } on img.ImageException catch (error) {
-    throw error.message.contains('exceed the maximum')
-        ? ImageTooLargeException('${error.message}; it was not converted.')
-        : ImageConversionException(error.message);
-  }
 }
 
 /// Whether the decoder's own reading ([info] from its `startDecode`) is of

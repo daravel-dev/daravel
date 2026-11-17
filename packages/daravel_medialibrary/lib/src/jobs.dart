@@ -71,7 +71,14 @@ final class PerformConversionsJob extends Job {
       );
     } on ImageConversionException catch (error) {
       // The same file fails the same way on every try (an image past the
-      // limits, a damaged file): fail at once instead of three times.
+      // limits, a damaged file, a defect of the image library met on it):
+      // fail at once instead of three times.
+      if (error is ImageLibraryException) {
+        Log.warning('The image library failed converting a media', {
+          'media_id': mediaId,
+          'error': error.errorType,
+        });
+      }
       ctx.fail(error);
     }
   }

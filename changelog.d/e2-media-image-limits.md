@@ -7,6 +7,7 @@
 - The JPEG scan count before decoding skips what the segments before the first scan carry (an EXIF thumbnail, a comment), as a decoder does, so bytes there are no longer counted as scans.
 - A conversion writes a GIF of at most `MEDIA_MAX_GIF_PIXELS` pixels (width x height x frames; a tenth of `MEDIA_MAX_IMAGE_PIXELS`, 4 million, by default), refused before encoding past it: encoding a GIF costs about 1.1 to 1.2 s per million pixels of a photograph. A 16-bit image is written as a GIF through 8 bits, which the GIF encoder could not take.
 - Blur counts its work by depth and channels: a 16-bit image eleven times an 8-bit one, an RGBA image 4/3 and a grayscale one 1/3 of three channels; a 1, 2 or 4-bit image is blurred as 8 bits. Blur is not applied to other pixel formats.
+- An `Error` the image library throws reading, decoding or encoding a file becomes an `ImageLibraryException` (an `ImageConversionException`) with the error's type, logged as a warning: the conversion job fails once instead of decoding the same file three times. Running out of memory or stack is thrown as it is.
 
 ### Upgrade notes
 
