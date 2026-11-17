@@ -196,6 +196,12 @@ final class WebSocketGuard {
   /// client's code. A close is answered with that code, the socket
   /// destroyed after the grace; a client that went away is not waited for.
   void _closedUnread(int? code, String? reason, {required bool clientGone}) {
+    if (clientGone && _answering) {
+      // The client's close is being answered: the end of its stream does
+      // not cut the answer short. The answer's end closes the socket, the
+      // grace below bounds it.
+      return;
+    }
     final attached = _attached;
     if (attached is BufferedWebSocket) {
       // No close read: 1006 (gone) or 1005 (no code), as RFC 6455 §7.1.5.
@@ -207,6 +213,7 @@ final class WebSocketGuard {
       return;
     }
     _keepGrace = true;
+    _answering = true;
     // The answer echoes the client's code when it is 1000 or 3000-4999,
     // else closes with 1000; the reason, already checked as UTF-8 within
     // 123 bytes, goes with it.
@@ -217,13 +224,19 @@ final class WebSocketGuard {
       unawaited(
         attached
             .close(echo, echo == null ? null : reason)
-            .then<void>((_) {}, onError: (Object _) {}),
+            .then<void>(
+              (_) => socket?.destroy(),
+              onError: (Object _) => socket?.destroy(),
+            ),
       );
     } on Object {
       // Closing already: the grace below ends it.
     }
     _grace = Timer(limits.closeGrace, () => socket?.destroy());
   }
+
+  /// The client's close is being answered ([_closedUnread]).
+  bool _answering = false;
 
   /// The socket was destroyed: the session ends now, not when the
   /// BufferedWebSocket's own close gives up waiting for a client that
@@ -1107,7 +1120,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       _guard._closedUnread(
         _guard._clientCloseCode,
         _guard._clientCloseReason,
-        clientGone: ended,
+        // A CLOSE that was read is answered, TCP ended after it or not.
+        clientGone: ended && !_closeRead,
       );
       return;
     }
@@ -1159,10 +1173,14 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       if (!_destroyed &&
           !_guard._violated &&
           _guard._attached?.readyState == WebSocket.open) {
-        // The application cancelled its subscription and kept the socket:
-        // the client is read on and what it sends dropped, as the server's
-        // own read for a handler that never listens does, so its close or
-        // its going away still ends the session. Frames are still checked.
+        // Nothing reads what arrives any more while the socket stays open:
+        // the application cancelled its subscription and kept the socket,
+        // or the WebSocket stopped reading at the client's CLOSE (it is
+        // handed on before the guard records it). The client is read on
+        // and what it sends dropped, as the server's own read for a
+        // handler that never listens does, so its close or its going away
+        // still ends the session, its close answered ([_closedUnread]).
+        // Frames are still checked.
         _readerGone = true;
         // What the client said before the cancel and nobody read: its
         // close, or the end of its TCP stream (no more will arrive). The
@@ -1176,7 +1194,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
           _guard._closedUnread(
             _guard._clientCloseCode,
             _guard._clientCloseReason,
-            clientGone: ended,
+            // A CLOSE that was read is answered, TCP ended after it or not.
+            clientGone: ended && !_closeRead,
           );
           return null;
         }
@@ -1190,9 +1209,10 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     },
   );
 
-  /// The application cancelled its subscription while the socket stayed
-  /// open: nothing reads what arrives any more, and nothing can (a
-  /// WebSocket is listened to once).
+  /// Nothing reads [_in] any more while the socket stayed open, and nothing
+  /// can (a WebSocket is listened to once): the application cancelled its
+  /// subscription, or the WebSocket stopped reading at the client's CLOSE.
+  /// It does not tell which.
   bool _readerGone = false;
 
   final Queue<List<int>> _waiting = Queue<List<int>>();

@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:6cfd193ca8d8 -->
+    r'''<!-- source: responses.md sha256:2eb86274739e -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -489,7 +489,9 @@ client (lebih dari batas di atas menunggu) tetap menjalankan
 `assembleTimeout`-nya. Sesudah handler membatalkan langganannya tetapi
 mempertahankan socket, kiriman client dibaca lalu dibuang (frame-nya tetap
 diperiksa): yang dikirim handler tetap keluar seperti biasa, dan close atau
-kepergian client langsung mengakhiri sesi.
+kepergian client langsung mengakhiri sesi. Close dari client dijawab
+dengan kodenya sebelum koneksi berakhir, juga bila akhir stream-nya datang
+bersamaan.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame
