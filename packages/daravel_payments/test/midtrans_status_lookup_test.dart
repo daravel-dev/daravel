@@ -434,6 +434,23 @@ void main() {
       await checked;
     });
 
+    test(
+      'a reference that cannot name a second lookup is not looked up',
+      () async {
+        for (final reference in ['', '   ', 'ORDER', 'R' * 256]) {
+          final before = client.requests.length;
+          final pending = app.run(
+            () => gateway.status('ORDER', reference: reference),
+          );
+          await _settleCallers();
+          client.requests.last.answer(const {'status_code': '404'});
+          expect((await pending).status, PaymentStatus.pending);
+          expect(client.requests, hasLength(before + 1), reason: reference);
+          expect(client.requests.last.url.path, '/v2/ORDER/status');
+        }
+      },
+    );
+
     test('pending when neither is known', () async {
       final pending = app.run(
         () => gateway.status('ORDER', reference: 'tx-saved'),

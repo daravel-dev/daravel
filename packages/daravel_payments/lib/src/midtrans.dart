@@ -123,6 +123,15 @@ final class MidtransGateway implements PaymentGateway {
   /// path steps, not identifiers.
   static bool _segment(String value) => value != '.' && value != '..';
 
+  /// Whether [reference] can name a second lookup for [orderId]: not blank,
+  /// not the order id itself (the first lookup), at most 255 characters,
+  /// and one URL segment.
+  static bool _usableReference(String reference, String orderId) =>
+      reference.trim().isNotEmpty &&
+      reference != orderId &&
+      reference.runes.take(256).length <= 255 &&
+      _segment(reference);
+
   /// Midtrans' answer that it does not know what was asked for.
   bool _isMissing(ClientResponse response, Map<String, Object?> body) =>
       (response.successful || response.status == 404) &&
@@ -143,7 +152,8 @@ final class MidtransGateway implements PaymentGateway {
     );
     var body = apiObject(response, 'Midtrans status');
     if (_isMissing(response, body)) {
-      if (transactionHint != null && _segment(transactionHint)) {
+      if (transactionHint != null &&
+          _usableReference(transactionHint, orderId)) {
         // The reference selects a lookup; the returned order still has to
         // be the authenticated order below.
         response = await _http.get(

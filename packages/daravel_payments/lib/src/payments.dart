@@ -552,7 +552,7 @@ abstract final class Payment {
   ///   notification again only after a non-2xx answer, so the payment is
   ///   applied once its order exists. Midtrans retries a status outside
   ///   its table (409 among them) five times, 400 and 404 twice and 500
-  ///   once (https://docs.midtrans.com/docs/https-notification-webhooks).
+  ///   once (https://docs.midtrans.com/reference/best-practices-to-handle-notification).
   ///   An order that is not this application's (a gateway account shared
   ///   with another system) is then retried until the gateway gives up;
   ///   pass 200 to acknowledge such orders.

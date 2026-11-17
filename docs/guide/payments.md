@@ -107,9 +107,14 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    answered 429 with `Retry-After: 1`, which Midtrans retries. Each
    notification about another order makes its own call;
    `HTTP_MAX_IN_FLIGHT` bounds how many run at once. Completed answers are
-   not cached. Configure an ingress rate limit through
-   `Payment.webhookRoutes(middleware: ...)` and
-   account for outbound status calls and gateway availability.
+   not cached. A sender holding one validly signed notification for an
+   order can keep those four places full with forged transaction ids:
+   measured with eight senders, valid deliveries 150 ms apart were all
+   answered 429 while the flood lasted and applied once it stopped
+   (Midtrans retries 429). Configure an ingress rate limit through
+   `Payment.webhookRoutes(middleware: ...)` and account for outbound status
+   calls and gateway availability; with `throttle` there, the 429 answers
+   count against its quota like any other request.
    Allow outbound HTTPS to `api.midtrans.com` in production or
    `api.sandbox.midtrans.com` in the sandbox.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
@@ -170,7 +175,15 @@ its listeners should be idempotent.
 ## Reconciling
 
 A notification can get lost. `dartisan payment:check ORDER-42` asks the
-gateway for the payment's status and applies it the same way. Add
+gateway for the payment's status and applies it the same way. With
+Midtrans, the order is looked up by its id and, when Midtrans does not know
+it, by the stored reference: for an order paid through Snap that never got
+a notification, that reference is the Snap token, which costs one more call
+answered 404. A reconciled Midtrans event id is
+`status:<order>:<transaction>:<status>[:<fraud_status>]`, at most 255
+characters, so the order id may hold 238 characters when Midtrans does not
+know the order, 200 with a 36-character transaction id and `settlement`,
+and 193 when a fraud status follows. Add
 `...paymentCommands` from `package:daravel_payments/commands.dart` to
 `bootstrap/commands.dart`.
 
