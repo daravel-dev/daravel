@@ -1270,6 +1270,7 @@ final class ServerEngine {
           .runScoped<void>(
             'request',
             (scope) async {
+              var bodyDetached = false;
               try {
                 scope.put<Request>(request);
                 Response response;
@@ -1334,6 +1335,8 @@ final class ServerEngine {
                     // not cancelled, which would end the connection before
                     // the response leaves.
                     await _writeClosing(raw!, response);
+                    // The detached socket owns the remaining body read.
+                    bodyDetached = true;
                   } else {
                     if (_stopping || refused) {
                       // A request in flight when the drain began, or a
@@ -1347,6 +1350,7 @@ final class ServerEngine {
                     }
                   }
                 } catch (error) {
+                  await request.releaseRefusedBody();
                   logger.warning(
                     'Failed to write response for request $id: $error',
                   );
@@ -1362,7 +1366,13 @@ final class ServerEngine {
                   );
                 }
               } finally {
-                release();
+                try {
+                  if (!bodyDetached) {
+                    await request.releaseRefusedBody();
+                  }
+                } finally {
+                  release();
+                }
               }
             },
             onUncaughtError: (error, stackTrace) => logger.error(
