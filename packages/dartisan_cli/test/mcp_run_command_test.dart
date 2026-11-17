@@ -181,25 +181,28 @@ void main() {
     });
   }
 
-  test('production: offered commands are handed on as given', () async {
-    final s = await server();
-    for (final (command, args) in [
-      ('make:model', ['Post']),
-      ('migrate', ['--force']),
-      ('migrate', <String>[]),
-      ('route:list', <String>[]),
-      ('help', ['migrate:fresh']),
-    ]) {
-      expect(await refused(s, command, args), isFalse, reason: command);
-    }
-    expect(handed, [
-      ['make:model', 'Post'],
-      ['migrate', '--force'],
-      ['migrate'],
-      ['route:list'],
-      ['help', 'migrate:fresh'],
-    ]);
-  });
+  test(
+    'production: offered commands are handed on as the parser read them',
+    () async {
+      final s = await server();
+      for (final (command, args) in [
+        ('make:model', ['Post']),
+        ('migrate', ['--force']),
+        ('migrate', <String>[]),
+        ('route:list', <String>[]),
+        ('help', ['migrate:fresh']),
+      ]) {
+        expect(await refused(s, command, args), isFalse, reason: command);
+      }
+      expect(handed, [
+        ['make:model', '--', 'Post'],
+        ['migrate', '--force'],
+        ['migrate'],
+        ['route:list'],
+        ['help', '--', 'migrate:fresh'],
+      ]);
+    },
+  );
 
   test('outside production: migrate:fresh, db:seed, cache:clear and '
       'migrate --seed are offered; db:transfer and project commands are '

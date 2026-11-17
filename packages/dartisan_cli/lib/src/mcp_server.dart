@@ -117,6 +117,265 @@ String? mcpProductionRefusal(String name, ArgResults command) {
   return null;
 }
 
+/// What an option (or the positional arguments) of a command `run_command`
+/// offers does with its value, in [mcpArgumentUses].
+enum McpArgumentUse {
+  /// Names a file the command writes: checked by [mcpProjectPath] and
+  /// passed on resolved; only a new file or the command's own default.
+  writesPath,
+
+  /// Names a file the command reads: checked by [mcpProjectPath] and passed
+  /// on resolved.
+  readsPath,
+
+  /// Refused through `run_command` whenever it is given.
+  refused,
+
+  /// Not a path Daravel opens: a flag, a name made safe by the command, an
+  /// id, a format, a URI pattern.
+  value,
+}
+
+/// The key of [mcpArgumentUses] entries for a command's positional
+/// arguments.
+const String mcpPositional = '<arguments>';
+
+/// The options every `make:*` command may take; all are values (names go
+/// through the generator's naming, other text is escaped).
+const Map<String, McpArgumentUse> _makeArguments = {
+  'force': .value,
+  'dry-run': .value,
+  'no-registry': .value,
+  'model': .value,
+  'event': .value,
+  'table': .value,
+  'create': .value,
+  'command': .value,
+  'api': .value,
+  'resource': .value,
+  'migration': .value,
+  'factory': .value,
+  'seeder': .value,
+  'controller': .value,
+  'all': .value,
+  'policy': .value,
+  'soft-deletes': .value,
+  'unit': .value,
+  mcpPositional: .value,
+};
+
+/// Every option and the positional arguments of every command
+/// `run_command` offers ([mcpOfferedCommands], [mcpOfferedOutsideProduction]
+/// and the `make:*` commands, under `make:*`): what each does with its
+/// value. A command or option missing here is a test failure, so a new one
+/// cannot reach a path unchecked.
+const Map<String, Map<String, McpArgumentUse>> mcpArgumentUses = {
+  'about': {'json': .value, mcpPositional: .value},
+  'doctor': {
+    'production': .value,
+    // Resolves the project's own packages again; no path given.
+    'fix-tooling': .value,
+    mcpPositional: .value,
+  },
+  'list': {'raw': .value, 'format': .value, mcpPositional: .value},
+  // Command names.
+  'help': {mcpPositional: .value},
+  'route:list': {
+    // A URI pattern, not a file.
+    'path': .value,
+    'method': .value,
+    'name': .value,
+    'json': .value,
+    'channels': .value,
+    mcpPositional: .value,
+  },
+  'route:diff': {
+    'laravel': .refused,
+    'laravel-json': .readsPath,
+    'json': .value,
+    'by-prefix': .value,
+    mcpPositional: .value,
+  },
+  // A model name.
+  'model:show': {'json': .value, mcpPositional: .value},
+  // A connection name.
+  'db:show': {mcpPositional: .value},
+  // A table name.
+  'db:table': {'limit': .value, mcpPositional: .value},
+  'migrate:status': {mcpPositional: .value},
+  'schedule:list': {'timezone': .value, mcpPositional: .value},
+  'queue:failed': {mcpPositional: .value},
+  'security:audit': {
+    'target': .refused,
+    'format': .value,
+    'output': .writesPath,
+    'severity': .value,
+    'only': .value,
+    // A route of the audited server, not a file.
+    'json-path': .value,
+    'timeout': .value,
+    mcpPositional: .value,
+  },
+  // Model files of the project's models directory; the positional is a
+  // model name.
+  'model:sync': {
+    'dry-run': .value,
+    'boot': .value,
+    'reset-regions': .value,
+    'in-entry': .value,
+    'check': .value,
+    'typed-ids': .value,
+    mcpPositional: .value,
+  },
+  // Request files of the project's requests directory; the positional is
+  // a request name.
+  'request:sync': {'check': .value, mcpPositional: .value},
+  // Writes lib/app/names.dart.
+  'names:sync': {'check': .value, 'boot': .value, mcpPositional: .value},
+  'openapi:generate': {
+    'output': .writesPath,
+    'api-version': .value,
+    mcpPositional: .value,
+  },
+  // Writes the built-in stubs into stubs/.
+  'stub:publish': {
+    'force': .value,
+    'dry-run': .value,
+    'no-registry': .value,
+    mcpPositional: .value,
+  },
+  // Lints (and with --fix rewrites) the project's own files.
+  'lint': {
+    'json': .value,
+    'enable': .value,
+    'disable': .value,
+    'fix': .value,
+    'dry-run': .value,
+    'force': .value,
+    mcpPositional: .value,
+  },
+  'migrate': {'seed': .value, 'force': .value, mcpPositional: .value},
+  // Outside production only: the positional arguments go to `dart test`,
+  // which runs the files named, so each is a path inside the project; an
+  // option of `dart test` (it starts with `-`) is refused here.
+  'test': {
+    'conformance': .value,
+    'security': .value,
+    'coverage': .value,
+    mcpPositional: .readsPath,
+  },
+  'migrate:fresh': {'seed': .value, 'force': .value, mcpPositional: .value},
+  'migrate:reset': {'force': .value, mcpPositional: .value},
+  'migrate:rollback': {'step': .value, 'force': .value, mcpPositional: .value},
+  'db:seed': {
+    'class': .value,
+    'all': .value,
+    'force': .value,
+    mcpPositional: .value,
+  },
+  // A cache store name.
+  'cache:clear': {'locks': .value, mcpPositional: .value},
+  // Links public/storage to storage/app/public.
+  'storage:link': {'force': .value, mcpPositional: .value},
+  // Failed job ids.
+  'queue:retry': {'queue': .value, mcpPositional: .value},
+  'queue:forget': {mcpPositional: .value},
+  'make:*': _makeArguments,
+};
+
+/// The [mcpArgumentUses] entry of the command [name].
+Map<String, McpArgumentUse>? mcpArgumentUsesOf(String name) =>
+    mcpArgumentUses[name.startsWith('make:') ? 'make:*' : name];
+
+/// The file [value] (an option of a command `run_command` offers) names,
+/// as the absolute path inside the project [root] that is passed on in its
+/// place, or a [StateError] saying why it is refused.
+///
+/// What is checked is what is used: [value] is resolved against [root],
+/// the deepest part of it that exists has its links resolved, and the
+/// result must lie inside [root]'s own resolved path; that result is the
+/// path returned. Refused before that: an empty value, a NUL, a path
+/// starting with `\\` or `//`, a drive letter without a separator after it
+/// (`C:name`), a `:` elsewhere, a Windows device name (`CON`, `NUL.json`)
+/// and a part ending in a dot or a space. A path that exists as a link is
+/// refused. When [write]: a file that exists is refused, unless it is
+/// [writeDefault] (the command's own default output, relative to [root]).
+String mcpProjectPath(
+  String root,
+  String value, {
+  required bool write,
+  String? writeDefault,
+}) {
+  Never refuse(String why) => throw StateError(why);
+  if (value.isEmpty || value.contains('\u0000')) {
+    refuse('an empty path or a NUL in it');
+  }
+  if (value.startsWith(r'\\') || value.startsWith('//')) {
+    refuse('a network or device path');
+  }
+  final drive = RegExp('^[A-Za-z]:').hasMatch(value);
+  if (drive && (value.length == 2 || (value[2] != r'\' && value[2] != '/'))) {
+    refuse('a drive letter without a separator after it');
+  }
+  if (value.indexOf(':', drive ? 2 : 0) >= 0) {
+    refuse('a ":" in a name');
+  }
+  final device = RegExp(
+    r'^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$',
+    caseSensitive: false,
+  );
+  for (final part in value.split(RegExp(r'[\\/]'))) {
+    if (part == '.' || part == '..' || part.isEmpty) {
+      continue;
+    }
+    if (part.endsWith('.') || part.endsWith(' ')) {
+      refuse('a name ending in a dot or a space');
+    }
+    if (device.hasMatch(part)) {
+      refuse('a device name');
+    }
+  }
+  final base = p.normalize(p.absolute(root));
+  final realRoot = Directory(base).resolveSymbolicLinksSync();
+  final target = p.normalize(p.isAbsolute(value) ? value : p.join(base, value));
+  if (FileSystemEntity.typeSync(target, followLinks: false) ==
+      FileSystemEntityType.link) {
+    refuse('a link');
+  }
+  // The deepest part that exists, with its links resolved, and the rest.
+  var existing = target;
+  final missing = <String>[];
+  while (FileSystemEntity.typeSync(existing, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    final parent = p.dirname(existing);
+    if (parent == existing) {
+      refuse('a path outside the project');
+    }
+    missing.insert(0, p.basename(existing));
+    existing = parent;
+  }
+  final realExisting =
+      FileSystemEntity.typeSync(existing) == FileSystemEntityType.directory
+      ? Directory(existing).resolveSymbolicLinksSync()
+      : File(existing).resolveSymbolicLinksSync();
+  final real = p.normalize(p.joinAll([realExisting, ...missing]));
+  if (!p.isWithin(realRoot, real)) {
+    refuse('a path outside the project');
+  }
+  if (write && missing.isEmpty) {
+    final own = writeDefault == null
+        ? null
+        : p.normalize(p.join(realRoot, writeDefault));
+    if (own == null || !p.equals(own, real)) {
+      refuse(
+        'a file that exists; pick a new name, or run the command in a '
+        'terminal',
+      );
+    }
+  }
+  return real;
+}
+
 /// Commands `run_command` never starts: long-running or interactive.
 @Deprecated(
   'run_command offers mcpOfferedCommands (and mcpOfferedOutsideProduction '
@@ -594,8 +853,8 @@ final class McpServer {
           for (final value in args['arguments'] as List<Object?>? ?? const [])
             '$value',
         ];
-        _checkCommand(command, arguments);
-        final result = await _runCommand(command, arguments);
+        final checked = _checkCommand(command, arguments);
+        final result = await _runCommand(checked.name, checked.arguments);
         return {
           'exitCode': result.exitCode,
           'stdout': _truncate(result.stdout),
@@ -672,8 +931,12 @@ final class McpServer {
   ];
 
   /// Refuses [command] with [arguments] unless the runner's own parser
-  /// reads them as a command `run_command` offers.
-  void _checkCommand(String command, List<String> arguments) {
+  /// reads them as a command `run_command` offers; else the command's
+  /// canonical name and the arguments to run it with ([_checkOptions]).
+  ({String name, List<String> arguments}) _checkCommand(
+    String command,
+    List<String> arguments,
+  ) {
     final runner = this.runner;
     if (runner == null) {
       throw StateError(
@@ -717,44 +980,106 @@ final class McpServer {
         'server with --allow-command=$name.',
       );
     }
-    _checkOptions(name, named);
+    return (
+      name: name,
+      arguments: _checkOptions(name, resolved.argParser, named),
+    );
   }
 
-  /// Options of offered commands that name a path, kept inside the project.
-  static const Map<String, List<String>> _pathOptions = {
-    'openapi:generate': ['output'],
-    'security:audit': ['output'],
-    'route:diff': ['laravel-json'],
+  /// Why `run_command` refuses an option of [mcpArgumentUses] marked
+  /// [McpArgumentUse.refused].
+  static const Map<String, String> _refusedOptions = {
+    'laravel': 'it runs php in another directory; pass --laravel-json',
+    'target': 'it audits another server; run_command audits APP_URL',
   };
 
-  /// Refuses options that would take the offered command [name] outside
-  /// the project: another program, another server, a path elsewhere.
-  void _checkOptions(String name, ArgResults options) {
-    String? given(String option) =>
-        options.options.contains(option) ? options[option] as String? : null;
-    final refusal = switch (name) {
-      'route:diff' when given('laravel') != null =>
-        '--laravel runs php in another directory; pass --laravel-json',
-      'security:audit' when given('target') != null =>
-        '--target audits another server; run_command audits APP_URL',
-      _ => null,
-    };
-    if (refusal != null) {
-      throw StateError('$name: $refusal.');
+  /// The arguments the offered command [name] is run with: rebuilt from
+  /// [named], what [parser] read (each option given as `--name=value`, then
+  /// `--` and the positional arguments), so the dartisan process reads the
+  /// same command line that was checked, never the client's text. Options
+  /// marked [McpArgumentUse.refused] are refused; paths
+  /// ([McpArgumentUse.writesPath], [McpArgumentUse.readsPath], a path
+  /// option's default too) are checked by [mcpProjectPath] and passed on
+  /// resolved.
+  List<String> _checkOptions(String name, ArgParser parser, ArgResults named) {
+    final uses = mcpArgumentUsesOf(name) ?? const <String, McpArgumentUse>{};
+    final root = app.basePath;
+    String path(String option, String value, McpArgumentUse use) {
+      try {
+        return mcpProjectPath(
+          root,
+          value,
+          write: use == McpArgumentUse.writesPath,
+          writeDefault: use == McpArgumentUse.writesPath
+              ? parser.options[option]?.defaultsTo as String?
+              : null,
+        );
+      } on StateError catch (error) {
+        final what = option.isEmpty ? value : '--$option';
+        throw StateError('$name: $what: ${error.message}.');
+      }
     }
-    final root = p.normalize(p.absolute(app.basePath));
-    for (final option in _pathOptions[name] ?? const <String>[]) {
-      final value = given(option);
-      if (value == null) {
+
+    final out = <String>[];
+    for (final option in parser.options.values) {
+      final use = uses[option.name] ?? McpArgumentUse.value;
+      final given = named.wasParsed(option.name);
+      if (use == McpArgumentUse.refused) {
+        if (given) {
+          throw StateError(
+            '$name: --${option.name}: '
+            '${_refusedOptions[option.name] ?? 'refused here'}.',
+          );
+        }
         continue;
       }
-      final path = p.normalize(p.absolute(p.join(root, value)));
-      if (!p.isWithin(root, path)) {
-        throw StateError(
-          '$name: --$option must name a path inside the project.',
-        );
+      final isPath =
+          use == McpArgumentUse.writesPath || use == McpArgumentUse.readsPath;
+      if (option.isFlag) {
+        if (given) {
+          out.add(
+            named.flag(option.name)
+                ? '--${option.name}'
+                : '--no-${option.name}',
+          );
+        }
+      } else if (option.isMultiple) {
+        for (final value in named.multiOption(option.name)) {
+          out.add(
+            '--${option.name}=${isPath ? path(option.name, value, use) : value}',
+          );
+        }
+      } else {
+        // A path option's default is checked and passed on as well: the
+        // command would otherwise open it unchecked.
+        final value = given
+            ? named.option(option.name)
+            : (isPath ? option.defaultsTo as String? : null);
+        if (value != null) {
+          out.add(
+            '--${option.name}=${isPath ? path(option.name, value, use) : value}',
+          );
+        }
       }
     }
+    if (named.rest.isNotEmpty) {
+      final use = uses[mcpPositional] ?? McpArgumentUse.value;
+      if (use == McpArgumentUse.refused) {
+        throw StateError('$name: arguments are refused here.');
+      }
+      final isPath =
+          use == McpArgumentUse.writesPath || use == McpArgumentUse.readsPath;
+      out.add('--');
+      for (final value in named.rest) {
+        if (isPath && value.startsWith('-')) {
+          throw StateError(
+            '$name: $value: only paths are passed here, no options.',
+          );
+        }
+        out.add(isPath ? path('', value, use) : value);
+      }
+    }
+    return out;
   }
 
   static String _truncate(String text, [int max = 20000]) =>

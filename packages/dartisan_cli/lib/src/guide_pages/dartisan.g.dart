@@ -169,9 +169,20 @@ command line (global flags, `--` and aliases included):
   `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
 
 Options that would take an offered command outside the project are
-refused: `route:diff --laravel` (it runs `php`; pass `--laravel-json`),
-`security:audit --target` (it audits `APP_URL`), and an `--output` or
-`--laravel-json` path outside the project directory.
+refused: `route:diff --laravel` (it runs `php`; pass `--laravel-json`) and
+`security:audit --target` (it audits `APP_URL`). The paths an offered
+command reads or writes (`openapi:generate --output`,
+`security:audit --output`, `route:diff --laravel-json`, the files given to
+`test`) are resolved, links included, and must stay inside the project; a
+path that is itself a link, a path written in a form Windows reads
+elsewhere (`C:name`, `\\server\share`, a `:` in a name, a device name such
+as `CON`, a name ending in a dot or a space) and, for `--output`, a file
+that already exists (other than the command's own default) are refused.
+The command then runs with the command line `run_command` read and
+checked, the paths as resolved, never with the client's text. Two limits:
+the files a command writes at its own fixed places (`make:*`,
+`stub:publish`, `names:sync`) follow a link already in the project, and a
+link made between the check and the write is not seen.
 
 Any other command is refused, the project's own commands too. Open one with
 `mcp:serve --allow-write --allow-command=<name>` (repeat it for more) in

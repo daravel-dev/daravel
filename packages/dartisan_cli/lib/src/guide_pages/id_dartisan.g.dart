@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/dartisan.md`.
 const String pageIdDartisan =
-    r'''<!-- source: dartisan.md sha256:2273f0b8c7b2 -->
+    r'''<!-- source: dartisan.md sha256:a27e5f1dd31e -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -175,9 +175,21 @@ alias):
   `cache:clear`, `storage:link`, `queue:retry`, `queue:forget`.
 
 Option yang membawa command yang ditawarkan keluar dari proyek ditolak:
-`route:diff --laravel` (menjalankan `php`; pakai `--laravel-json`),
-`security:audit --target` (yang diaudit adalah `APP_URL`), serta path
-`--output` atau `--laravel-json` di luar direktori proyek.
+`route:diff --laravel` (menjalankan `php`; pakai `--laravel-json`) dan
+`security:audit --target` (yang diaudit adalah `APP_URL`). Path yang dibaca
+atau ditulis command yang ditawarkan (`openapi:generate --output`,
+`security:audit --output`, `route:diff --laravel-json`, berkas yang
+diberikan ke `test`) diselesaikan, termasuk link, dan harus tetap di dalam
+proyek. Yang ditolak: path yang berupa link, path dalam bentuk yang dibaca
+Windows di tempat lain (`C:nama`, `\\server\share`, `:` di dalam nama, nama
+perangkat seperti `CON`, nama yang berakhir titik atau spasi), dan, untuk
+`--output`, berkas yang sudah ada (selain keluaran bawaan command itu).
+Command lalu dijalankan dengan baris perintah yang dibaca dan diperiksa
+`run_command`, dengan path yang sudah diselesaikan, tidak pernah dengan teks
+dari client. Dua batas: berkas yang ditulis command di tempat tetapnya
+sendiri (`make:*`, `stub:publish`, `names:sync`) mengikuti link yang sudah
+ada di proyek, dan link yang dibuat di antara pemeriksaan dan penulisan
+tidak terlihat.
 
 Command lain ditolak, termasuk command proyek Anda sendiri. Buka satu
 command dengan `mcp:serve --allow-write --allow-command=<nama>` (ulangi
