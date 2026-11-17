@@ -1,4 +1,4 @@
-<!-- source: payments.md sha256:7c144201e727 -->
+<!-- source: payments.md sha256:c5d64e24bd56 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -112,10 +112,15 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    batch yang menunggu penuh dijawab 429 dengan `Retry-After: 1`, yang
    diulang Midtrans. Tiap notifikasi untuk order lain membuat panggilannya
    sendiri; `HTTP_MAX_IN_FLIGHT` membatasi jumlah yang berjalan serentak.
-   Jawaban yang selesai tidak disimpan sebagai cache.
-   Atur pembatasan laju masuk melalui
+   Jawaban yang selesai tidak disimpan sebagai cache. Pengirim yang
+   memegang satu notifikasi bertanda tangan sah untuk sebuah order bisa
+   terus mengisi keempat tempat itu dengan transaction id palsu: terukur
+   dengan delapan pengirim, pengiriman sah berjarak 150 ms semuanya dijawab
+   429 selama banjir berlangsung dan diterapkan begitu banjir berhenti
+   (Midtrans mengulang 429). Atur pembatasan laju masuk melalui
    `Payment.webhookRoutes(middleware: ...)` dan perhitungkan panggilan
-   status keluar serta ketersediaan gateway.
+   status keluar serta ketersediaan gateway; bila `throttle` dipasang di
+   sana, jawaban 429 itu ikut memakan kuotanya seperti permintaan lain.
    Izinkan HTTPS keluar ke `api.midtrans.com` pada produksi atau
    `api.sandbox.midtrans.com` pada sandbox.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
@@ -178,6 +183,14 @@ Notifikasi `amountMismatch` yang dikirim ulang diperiksa lagi dan mengirim
 
 Notifikasi bisa saja hilang. `dartisan payment:check ORDER-42` menanyakan
 status pembayaran ke gateway lalu menerapkannya dengan cara yang sama.
+Dengan Midtrans, order dicari lewat id-nya dan, bila Midtrans tidak
+mengenalnya, lewat referensi yang tersimpan: untuk order Snap yang belum
+pernah menerima notifikasi, referensi itu adalah token Snap, yang berarti
+satu panggilan tambahan yang dijawab 404. Id event Midtrans hasil
+rekonsiliasi adalah `status:<order>:<transaction>:<status>[:<fraud_status>]`,
+paling banyak 255 karakter, sehingga id order boleh 238 karakter bila
+Midtrans tidak mengenal order-nya, 200 dengan id transaksi 36 karakter dan
+`settlement`, dan 193 bila diikuti status fraud.
 Tambahkan `...paymentCommands` dari `package:daravel_payments/commands.dart`
 ke `bootstrap/commands.dart`.
 
