@@ -97,9 +97,6 @@ void main() {
   // Single-valued handshake headers given twice, and an extension header
   // the handshake cannot read as one value: refused.
   final duplicates = <String, String>{
-    'Upgrade':
-        'Upgrade: websocket\r\nUpgrade: websocket\r\n'
-        'Connection: Upgrade\r\n$key',
     'Sec-WebSocket-Key': '$upgrade$key$key',
     'Sec-WebSocket-Version': '$upgrade${key}Sec-WebSocket-Version: 13\r\n',
     'Sec-WebSocket-Extensions':
@@ -107,6 +104,22 @@ void main() {
         'Sec-WebSocket-Extensions: permessage-deflate\r\n'
         'Sec-WebSocket-Extensions: permessage-deflate\r\n',
   };
+
+  const repeatedUpgrade =
+      'Upgrade: websocket\r\nUpgrade: websocket\r\n'
+      'Connection: Upgrade\r\n$key';
+
+  for (final path in ['/ws', '/wsc']) {
+    test('Upgrade selection requires one value ($path)', () async {
+      await serve();
+      final socket = await Socket.connect('127.0.0.1', engine.port!);
+      addTearDown(socket.destroy);
+      final (reply, _) = await answer(socket, path, repeatedUpgrade);
+      expect(reply, startsWith('HTTP/1.1 426'));
+      expect(reply.toLowerCase(), isNot(contains('sec-websocket-accept')));
+      expect(log.records.where((r) => r.level == LogLevel.error), isEmpty);
+    });
+  }
 
   for (final MapEntry(key: header, value: lines) in duplicates.entries) {
     for (final path in ['/ws', '/wsc']) {
@@ -193,7 +206,7 @@ void main() {
   });
 
   test('during a drain: a handshake with Upgrade twice on a connection '
-      'accepted before it is answered 400; the server stays up and answers '
+      'accepted before it is answered 426; the server stays up and answers '
       'the request in flight', () async {
     await serve();
     final port = engine.port!;
@@ -210,8 +223,10 @@ void main() {
         .then(latin1.decode, onError: (Object e) => 'error: $e');
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final stopping = engine.stop();
-    final (reply, closed) = await answer(bad, '/ws', duplicates['Upgrade']!);
-    expectRefused(reply, closed);
+    final (reply, closed) = await answer(bad, '/ws', repeatedUpgrade);
+    expect(reply, startsWith('HTTP/1.1 426'));
+    expect(reply.toLowerCase(), contains('connection: close'));
+    expect(closed, isTrue);
     expect(await goodReply, contains('slow'));
     await stopping;
     expect(log.records.where((r) => r.level == LogLevel.error), isEmpty);

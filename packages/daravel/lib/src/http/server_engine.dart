@@ -612,6 +612,9 @@ final class ServerEngine {
   /// waiting for it, and its connection is closed after the answer, so a
   /// client streaming into an overloaded worker is not kept.
   void _shedRequest(HttpRequest httpRequest) {
+    if (_stopping) {
+      httpRequest.response.persistentConnection = false;
+    }
     final body = _discardBody(httpRequest);
     _shed++;
     onShed?.call();
@@ -747,8 +750,9 @@ final class ServerEngine {
       Response.text('Bad Request', status: 400);
 
   /// Upgrades [httpRequest] (its middleware has passed): the socket, or
-  /// none and what was answered instead, for `kernel.terminate`. Not a
-  /// WebSocket request: `426 Upgrade Required`. A handshake that does not
+  /// none and what was answered instead, for `kernel.terminate`. Requests
+  /// that do not ask for an upgrade are answered by [_handle]. A handshake
+  /// that does not
   /// read as one, or an upgrade that fails: 400. An upgrade that fails
   /// after it took the connection over answers nothing (the socket is
   /// destroyed); terminate sees that 400 too, the answer the handshake
@@ -767,7 +771,7 @@ final class ServerEngine {
     Response response,
     String id,
   ) async {
-    final ask = _upgradeAsk(httpRequest);
+    final ask = _upgradeAsk(httpRequest, request);
     if (ask == _UpgradeAsk.malformed) {
       logger.warning(
         'WebSocket handshake refused for request $id: its headers do not '
@@ -776,17 +780,6 @@ final class ServerEngine {
       );
       await _refuseHandshake(httpRequest);
       return (socket: null, answered: _handshakeRefused);
-    }
-    if (ask == _UpgradeAsk.none) {
-      final refusal = Response.json(const <String, Object?>{
-        'message': 'Upgrade Required',
-      }, status: 426).withHeader('upgrade', 'websocket');
-      try {
-        await refusal.writeTo(httpRequest.response);
-      } catch (_) {
-        // Client gone.
-      }
-      return (socket: null, answered: refusal);
     }
     // The server reads the frames itself (WebSocketGuard): a message is
     // limited as a whole, fragments are assembled before the WebSocket
@@ -858,7 +851,10 @@ final class ServerEngine {
   /// upgrade by the drain ([_handle]). `Connection`, `Sec-WebSocket-Protocol`
   /// and `Sec-WebSocket-Extensions` may come as lists or repeated
   /// (RFC 6455 §4.1), and that is not malformed.
-  static _UpgradeAsk _upgradeAsk(HttpRequest httpRequest) {
+  static _UpgradeAsk _upgradeAsk(HttpRequest httpRequest, Request request) {
+    if (!isWebSocketUpgrade(request)) {
+      return _UpgradeAsk.none;
+    }
     try {
       return WebSocketTransformer.isUpgradeRequest(httpRequest)
           ? _UpgradeAsk.upgrade
@@ -1214,15 +1210,6 @@ final class ServerEngine {
   }
 
   void _handle(HttpRequest httpRequest) {
-    if (_stopping && _upgradeAsk(httpRequest) != _UpgradeAsk.upgrade) {
-      // Draining: the client opens a new connection for its next request
-      // (to another isolate or server) instead of sending it on this one.
-      // Not for an upgrade: its connection becomes the WebSocket, which the
-      // drain closes `goingAway` itself ([_upgrade]). A handshake whose
-      // headers do not read as one counts as no upgrade (read without
-      // throwing: this runs in the server's own listener).
-      httpRequest.response.persistentConnection = false;
-    }
     if (_mustShed(httpRequest)) {
       _shedRequest(httpRequest);
       return;
@@ -1265,6 +1252,11 @@ final class ServerEngine {
       return;
     }
     request.maxBodyBytes = options.maxBodyBytes;
+    if (_stopping && _upgradeAsk(httpRequest, request) != _UpgradeAsk.upgrade) {
+      // A request during drain reconnects after its response. An upgrade
+      // becomes a WebSocket and receives the session's goingAway close.
+      httpRequest.response.persistentConnection = false;
+    }
     // The closure below lives as long as a WebSocket does: it lets go of
     // the HTTP request once the socket has taken over.
     HttpRequest? raw = httpRequest;
@@ -1292,6 +1284,12 @@ final class ServerEngine {
                     'message': 'Server Error',
                   }, status: 500);
                 }
+                if (response.webSocket != null &&
+                    _upgradeAsk(raw!, request) == _UpgradeAsk.none) {
+                  response = Response.json(const <String, Object?>{
+                    'message': 'Upgrade Required',
+                  }, status: 426).withHeader('upgrade', 'websocket');
+                }
                 final onSocket = response.webSocket;
                 if (onSocket != null) {
                   final (:socket, :answered) = await _upgrade(
@@ -1307,7 +1305,7 @@ final class ServerEngine {
                     // The session terminates the request when it ends.
                     await _session(socket, request, response, onSocket, id);
                   } else {
-                    // Answered without a socket (426, 400): terminated
+                    // Answered without a socket (400): terminated
                     // once, with what was answered, as a plain request is
                     // (kernel.terminate logs what fails in it and goes on).
                     await kernel.terminate(request, answered!);
