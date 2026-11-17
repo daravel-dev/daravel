@@ -216,6 +216,34 @@ final class Request {
   /// served or from the test client.
   MultipartLimits multipartLimits = const MultipartLimits();
 
+  /// Maximum number of nonempty query or URL-encoded form pairs.
+  int get maxInputVars => _maxInputVars;
+
+  set maxInputVars(int value) {
+    if (value <= 0) {
+      throw ArgumentError.value(value, 'maxInputVars', 'must be positive');
+    }
+    _maxInputVars = value;
+  }
+
+  int _maxInputVars = defaultMaxInputVars;
+
+  /// Default maximum for each input source.
+  static const int defaultMaxInputVars = 1000;
+
+  /// Reads the maximum number of input pairs from the environment.
+  static int maxInputVarsFromEnv(Env env) {
+    final value = env.integer('HTTP_MAX_INPUT_VARS', defaultMaxInputVars);
+    if (value <= 0) {
+      throw ArgumentError.value(
+        value,
+        'HTTP_MAX_INPUT_VARS',
+        'must be positive',
+      );
+    }
+    return value;
+  }
+
   /// Maximum body size accepted by [bytes]; `null` means unlimited.
   int? maxBodyBytes = defaultMaxBodyBytes;
 
@@ -290,6 +318,7 @@ final class Request {
   Stream<List<int>>? _bodyStream;
   List<int>? _bodyBytes;
   Object? _parsedBody;
+  BadRequestHttpException? _inputVarsError;
   bool _bodyParsed = false;
   final List<UploadedFile> _uploads = [];
   bool _cleanupScheduled = false;
@@ -322,16 +351,22 @@ final class Request {
   String get path => uri.path;
 
   /// Single-valued query parameters.
-  Map<String, String> get query => uri.queryParameters;
+  Map<String, String> get query {
+    _checkInputCount(uri.query, maxInputVars);
+    return uri.queryParameters;
+  }
 
   /// Multi-valued query parameters.
-  Map<String, List<String>> get queryMulti => uri.queryParametersAll;
+  Map<String, List<String>> get queryMulti {
+    _checkInputCount(uri.query, maxInputVars);
+    return uri.queryParametersAll;
+  }
 
   /// Query parameters as Laravel reads them (PHP's `parse_str`):
   /// `ids[]=1&ids[]=2` is a list, `filter[status]=x` a map, and a repeated
   /// plain key keeps its last value.
   Map<String, Object?> get queryInput =>
-      _queryInput ??= parseQueryString(uri.query);
+      _queryInput ??= parseQueryString(uri.query, maxInputVars: maxInputVars);
 
   /// Client address. Equals [remoteAddress] unless a trusted proxy supplied
   /// `X-Forwarded-For` (see `TrustProxiesMiddleware`).
@@ -740,6 +775,9 @@ final class Request {
   /// JSON → decoded value, form → a map read like PHP's `parse_str` (see
   /// [parseQueryString]), otherwise the raw text (or `null` when empty).
   Future<Object?> body() async {
+    if (_inputVarsError case final error?) {
+      throw error;
+    }
     if (_bodyParsed) {
       return _parsedBody;
     }
@@ -800,7 +838,15 @@ final class Request {
       return _parsedBody = decoded;
     }
     if (contentType.contains('application/x-www-form-urlencoded')) {
-      return _parsedBody = parseQueryString(utf8.decode(raw));
+      try {
+        return _parsedBody = parseQueryString(
+          utf8.decode(raw),
+          maxInputVars: maxInputVars,
+        );
+      } on BadRequestHttpException catch (error) {
+        _inputVarsError = error;
+        rethrow;
+      }
     }
     return _parsedBody = utf8.decode(raw);
   }
@@ -1222,9 +1268,21 @@ final class Request {
 /// Laravel's input: `a[]=1&a[]=2` is a list, `f[status]=x` a map, keys nest
 /// up to [maxDepth] levels, and a repeated plain key keeps its last value.
 /// Maps whose keys are exactly `0..n-1` become lists, as in Laravel's JSON.
-Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
+/// More than [maxInputVars] nonempty pairs throws [BadRequestHttpException]
+/// before constructing nested input; the limit must be positive.
+Map<String, Object?> parseQueryString(
+  String query, {
+  int maxDepth = 32,
+  int maxInputVars = Request.defaultMaxInputVars,
+}) {
+  _checkInputCount(query, maxInputVars);
   final pairs = <(String, Object)>[];
-  for (final pair in query.split('&')) {
+  var start = 0;
+  while (start < query.length) {
+    final separator = query.indexOf('&', start);
+    final end = separator < 0 ? query.length : separator;
+    final pair = query.substring(start, end);
+    start = separator < 0 ? query.length : separator + 1;
     if (pair.isEmpty) {
       continue;
     }
@@ -1244,6 +1302,24 @@ Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
     pairs.add((key, value));
   }
   return buildInput(pairs, maxDepth: maxDepth);
+}
+
+void _checkInputCount(String query, int maxInputVars) {
+  if (maxInputVars <= 0) {
+    throw ArgumentError.value(maxInputVars, 'maxInputVars', 'must be positive');
+  }
+  var start = 0;
+  var count = 0;
+  while (start < query.length) {
+    if (query.codeUnitAt(start) != 0x26 && ++count > maxInputVars) {
+      throw BadRequestHttpException(
+        'Input exceeds the limit of $maxInputVars variables.',
+      );
+    }
+    final separator = query.indexOf('&', start);
+    if (separator < 0) break;
+    start = separator + 1;
+  }
 }
 
 /// Nests `name[key][]`-style [pairs] into maps and lists, as PHP fills

@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:1f273feeb54d -->
+<!-- source: configuration.md sha256:337281a4c21a -->
 # Konfigurasi
 
 ## File environment
@@ -116,6 +116,7 @@ setelah boot.
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas). Body JSON dan form mendapat batas sendiri yang lebih rendah, di bawah |
 | `HTTP_MAX_JSON_BODY` | `1048576` (1 MiB) | Body JSON terbesar (`application/json` dan `+json`), sejak 1.28.0; tidak pernah di atas `HTTP_MAX_BODY`. `bodyLimit` milik route atau `BodyLimitsMiddleware` menggantikannya. `0` membuat JSON tanpa batas sendiri (hanya `HTTP_MAX_BODY`), seperti sebelum 1.28.0: satu body besar lalu membuat worker mengurai dan memvalidasi seluruhnya (lihat catatan rilis) |
 | `HTTP_MAX_FORM_BODY` | `1048576` (1 MiB) | Sama, untuk body `application/x-www-form-urlencoded` |
+| `HTTP_MAX_INPUT_VARS` | `1000` | Jumlah maksimum pasangan tidak kosong pada query string dan form URL-encoded, dihitung terpisah; input berlebih ditolak dengan `400` saat dibaca. Harus positif. Multipart memakai `HTTP_MULTIPART_MAX_PARTS` |
 | `HTTP_JSON_MAX_DEPTH` | `512` | Kedalaman body JSON, dengan arti `$depth` pada `json_decode` PHP, sehingga body terbaca seperti di Laravel: array dan objek yang bersarang 511 tingkat terbaca, 512 tingkat atau lebih menjadi input kosong (validasi berjalan atas input kosong, `422` untuk `required`), bukan `400`. Dihitung pada byte sebelum di-decode; body form dan multipart tidak terpengaruh. Body JSON yang rusak menjadi `400` (`Malformed JSON body`), perbedaan yang disengaja: Laravel membacanya sebagai input kosong. `0` untuk tanpa batas |
 | `HTTP_MAX_HEADER_BYTES` | `32768` (32 KiB) | Baris request dan seluruh header; di atasnya `431 Request Header Fields Too Large` sebelum routing, juga untuk handshake WebSocket (`0` untuk tanpa batas). Ini membatasi apa yang diurai aplikasi, bukan apa yang dibaca `dart:io` (sampai 1 MiB) |
 | `HTTP_MAX_HEADER_LINE_BYTES` | `16384` (16 KiB) | Satu header, nama dan nilainya; `431` di atasnya (`0` untuk tanpa batas). Bawaan nginx adalah 8 KiB per baris |
