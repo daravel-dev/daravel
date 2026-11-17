@@ -238,6 +238,28 @@ void main() {
     });
   });
 
+  test('booted with MEDIA_MAX_IMAGE_PIXELS below 10, the GIF limit the '
+      'conversions get is 1, not 0', () async {
+    final app = await migrated({'MEDIA_MAX_IMAGE_PIXELS': '5'});
+    await app.run(() async {
+      final config = App.make<ConfigRepository>().section<MediaLibraryConfig>();
+      expect(config.gifPixelLimit, 1);
+      final gif = img.encodeGif(img.Image(width: 1, height: 1));
+      expect(
+        await convertImage(
+          gif,
+          {
+            'format': ['gif'],
+          },
+          maxPixels: config.maxImagePixels,
+          maxFrames: config.maxImageFrames,
+          maxGifPixels: config.gifPixelLimit,
+        ),
+        isNotEmpty,
+      );
+    });
+  });
+
   test('single file collections, accepted types, file names, size', () async {
     final app = await migrated({'MEDIA_MAX_FILE_SIZE': '200000'});
     await app.run(() async {

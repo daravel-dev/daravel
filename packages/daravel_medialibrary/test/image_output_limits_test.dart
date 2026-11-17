@@ -1,6 +1,9 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:daravel_medialibrary/daravel_medialibrary.dart';
+// The walk the conversion follows before decoding; not exported.
+import 'package:daravel_medialibrary/src/jpeg_walk.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
 
@@ -524,6 +527,135 @@ void main() {
       );
     }
 
+    // `FF 00` is no marker: the decoder passes over it and reads the
+    // segment after it (`FF FE 00 02`, an empty comment), so the walk does.
+    const stuffed = [0xFF, 0x00, 0xFF, 0xFE, 0x00, 0x02];
+    for (final (name, afterStart, beforeScans) in [
+      ('once before the frame header', stuffed, const <int>[]),
+      ('chained before the frame header', [...stuffed, ...stuffed], <int>[]),
+      ('once before the first scan', const <int>[], stuffed),
+      ('chained before the first scan', <int>[], [...stuffed, ...stuffed]),
+      ('alone before the frame header', [0xFF, 0x00], <int>[]),
+      ('between fill bytes', [0xFF, 0xFF, 0x00, 0xFF], <int>[]),
+    ]) {
+      test('FF 00 $name: the scans still count', () {
+        expect(
+          convert(
+            _scansOnly(
+              8000,
+              5000,
+              17,
+              afterStart: afterStart,
+              beforeScans: beforeScans,
+            ),
+            {},
+          ),
+          refused,
+        );
+      });
+    }
+
+    test('the walk counts at least the scans the decoder reads (500 random '
+        'headers)', () {
+      // An 8 x 8 progressive JPEG of 1 001 scans: the decoder stops at its
+      // 1 001st ('Too many JPEG scans'), so reaching it shows it read them
+      // all, and the walk must count at least as many. Random pieces go
+      // after the start of image or before the first scan.
+      final random = Random(406);
+      final body = _progressiveJpeg(8, 8, 1001).sublist(2);
+      final firstScan = _indexOf(body, const [0xFF, 0xDA]);
+      List<int> content() => [
+        for (var i = random.nextInt(12); i > 0; i--)
+          ...switch (random.nextInt(6)) {
+            0 => const [0xFF, 0xDA],
+            1 => const [0xFF, 0xC2],
+            2 => const [0xFF, 0x00],
+            3 => const [0xFF, 0xD9],
+            4 => const [0xFF],
+            _ => [random.nextInt(255)],
+          },
+      ];
+      List<int> piece() {
+        switch (random.nextInt(11)) {
+          case 0:
+            return const [0xFF, 0x00];
+          case 1:
+            return stuffed;
+          case 2:
+            return const [0xFF];
+          case 3:
+            return [0xFF, 0xD0 + random.nextInt(8)];
+          case 4:
+            return const [0xFF, 0x01];
+          case 5:
+            return [random.nextInt(255)];
+          case 6:
+            return const [0xFF, 0xDD, 0x00, 0x04, 0x00, 0x00];
+          case 7:
+            return [0xFF, 0xDC + random.nextInt(4), 0x00, 0x02];
+          case 8:
+            return [0xFF, 0xF0 + random.nextInt(14), 0x00, 0x02];
+          default:
+            final inside = content();
+            final marker = random.nextBool() ? 0xFE : 0xE0 + random.nextInt(16);
+            return [0xFF, marker, ..._be16(2 + inside.length), ...inside];
+        }
+      }
+
+      var decoderReadAll = 0;
+      for (var i = 0; i < 500; i++) {
+        final header = [
+          for (var k = 1 + random.nextInt(4); k > 0; k--) ...piece(),
+        ];
+        final bytes = Uint8List.fromList(
+          random.nextBool()
+              ? [0xFF, 0xD8, ...header, ...body]
+              : [
+                  0xFF,
+                  0xD8,
+                  ...body.sublist(0, firstScan),
+                  ...header,
+                  ...body.sublist(firstScan),
+                ],
+        );
+        var readAll = false;
+        try {
+          img.JpegDecoder().decode(bytes);
+        } on img.ImageException catch (e) {
+          readAll = e.message == 'Too many JPEG scans';
+        } on Object {
+          // Refused otherwise: the decoder read fewer.
+        }
+        if (readAll) {
+          decoderReadAll++;
+          final pieces = header.map((b) => b.toRadixString(16)).join(' ');
+          final (scans, _, _) = jpegScanBound(bytes, 8, 8, 40000000);
+          expect(scans, greaterThanOrEqualTo(1001), reason: pieces);
+          // And so the conversion refuses it before decoding: at a limit
+          // of 1 000 pixels an 8 x 8 frame allows 250 scans (or the
+          // decoder's own check of the file refuses it first), never by
+          // the decoder's 'Too many JPEG scans' after decoding 1 000.
+          expect(
+            () => convertImageSync(bytes, {}, maxPixels: 1000),
+            throwsA(
+              isA<ImageConversionException>().having(
+                (e) => e.message,
+                'message',
+                anyOf(
+                  startsWith('The JPEG holds up to'),
+                  startsWith('The file is not a JPEG'),
+                ),
+              ),
+            ),
+            reason: pieces,
+          );
+        }
+      }
+      print('the decoder read all 1 001 scans of $decoderReadAll of 500');
+      // The comparison ran on enough files to mean something.
+      expect(decoderReadAll, greaterThan(100));
+    });
+
     test('an EXIF thumbnail (a JPEG inside APP1) is not counted with the '
         'image', () {
       // 16 scans is what 8 000 x 5 000 allows; the thumbnail has 16 more.
@@ -582,18 +714,36 @@ Uint8List _progressiveJpeg(int width, int height, int scans) {
   return out.takeBytes();
 }
 
+/// Where [part] first appears in [bytes].
+int _indexOf(List<int> bytes, List<int> part) {
+  for (var i = 0; i + part.length <= bytes.length; i++) {
+    var found = true;
+    for (var k = 0; k < part.length && found; k++) {
+      found = bytes[i + k] == part[k];
+    }
+    if (found) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 /// A JPEG header of [width] x [height] followed by [scans] empty scans: the
-/// count is checked before anything is decoded. [segment] (a marker and
-/// its content) goes after the frame header, [afterFirstScan] (bytes) right
-/// after the first scan.
+/// count is checked before anything is decoded. [afterStart] (bytes) goes
+/// right after the start of image, [segment] (a marker and its content)
+/// after the frame header, [beforeScans] (bytes) right before the first
+/// scan, [afterFirstScan] (bytes) right after it.
 Uint8List _scansOnly(
   int width,
   int height,
   int scans, {
+  List<int> afterStart = const [],
   (int, List<int>)? segment,
+  List<int> beforeScans = const [],
   List<int> afterFirstScan = const [],
 }) => Uint8List.fromList([
   0xFF, 0xD8, //
+  ...afterStart,
   0xFF, 0xDB, ..._be16(67), 0, ...List.filled(64, 1),
   ..._frameHeader(width, height),
   if (segment case (final marker, final content)) ...[
@@ -602,6 +752,7 @@ Uint8List _scansOnly(
     ..._be16(2 + content.length),
     ...content,
   ],
+  ...beforeScans,
   for (var i = 0; i < scans; i++) ...[
     0xFF, 0xDA, ..._be16(8), 1, 1, 0x00, 0, 0, 0x00, //
     if (i == 0) ...afterFirstScan,

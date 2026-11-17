@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 
 import 'config.dart';
 import 'image_guard.dart';
+import 'jpeg_walk.dart';
 
 /// How [Conversion.fit] fits an image into a box (spatie/image's `Fit`).
 enum Fit {
@@ -879,21 +880,26 @@ const int _maxStillBlurWork = 80000000;
 /// on a slower reference machine. Forty million took 6.4 s and 8.9 s.
 const int _maxAnimatedBlurWork = 20000000;
 
-/// For a JPEG, refuses one with more scans than its size allows, from the
-/// raw bytes, without walking the file's structure. Each scan is a pass
-/// over the frame, so a small file of many scans takes a long time to
-/// decode.
+/// For a JPEG, refuses one with more scans than its size allows, before
+/// it is decoded. Each scan is a pass over the frame, so a small file of
+/// many scans takes a long time to decode.
 ///
-/// - The scans are counted as the first `FF DA` (start of scan), reached
-///   by walking the segments before it by their lengths (what APPn and COM
-///   carry, an EXIF thumbnail included, is skipped as a decoder skips it),
-///   and every `FF DA` after it: an upper bound on those a decoder can see.
+/// - The segments before the first scan are walked as the decoder walks
+///   them ([jpegSegments]), so what APPn and COM carry (an EXIF thumbnail
+///   included) is passed over as the decoder passes over it. From the
+///   first `FF DA` (start of scan) on, every `FF DA` in the bytes counts:
+///   an upper bound on the scans a decoder can see.
+/// - Anything before the first scan the walk does not follow the decoder
+///   through (a marker the decoder does not read as a plain segment, a
+///   frame type it refuses, a length below 2, no start of image where the
+///   decoder looks for it) makes every `FF DA` of the whole file count,
+///   from its first byte: counting more can only refuse.
 /// - The frame is the largest of [width] x [height] (the decoder's own
-///   reading) and of every frame header candidate anywhere in the bytes:
-///   each `FF Cn` (n from 0 to 15 but 4, 8 and 12) whose 16-bit height and
-///   width, at their fixed place after it, are at least 1 with a product
-///   of at most [maxPixels]. The decoder is held to [maxPixels], so a
-///   larger frame is refused when it is read. A candidate in other data
+///   reading) and of every frame header candidate the walk reads or the
+///   counting passes: each `FF Cn` ([isJpegFrame]) whose 16-bit height
+///   and width, at their fixed place after it, are at least 1 with a
+///   product of at most [maxPixels]. The decoder is held to [maxPixels], so
+///   a larger frame is refused when it is read. A candidate in other data
 ///   (camera maker notes hold some) only tightens the budget, and since no
 ///   candidate passes [maxPixels], a file of 16 `FF DA` or fewer is never
 ///   refused by one.
@@ -902,80 +908,12 @@ const int _maxAnimatedBlurWork = 20000000;
 ///   file at the limit took about 3.4 s whatever its size; real
 ///   progressive JPEGs (5 to 12 `FF DA`) stayed under a third of it.
 void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
-  var scans = 0;
-  var frameWidth = width;
-  var frameHeight = height;
-  final n = bytes.length;
-
-  bool isFrame(int marker) =>
-      marker >= 0xC0 &&
-      marker <= 0xCF &&
-      marker != 0xC4 &&
-      marker != 0xC8 &&
-      marker != 0xCC;
-
-  void frameAt(int i) {
-    if (i + 8 >= n) {
-      return;
-    }
-    final h = (bytes[i + 5] << 8) | bytes[i + 6];
-    final w = (bytes[i + 7] << 8) | bytes[i + 8];
-    // Both at most 65 535: the products fit.
-    if (w >= 1 &&
-        h >= 1 &&
-        w <= maxPixels ~/ h &&
-        w * h > frameWidth * frameHeight) {
-      frameWidth = w;
-      frameHeight = h;
-    }
-  }
-
-  // The segments before the first scan (APPn with an EXIF thumbnail, COM,
-  // DQT, DHT, SOFn) are walked by their lengths, so what they carry is not
-  // read as markers; from the first scan on, every byte is looked at.
-  var i = 0;
-  if (n >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
-    i = 2;
-    while (i + 3 < n && bytes[i] == 0xFF) {
-      final marker = bytes[i + 1];
-      if (marker == 0xFF) {
-        i++; // fill byte
-        continue;
-      }
-      if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) {
-        i += 2; // no length
-        continue;
-      }
-      final length = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (length < 2) {
-        break;
-      }
-      if (isFrame(marker)) {
-        frameAt(i);
-      }
-      if (marker == 0xDA) {
-        scans++;
-        i += 2 + length;
-        break;
-      }
-      i += 2 + length;
-    }
-  }
-  for (; i + 1 < n; i++) {
-    if (bytes[i] != 0xFF) {
-      continue;
-    }
-    final marker = bytes[i + 1];
-    if (marker == 0xDA) {
-      scans++;
-    } else if (isFrame(marker)) {
-      // A fence: a frame header after the first scan is read by the
-      // decoder too, which refuses a second frame before this check runs,
-      // and in entropy-coded data `FF` is followed by `00`. No file that
-      // reaches this check is known to bring a larger frame here.
-      frameAt(i);
-    }
-  }
+  final (scans, frameWidth, frameHeight) = jpegScanBound(
+    bytes,
+    width,
+    height,
+    maxPixels,
+  );
   if (scans == 0) {
     return;
   }
@@ -994,42 +932,22 @@ void _checkJpegFrames(Uint8List bytes, int width, int height, int maxPixels) {
 /// For a JPEG, refuses a frame (`SOFn`) whose number of components is not
 /// 1 or 3 (the ones converted), before anything is decoded. An early
 /// refusal for ordinary files, not a guarantee: the guarantee is the pixel
-/// limit the decoder is held to. Segments are walked by their lengths, and
-/// entropy-coded data byte by byte to its next marker. Not a JPEG: nothing
-/// to do.
+/// limit the decoder is held to. The segments are those the decoder walks
+/// ([jpegSegments]), the same walk as [_checkJpegFrames]. Not a JPEG:
+/// nothing to do.
 void _checkJpegComponents(Uint8List bytes) {
-  final n = bytes.length;
-  if (n < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) {
+  final start = jpegMarker(bytes, 0);
+  if (start == null || start.marker != 0xD8) {
     return;
   }
-  var at = 2;
-  while (at + 4 <= n) {
-    if (bytes[at] != 0xFF) {
-      // Entropy-coded data: on to the next marker (not a stuffed 0xFF00
-      // or a restart marker).
-      at++;
-      continue;
-    }
-    final marker = bytes[at + 1];
-    if (marker == 0xFF ||
-        marker == 0x00 ||
-        marker == 0x01 ||
-        (marker >= 0xD0 && marker <= 0xD7)) {
-      at += marker == 0xFF ? 1 : 2;
-      continue;
-    }
-    if (marker == 0xD9) {
-      return;
-    }
-    final length = (bytes[at + 2] << 8) | bytes[at + 3];
-    final sof =
-        marker >= 0xC0 &&
-        marker <= 0xCF &&
-        marker != 0xC4 &&
-        marker != 0xC8 &&
-        marker != 0xCC;
-    if (sof) {
-      final components = at + 9 < n ? bytes[at + 9] : 0;
+  final n = bytes.length;
+  for (final (:marker, :at, next: _, length: _) in jpegSegments(
+    bytes,
+    start.after,
+  )) {
+    if (isJpegFrame(marker)) {
+      // The count of components, 8 bytes after the marker.
+      final components = at + 8 < n ? bytes[at + 8] : 0;
       if (components != 1 && components != 3) {
         throw ImageConversionException(
           'The JPEG has $components color components; only 1 or 3 are '
@@ -1037,6 +955,5 @@ void _checkJpegComponents(Uint8List bytes) {
         );
       }
     }
-    at += 2 + length;
   }
 }

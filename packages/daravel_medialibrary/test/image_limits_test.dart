@@ -269,6 +269,27 @@ void followUpTests() {
         reason: value,
       );
     }
+    // Below 10 image pixels a tenth would be 0, which a conversion refuses
+    // to take: the default is at least 1.
+    final gif = img.encodeGif(img.Image(width: 1, height: 1));
+    for (var pixels = 1; pixels <= 9; pixels++) {
+      final config = MediaLibraryConfig.fromEnv(
+        Env.fromMap({'MEDIA_MAX_IMAGE_PIXELS': '$pixels'}),
+      );
+      expect(config.gifPixelLimit, 1, reason: '$pixels');
+      expect(
+        convertImageSync(
+          gif,
+          {
+            'format': ['gif'],
+          },
+          maxPixels: config.maxImagePixels,
+          maxGifPixels: config.gifPixelLimit,
+        ),
+        isNotEmpty,
+        reason: '$pixels',
+      );
+    }
   });
 
   test('formats other than JPEG, PNG, GIF, WebP, TIFF and BMP are not '

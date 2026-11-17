@@ -103,8 +103,10 @@ final class MediaLibraryConfig implements ConfigSection {
   /// time a conversion may take by that much.
   final int? maxGifPixels;
 
-  /// [maxGifPixels], or its default.
-  int get gifPixelLimit => maxGifPixels ?? maxImagePixels ~/ 10;
+  /// [maxGifPixels], or its default: a tenth of [maxImagePixels], at least
+  /// 1, the least a conversion takes.
+  int get gifPixelLimit =>
+      maxGifPixels ?? (maxImagePixels < 10 ? 1 : maxImagePixels ~/ 10);
 
   /// The disk of files that choose none (`MEDIA_DISK`, `public`).
   final String diskName;
