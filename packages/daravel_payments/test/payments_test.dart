@@ -407,6 +407,27 @@ void main() {
       ));
     });
 
+    test('an order id over 255 characters is refused before the gateway '
+        'and the database', () async {
+      await app.run(() async {
+        final fake = Payment.fake();
+        for (final orderId in ['Z' * 256, '\u{1F600}' * 256]) {
+          await expectLater(
+            Payment.checkout(PaymentRequest(orderId: orderId, amount: 1)),
+            throwsArgumentError,
+          );
+        }
+        expect(() => fake.assertCreated((_) => true), throwsStateError);
+        for (final orderId in ['Z' * 256, '\u{1F600}' * 256]) {
+          expect(await Payment.find(orderId), isNull);
+        }
+        final accepted = await Payment.checkout(
+          PaymentRequest(orderId: '\u{1F600}' * 255, amount: 1),
+        );
+        expect(accepted.orderId, '\u{1F600}' * 255);
+      });
+    });
+
     test('Payment.fake() records what the application starts', () async {
       await app.run(() async {
         final fake = Payment.fake();

@@ -87,11 +87,17 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    lookup paths require an answer for the authenticated order, with a
    nonempty transaction id and status, and code 2xx or 407 with `expire`.
    The API supplies the event id, status, amount, currency, time and raw
-   payload. Invalid answers or two missing answers produce 5xx without
-   applying or logging an event. Direct `status(orderId)` calls still
-   return `pending` for a missing transaction. A notification without its `transaction_id`, or with a
-   field that should be text and is not, gets 400, as does a paid
-   notification whose amount or currency cannot be read.
+   payload. Invalid answers, a paid answer without a readable
+   `gross_amount`, or two missing answers produce 5xx without applying or
+   logging an event, so Midtrans sends the notification again. Direct
+   `status(orderId, reference:)` calls look the order up by `reference`
+   when Midtrans does not know it by its id, and return `pending` when
+   neither is known; a paid answer without a readable amount throws
+   `PaymentGatewayException` there too, so reconciling never pays without
+   comparing the amount. A notification without its `transaction_id`, with
+   a `transaction_id` over 255 characters, with `.` or `..` as its order
+   or transaction id, or with a field that should be text and is not, gets
+   400 before any lookup.
    Per order, one lookup runs at a time; arrivals during it share the next
    lookup, which starts after they arrive. Completed answers are not
    cached. Configure an ingress rate limit through
@@ -120,7 +126,14 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
 
 Order and event identifiers are limited to 255 Unicode characters:
 webhooks receive 400 when they exceed this, while application calls to
-`Payment.manager.apply` throw `ArgumentError` before database access.
+`Payment.checkout` and `Payment.manager.apply` throw `ArgumentError`
+before the gateway or the database is reached. A Midtrans event id holds
+the order id, the transaction id and the status, so with Midtrans an
+order id stays well under that: Midtrans itself allows 50 characters for
+a Snap order id (`transaction_details.order_id`,
+https://docs.midtrans.com/reference/json-objects). On MySQL, event ids
+that differ only in letter case are one event under the default
+collation, while PostgreSQL and SQLite keep them apart.
 The JSON log payload is stored intact up to 65,535 UTF-8 bytes; larger
 payloads store only `{"truncated":true,"bytes":N}`. The event passed to
 application listeners retains its raw payload. No schema migration is needed.
@@ -143,7 +156,9 @@ shared with another system, notifications for its orders are then retried
 until the gateway gives up, and show as failed in its dashboard; pass
 `withPayments(unknownOrderStatus: 200)` to answer them 200 as before. The
 answer is 200 in every other case (`applied`, `duplicate`, `unchanged`,
-`ignored`, `amountMismatch`), which another delivery would not change.
+`ignored`, `amountMismatch`). An `amountMismatch` notification delivered
+again is checked again and dispatches `PaymentAmountMismatch` again, so
+its listeners should be idempotent.
 
 ## Reconciling
 

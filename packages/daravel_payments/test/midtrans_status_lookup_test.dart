@@ -319,4 +319,161 @@ void main() {
       expect((await pending).status, PaymentStatus.pending);
     },
   );
+
+  test('the applied event is the status response, whatever the '
+      'notification carries', () async {
+    final body = <String, Object?>{
+      'order_id': 'ORDER',
+      'transaction_id': 'tx-notified',
+      'transaction_status': 'settlement',
+      'fraud_status': 'accept',
+      'status_code': '201',
+      'gross_amount': '100.00',
+      'currency': 'USD',
+      'payment_type': 'gopay',
+      'transaction_time': '2030-01-01 00:00:00',
+    };
+    body['signature_key'] = gateway.signatureFor(body);
+    final pending = app.run(
+      () => gateway.parseWebhook(Request.fake(method: 'POST', json: body)),
+    );
+    await _settleCallers();
+    final answer = _status('pending')
+      ..['payment_type'] = 'bank_transfer'
+      ..['transaction_time'] = '2026-01-01 10:00:00';
+    client.requests.single.answer(answer);
+    final event = await pending;
+    expect(event.status, PaymentStatus.pending);
+    expect(event.eventId, 'ORDER:tx-ORDER:pending');
+    expect(event.reference, 'tx-ORDER');
+    expect(event.currency, 'IDR');
+    expect(event.paymentType, 'bank_transfer');
+    expect(event.occurredAt, DateTime.utc(2026, 1, 1, 3));
+    expect(event.raw, answer);
+  });
+
+  group('a transaction id or order id that cannot name a lookup', () {
+    final refused = {
+      '.': '.',
+      '..': '..',
+      '256 characters': 'x' * 256,
+      '256 astral characters': '\u{1F600}' * 256,
+    };
+    for (final MapEntry(key: name, value: transaction) in refused.entries) {
+      test('transaction_id $name is refused (400) before any lookup', () async {
+        await expectLater(
+          deliver(transaction: transaction),
+          throwsA(isA<BadRequestHttpException>()),
+        );
+        expect(client.requests, isEmpty);
+      });
+    }
+
+    test('255 characters is a transaction_id', () async {
+      final pending = deliver(transaction: 'x' * 255);
+      await _settleCallers();
+      expect(client.requests, hasLength(1));
+      client.requests.single.answer(_status('pending'));
+      expect((await pending).status, PaymentStatus.pending);
+    });
+
+    for (final order in ['.', '..']) {
+      test('order_id "$order" is refused (400) before any lookup', () async {
+        await expectLater(
+          deliver(order: order),
+          throwsA(isA<BadRequestHttpException>()),
+        );
+        expect(client.requests, isEmpty);
+      });
+    }
+
+    test('a reference of "." or ".." is not looked up', () async {
+      for (final reference in ['.', '..']) {
+        final pending = app.run(
+          () => gateway.status('ORDER', reference: reference),
+        );
+        await _settleCallers();
+        client.requests.last.answer(const {'status_code': '404'});
+        expect((await pending).status, PaymentStatus.pending);
+      }
+      expect(client.requests.map((r) => r.url.path), [
+        '/v2/ORDER/status',
+        '/v2/ORDER/status',
+      ]);
+    });
+  });
+
+  group('status by reference', () {
+    test('an order Midtrans does not know by its id is looked up by its '
+        'reference', () async {
+      final pending = app.run(
+        () => gateway.status('ORDER', reference: 'tx-saved'),
+      );
+      await _settleCallers();
+      client.requests[0].answer(const {'status_code': '404'}, status: 404);
+      await _settleCallers();
+      expect(client.requests[1].url.path, '/v2/tx-saved/status');
+      client.requests[1].answer(_status('settlement'));
+      final event = await pending;
+      expect(event.status, PaymentStatus.paid);
+      expect(event.amount, 100);
+    });
+
+    test('the reference answer must name the order', () async {
+      final pending = app.run(
+        () => gateway.status('ORDER', reference: 'tx-saved'),
+      );
+      final checked = expectLater(
+        pending,
+        throwsA(isA<PaymentGatewayException>()),
+      );
+      await _settleCallers();
+      client.requests[0].answer(const {'status_code': '404'});
+      await _settleCallers();
+      client.requests[1].answer(_status('settlement', order: 'OTHER'));
+      await checked;
+    });
+
+    test('pending when neither is known', () async {
+      final pending = app.run(
+        () => gateway.status('ORDER', reference: 'tx-saved'),
+      );
+      await _settleCallers();
+      client.requests[0].answer(const {'status_code': '404'});
+      await _settleCallers();
+      client.requests[1].answer(const {'status_code': '404'});
+      expect((await pending).status, PaymentStatus.pending);
+    });
+  });
+
+  group('a paid status answer without a readable gross_amount', () {
+    for (final amount in <Object?>[null, 'NaN', 'Infinity', 'many']) {
+      test('$amount is a gateway failure, for notifications and for '
+          'status()', () async {
+        final answer = _status('settlement');
+        if (amount == null) {
+          answer.remove('gross_amount');
+        } else {
+          answer['gross_amount'] = amount;
+        }
+        final notified = deliver();
+        final checkedNotified = expectLater(
+          notified,
+          throwsA(isA<PaymentGatewayException>()),
+        );
+        await _settleCallers();
+        client.requests.last.answer(answer);
+        await checkedNotified;
+
+        final direct = app.run(() => gateway.status('ORDER'));
+        final checkedDirect = expectLater(
+          direct,
+          throwsA(isA<PaymentGatewayException>()),
+        );
+        await _settleCallers();
+        client.requests.last.answer(answer);
+        await checkedDirect;
+      });
+    }
+  });
 }
