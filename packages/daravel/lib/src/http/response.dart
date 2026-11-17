@@ -77,7 +77,7 @@ final class Response {
     this.body = const EmptyBody(),
     this.contentLengthOverride,
     this.webSocket,
-    this.webSocketCompression = true,
+    this.webSocketCompression = false,
     this.webSocketMaxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     this.webSocketMaxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     this.webSocketSlowClientCode = 1008,
@@ -378,8 +378,17 @@ final class Response {
 
   /// Switches the connection to a WebSocket (`router.ws` returns this after
   /// the route's middleware passed); [handler] gets the socket inside the
-  /// request's scope. [compress] false turns permessage-deflate off: no
-  /// compression state per connection, which matters with many of them.
+  /// request's scope.
+  ///
+  /// [compress] true agrees to permessage-deflate when the client offers
+  /// it; it is off by default. Compression keeps zlib state per
+  /// connection, and a compressed message can inflate far beyond what
+  /// arrived on the wire: [maxPayloadBytes] limits each message after
+  /// inflation, but nothing limits what one connection inflates over
+  /// many messages. Turn it on for a route whose clients are known and
+  /// whose messages are large and repetitive text; leave it off for
+  /// public endpoints and for many small messages.
+  ///
   /// Once more than [maxBufferedBytes] wait to be sent (the client reads
   /// too slowly) the connection is closed with [slowClientCode].
   /// [drainSpread] spreads the close when the server shuts down
@@ -389,7 +398,7 @@ final class Response {
   /// [controlFrameBurst] and [controlFramesPerSecond], with 1008.
   factory Response.webSocket(
     WebSocketHandler handler, {
-    bool compress = true,
+    bool compress = false,
     int maxPayloadBytes = defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,
@@ -456,7 +465,8 @@ final class Response {
   /// hands the socket to this handler.
   final WebSocketHandler? webSocket;
 
-  /// Whether the WebSocket offers permessage-deflate to clients that ask.
+  /// Whether the WebSocket agrees to permessage-deflate for clients that
+  /// offer it (off unless asked for; see [Response.webSocket]).
   final bool webSocketCompression;
 
   /// The largest frame the WebSocket accepts (uncompressed bytes); a
