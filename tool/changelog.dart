@@ -74,21 +74,59 @@ List<String> upgradeNotes(String changelog) {
   ];
 }
 
+/// The `daravelVersion` declared in [source] (the text of
+/// `packages/daravel/lib/src/foundation/version.dart`), or null.
+String? daravelVersionIn(String source) =>
+    RegExp(r"""const String daravelVersion = '([^']+)';""")
+        .firstMatch(source)?[1];
+
+/// The notes listed under [upgradeLabel] in the `## <version>` section of
+/// [changelog], as [releaseChangelog] leaves them: the `- ` lines after the
+/// label, up to the next header.
+List<String> releasedUpgradeNotes(String changelog, String version) {
+  final lines = changelog.split('\n');
+  final section = lines.indexOf('## $version');
+  if (section == -1) {
+    return const [];
+  }
+  final body = lines
+      .skip(section + 1)
+      .takeWhile((l) => !l.startsWith('## '))
+      .toList();
+  final start = body.indexOf(upgradeLabel);
+  if (start == -1) {
+    return const [];
+  }
+  return [
+    for (final line
+        in body.skip(start + 1).takeWhile((l) => !l.startsWith('#')))
+      if (line.startsWith('- ')) line,
+  ];
+}
+
 /// The problem when a pull request adds [addedExports] (lines that start
 /// with `export` in a package's top-level library) but leaves the upgrade
 /// notes of [baseChangelog] as they are in [headChangelog]: a new public
 /// name can clash with a class of the same name in an application, as
 /// `LegacyKey` did in 1.23.0.
+///
+/// [releasedVersion] is set for a release commit (the version changed and
+/// `## Unreleased` holds no note, as `tool/release.dart` leaves it): the
+/// notes of [headChangelog] are then those under `## <releasedVersion>`,
+/// where the release moved them, and no other version's.
 List<String> upgradeNoteProblems({
   required String baseChangelog,
   required String headChangelog,
   required List<String> addedExports,
+  String? releasedVersion,
 }) {
   if (addedExports.isEmpty) {
     return const [];
   }
   final before = upgradeNotes(baseChangelog);
-  final after = upgradeNotes(headChangelog);
+  final after = releasedVersion == null
+      ? upgradeNotes(headChangelog)
+      : releasedUpgradeNotes(headChangelog, releasedVersion);
   final changed =
       before.length != after.length ||
       [for (var i = 0; i < after.length; i++) before[i] != after[i]]
@@ -96,10 +134,13 @@ List<String> upgradeNoteProblems({
   if (changed) {
     return const [];
   }
+  final section = releasedVersion == null
+      ? '## Unreleased'
+      : '## $releasedVersion';
   return [
     'This change adds to a package\'s public API:\n'
         '${addedExports.map((e) => '  $e').join('\n')}\n'
-        'Say under "$upgradeLabel" in "## Unreleased" of CHANGELOG.md which '
+        'Say under "$upgradeLabel" in "$section" of CHANGELOG.md which '
         'names are new, so an application with a class of the same name '
         'knows to hide it in the import (see docs/guide/releases.md).',
   ];
