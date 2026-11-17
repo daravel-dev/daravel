@@ -197,14 +197,22 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   ///    the connection was destroyed afterwards;
   /// 2. the code the server closed with after a violation (also through
   ///    [peerClosed], when the client sent no valid close of its own);
-  /// 3. the socket's own, once it closed.
+  /// 3. the socket's own, once it closed; as it was when the server
+  ///    destroyed the connection ([abandon]), whose end does not make it
+  ///    1006 afterwards.
   @override
-  int? get closeCode => _peerCloseCode ?? _inner.closeCode;
+  int? get closeCode =>
+      _peerCloseCode ?? (_abandoned ? _abandonedCode : _inner.closeCode);
 
   /// The reason that goes with [closeCode], from the same source.
   @override
-  String? get closeReason =>
-      _peerCloseCode != null ? _peerCloseReason : _inner.closeReason;
+  String? get closeReason => _peerCloseCode != null
+      ? _peerCloseReason
+      : (_abandoned ? _abandonedReason : _inner.closeReason);
+
+  bool _abandoned = false;
+  int? _abandonedCode;
+  String? _abandonedReason;
 
   int? _peerCloseCode;
   String? _peerCloseReason;
@@ -222,6 +230,11 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// nothing queued can be sent, and [done] completes now instead of after
   /// a close grace.
   void abandon() {
+    if (!_abandoned) {
+      _abandoned = true;
+      _abandonedCode = _inner.closeCode;
+      _abandonedReason = _inner.closeReason;
+    }
     _closing = true;
     _queue.clear();
     _bufferedBytes = 0;
@@ -288,6 +301,14 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     }
   }
 
+  /// Closes the session from this side with [code] and [reason], once what
+  /// is queued is sent.
+  ///
+  /// The session ends with it: messages the client sent that the
+  /// application has not read yet (held while it paused) are dropped, and
+  /// nothing more is handed on, even when it resumes. [closeCode] stays
+  /// null unless the client's own close was read before: the client's
+  /// answer to this close is read and dropped with the rest.
   @override
   Future<dynamic> close([int? code, String? reason]) =>
       _closed ??= _close(code, reason, drop: false);

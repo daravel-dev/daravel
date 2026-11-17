@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:63cc47bd82f4 -->
+<!-- source: responses.md sha256:17ed18fc4c4a -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -490,6 +490,14 @@ diperiksa): yang dikirim handler tetap keluar seperti biasa, dan close atau
 kepergian client langsung mengakhiri sesi. Close dari client dijawab
 dengan kodenya sebelum koneksi berakhir, juga bila akhir stream-nya datang
 bersamaan.
+
+Bila server menutup socket (`close()`), pesan yang belum dibaca handler
+dibuang, juga bila handler melanjutkan pembacaan sesudahnya, dan
+`closeCode` tetap null kecuali close dari client sudah terbaca sebelumnya;
+koneksi yang berakhir sesudah itu tidak mengubahnya menjadi `1006`. Begitu
+sesi berakhir (`done`-nya selesai), apa pun caranya, tidak ada yang tetap
+ditahan untuknya, dan koneksinya dihancurkan paling lambat sesudah masa
+tenggang close (5 detik).
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame

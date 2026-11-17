@@ -1,3 +1,4 @@
 ### Fixed
 
 - What the server holds for a WebSocket handler that does not read stays within its bound (64 KiB, or the route's `maxPayloadBytes` if smaller, plus one message or 64 KiB of frames) whatever the size of one read from the connection: the server stops parsing there, and the rest of the last read waits unparsed until the handler reads (one read per connection, as large as the system's receive buffer lets it be), while TCP holds the client back.
+- However a WebSocket session ends (the client's close or its going away, the server's close, a slow client, a protocol violation, the server stopping), nothing it held stays held once its `done` completed, also while its handler is paused, and its connection is destroyed at the latest after the close grace. A handler that resumes after the server closed gets none of the messages it had not read, and `closeCode` no longer turns into `1006` when the connection ends after this side closed.

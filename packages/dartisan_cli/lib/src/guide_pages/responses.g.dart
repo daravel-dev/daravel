@@ -479,6 +479,13 @@ handler sends goes out as before, and the client's close or its going
 away ends the session at once. A client's close is answered with its code
 before the connection ends, also when its end of stream comes with it.
 
+When the server closes the socket (`close()`), messages the handler has
+not read yet are dropped, even if it resumes after, and `closeCode` stays
+null unless the client's own close was read before; the connection ending
+afterwards does not make it `1006`. Once a session has ended (its `done`
+completed), however it ended, nothing it held stays held, and its
+connection is destroyed at the latest after the close grace (5 seconds).
+
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
 once more than `maxBufferedBytes` (4 MiB) wait, the queue is dropped and
