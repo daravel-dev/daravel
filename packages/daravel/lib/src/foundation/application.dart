@@ -356,7 +356,9 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(extraChecks: configChecks);
+    final validator = ConfigValidator(
+      extraChecks: [AuthConfig.check, ...configChecks],
+    );
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }

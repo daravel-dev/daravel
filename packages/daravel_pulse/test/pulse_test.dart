@@ -192,8 +192,14 @@ void main() {
     late Directory dir;
     late Application app;
 
-    setUp(() => dir = Directory.systemTemp.createTempSync('daravel_pulse_'));
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('daravel_pulse_');
+      // APP_ENV=testing opens nothing: these tests let every request in.
+      // The gate itself: test/pulse_gate_test.dart.
+      Pulse.auth((_) => true);
+    });
     tearDown(() async {
+      Pulse.auth(null);
       await app.shutdown();
       dir.deleteSync(recursive: true);
     });
@@ -201,6 +207,7 @@ void main() {
     Future<Application> boot({
       Map<String, String> env = const {},
       List<Object> middleware = const [],
+      String path = '/pulse',
     }) async {
       final application = Application.configure(basePath: dir.path)
           .withEnv({
@@ -211,7 +218,7 @@ void main() {
             'PULSE_SLOW_QUERIES_THRESHOLD': '0',
             ...env,
           })
-          .withPulse(middleware: middleware)
+          .withPulse(path: path, middleware: middleware)
           .withMiddleware((m) => m.alias('allow', _Allow()))
           .withRouting(
             api: (router) {
@@ -328,20 +335,17 @@ void main() {
       expect(response.headers.first('x-frame-options'), 'DENY');
     });
 
-    test('closed outside local without middleware; 404 when off', () async {
-      final production = {
-        'APP_ENV': 'production',
-        'APP_KEY': 'base64:${base64Encode(List.filled(32, 7))}',
-      };
-      app = await boot(env: production);
-      expect((await get('/pulse')).$1, 403);
-      expect((await get('/pulse/api/stats')).$1, 403);
-      await app.shutdown();
+    test('at the root, page URLs stay on this origin', () async {
+      app = await boot(path: '/');
+      final (status, response) = await get('/');
+      expect(status, 200);
+      final html = await response.bodyText();
+      expect(html, contains('data-base=""'));
+      expect(html, isNot(contains('data-base="/"')));
+      expect(html, contains("fetch(base+'/api/stats"));
+    });
 
-      app = await boot(env: production, middleware: ['allow']);
-      expect((await get('/pulse')).$1, 200);
-      await app.shutdown();
-
+    test('404 when off', () async {
       app = await boot(env: {'PULSE_ENABLED': 'false'});
       expect((await get('/pulse')).$1, 404);
       expect((await get('/api/users/1')).$1, 200);

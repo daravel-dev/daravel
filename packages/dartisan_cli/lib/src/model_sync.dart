@@ -4,6 +4,7 @@ import 'package:daravel/daravel.dart';
 
 import 'generator.dart';
 import 'region_format.dart';
+import 'source_text.dart';
 import 'stubs.dart';
 
 /// What `model:sync` needs from a model source file.
@@ -410,7 +411,7 @@ List<String> colsLines(
         for (final (:column, getter: _, :field) in names)
           '    $field: ModelColumn<${model.className}, '
               '${columnType(model, column, dialect: dialect, idType: idType, foreignIds: foreignIds)}>'
-              "('${column.name}'),",
+              "(${dartString(column.name)}),",
         '  );',
       ];
 
@@ -476,15 +477,15 @@ AccessorPlan planAccessors(
       warnings.add(
         'Column [${column.name}] has a database default that a model made '
         'with create() does not see: `$getter` throws until refresh(). '
-        "Declare it in ModelDefinition(attributes: {'${column.name}': ...}).",
+        "Declare it in ModelDefinition(attributes: {${dartString(column.name)}: ...}).",
       );
     }
-    lines.add("  $type get $getter => getAttr('${column.name}');");
+    lines.add("  $type get $getter => getAttr(${dartString(column.name)});");
     final writable =
         column.name != model.primaryKey && !readOnly.contains(column.name);
     if (writable) {
       lines.add(
-        "  set $getter($type value) => setAttr('${column.name}', value);",
+        "  set $getter($type value) => setAttr(${dartString(column.name)}, value);",
       );
     }
   }
@@ -810,8 +811,8 @@ AccessorPlan typedWriteLines(
   final createMap = [
     for (final p in params)
       p.required
-          ? "    '${p.column.name}': ${p.getter},"
-          : "    '${p.column.name}': ?${p.getter},",
+          ? "    ${dartString(p.column.name)}: ${p.getter},"
+          : "    ${dartString(p.column.name)}: ?${p.getter},",
   ];
   final patchParams = [
     for (final p in params)
@@ -822,9 +823,9 @@ AccessorPlan typedWriteLines(
   final patchMap = [
     for (final p in params)
       p.column.nullable
-          ? "    if (${p.getter}.isPresent) '${p.column.name}': "
+          ? "    if (${p.getter}.isPresent) ${dartString(p.column.name)}: "
                 '${p.getter}.value,'
-          : "    '${p.column.name}': ?${p.getter},",
+          : "    ${dartString(p.column.name)}: ?${p.getter},",
   ];
   // Only a nullable column is a Patch parameter; the doc mentions Patch
   // only when there is one.

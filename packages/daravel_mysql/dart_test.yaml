@@ -5,3 +5,7 @@ concurrency: 1
 tags:
   # Needs a MySQL or MariaDB server (DARAVEL_TEST_MYSQL); skipped without it.
   integration:
+  # single_statement_test.dart: excluded from the integration runs and run
+  # by name in a dart test process of its own (CI), since it loaded the
+  # runs that shared a process with it (#403).
+  single-statement:

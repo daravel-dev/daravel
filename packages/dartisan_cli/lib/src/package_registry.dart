@@ -215,8 +215,15 @@ const List<PackageManifest> officialPackages = [
       'LOG_VIEWER_ALLOW_DELETE=false',
     ],
     next: [
-      'Log to a file (LOG_STACK=console,daily), then open /log-viewer while APP_ENV=local.',
-      "Outside local, guard it: .withLogViewer(middleware: ['auth', 'can:view-logs'])",
+      'Log to a file (LOG_STACK=console,daily), then open /log-viewer.',
+      'The log viewer is open in APP_ENV=local only. Outside it, with '
+          'sessions (withSession()), sign in and define who may open it '
+          "in bootstrap/policies.dart: gate.define('viewLogViewer', "
+          '(user, _) => ...).',
+      'Without sessions, decide per request in bootstrap/app.dart, for '
+          'example on a secret header your proxy adds: '
+          'LogViewer.auth((request) => constantTimeEquals('
+          "request.header('x-logs-key') ?? '', logsKey)).",
     ],
   ),
   PackageManifest(
@@ -233,8 +240,15 @@ const List<PackageManifest> officialPackages = [
       'PULSE_SLOW_QUERIES_THRESHOLD=1000',
     ],
     next: [
-      'Open /pulse while APP_ENV=local.',
-      "Outside local, guard it: .withPulse(middleware: ['auth', 'can:viewPulse'])",
+      'Open /pulse.',
+      'The dashboard is open in APP_ENV=local only. Outside it, with '
+          'sessions (withSession()), sign in and define who may open it '
+          "in bootstrap/policies.dart: gate.define('viewPulse', "
+          '(user, _) => ...).',
+      'Without sessions, decide per request in bootstrap/app.dart, for '
+          'example on a secret header your proxy adds: '
+          'Pulse.auth((request) => constantTimeEquals('
+          "request.header('x-pulse-key') ?? '', pulseKey)).",
     ],
   ),
   PackageManifest(
@@ -275,7 +289,7 @@ const List<PackageManifest> officialPackages = [
     description:
         'A Pusher WebSocket server of its own, for several apps, with stats',
     aliases: ['reverb', 'websocket', 'websockets', 'pusher'],
-    registration: [".withReverb(middleware: ['auth', 'can:viewReverb'])"],
+    registration: ['.withReverb()'],
     commands: 'reverbCommands',
     env: [
       'REVERB_SERVER_HOST=0.0.0.0',
@@ -286,7 +300,14 @@ const List<PackageManifest> officialPackages = [
     ],
     next: [
       'withReverb() needs .withBroadcasting(...) and REVERB_APP_ID/_KEY/_SECRET.',
-      "Who may open /reverb: gate.define('viewReverb', (user, _) => ...) in bootstrap/policies.dart",
+      'The /reverb dashboard is open in APP_ENV=local only. Outside it, with '
+          'sessions (withSession()), sign in and define who may open it '
+          "in bootstrap/policies.dart: gate.define('viewReverb', "
+          '(user, _) => ...).',
+      'Without sessions, decide per request in bootstrap/app.dart, for '
+          'example on a secret header your proxy adds: '
+          'ReverbDashboard.auth((request) => constantTimeEquals('
+          "request.header('x-reverb-key') ?? '', reverbKey)).",
       'dartisan reverb:start   # beside dartisan serve; Echo connects to REVERB_HOST:REVERB_SERVER_PORT',
       'With reverb:start apart, REVERB_METRICS_URL=http://127.0.0.1:8080/metrics feeds /reverb (METRICS_ENABLED=true).',
       'dartisan reverb:restart after a deploy (or from /reverb); reverb:stats from the command line',

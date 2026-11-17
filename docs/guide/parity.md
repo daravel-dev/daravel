@@ -100,6 +100,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `php artisan reverb:start (Laravel Reverb)` | `.withBroadcasting(...) with REVERB_APP_ID / _KEY / _SECRET` | The Pusher protocol on the HTTP port; Laravel Echo and pusher-js connect unchanged. |
 | `php artisan reverb:start --host= --port= --debug` | `dartisan reverb:start [--host] [--port] [--path] [--isolates] [--debug] (daravel_reverb)` | The Pusher server in a process of its own: broadcasting, /up and /metrics only, in worker isolates; --debug logs frames with signatures masked. |
 | `php artisan reverb:restart` | `dartisan reverb:restart (daravel_reverb)` | Each isolate closes its connections over REVERB_DRAIN_SPREAD and is spawned again. |
+| `(none)` | `.withReverb() /reverb dashboard + Gate.define('viewReverb', ...) or ReverbDashboard.auth((request) => ...)` | Daravel-only (Laravel Reverb has no dashboard): open in APP_ENV=local only, 403 elsewhere unless the callback or the gate allows; middleware never opens it. |
 | `(none)` | `createApp()..serveBroadcastingOnly(path: '/ws', auth: false, debug: false)` | Daravel-only: the same application serving only its Pusher server, /up, /up/ready and /metrics (what reverb:start runs); app.router keeps every route. |
 | `(none)` | `await app.restart()` | Daravel-only: drain and start again; a supervisor worker is spawned again at once, not counted as a crash. |
 | `config/reverb.php 'apps' => ['apps' => [...]] from .env` | `.withReverb() with REVERB_APPS (JSON) or REVERB_APPS_PROVIDER=database (daravel_reverb)` | The entries of config/reverb.php as JSON, or a reverb_apps table read per key and cached 60 s. |
@@ -199,13 +200,15 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
-| `composer require opcodesio/log-viewer (/log-viewer)` | `.withLogViewer(middleware: ['auth', 'can:view-logs'])` | Reads Daravel's JSON logs and Laravel's Monolog files from their end; 403 outside local without middleware. |
+| `composer require opcodesio/log-viewer (/log-viewer)` | `.withLogViewer()` | Reads Daravel's JSON logs and Laravel's Monolog files from their end; open in APP_ENV=local only, 403 elsewhere unless LogViewer.auth or the viewLogViewer gate allows; middleware never opens it. |
+| `LogViewer::auth(fn ($request) => ...) / Gate::define('viewLogViewer', ...)` | `LogViewer.auth((request) => ...) / Gate.define('viewLogViewer', ...)` | Unlike opcodesio/log-viewer, an environment other than local with neither is closed (staging too). |
 
 ## Pulse (daravel_pulse)
 
 | Laravel | Daravel | Notes |
 | :-- | :-- | :-- |
-| `composer require laravel/pulse (/pulse)` | `.withPulse(middleware: ['auth', 'can:viewPulse'])` | Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; 403 outside local without middleware. |
+| `composer require laravel/pulse (/pulse)` | `.withPulse()` | Kept in memory by each isolate and merged through the coordinator, not in pulse_* tables; open in APP_ENV=local only, as laravel/pulse. |
+| `Gate::define('viewPulse', fn ($user) => ...)` | `Gate.define('viewPulse', (user, _) => ...)` | Decides outside APP_ENV=local, as laravel/pulse's Authorize middleware. Pulse.auth((request) => ...) is a Daravel addition (Laravel Pulse has only the gate), for applications without sessions. |
 | `PULSE_SLOW_QUERIES_THRESHOLD, PULSE_SLOW_REQUESTS_THRESHOLD, PULSE_SLOW_JOBS_THRESHOLD` | `the same .env keys` |  |
 | `DB::transaction($fn, attempts: 5)` | `DB.transaction(fn, attempts: 5), with jitter between retries` |  |
 | `(none)` | `QueryExecuted.poolWait` |  |
@@ -369,6 +372,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `DB::table('users')` | `DB.table('users')` |  |
 | `DB::select($sql, $bindings)` | `await DB.select(sql, bindings)` | **async** |
 | `DB::statement($sql)` | `await DB.statement(sql)` | **async** |
+| `DB::unprepared($sql)` | `await DB.unprepared(sql)` | **async**; The only call that runs several statements; select, statement and insertGetId refuse a second one on every driver. Laravel on SQLite runs the first statement of a stack and drops the rest; Daravel refuses it. |
 | `DB::transaction(fn)` | `await DB.transaction(() async {...})` | **async** |
 | `DB::afterRollBack(fn)` | `DB.afterRollback(fn)` | Runs when the active level rolls back and before a transaction(attempts:) retry; a released savepoint passes its callbacks to the level around it (Laravel drops them). |
 | `DB_CONNECTION=mysql / mariadb` | `withDatabaseDriver('mysql', MySqlDriver.fromConfig)` | package:daravel_mysql; registered by new projects. |
@@ -423,6 +427,7 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
+| `config('jwt.required_claims') (tymon/jwt-auth)` | `JWT_REQUIRED_CLAIMS=exp,... / JwtCodec(requiredClaims: [...])` | The JWT guard requires exp by default (jwt-auth requires iss, iat, exp, nbf, sub and jti); empty requires nothing. A token without a required claim is refused like any invalid one, and an exp, nbf or iat outside the finite NumericDate range DateTime can hold always is. |
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |
 | `Hash::make / check / needsRehash` | `await Hash.make / check, Hash.needsRehash` |  |
 | `Crypt::encryptString / decryptString` | `await Crypt.encryptString / decryptString` | **async**; Byte-compatible with APP_CIPHER=AES-256-CBC or AES-256-GCM. |

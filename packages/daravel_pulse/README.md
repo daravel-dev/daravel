@@ -17,7 +17,7 @@ dart pub add daravel_pulse
 import 'package:daravel_pulse/daravel_pulse.dart';
 
 Application createApp() => Application.configure(basePath: '.')
-    .withPulse(middleware: ['auth', 'can:viewPulse'])
+    .withPulse()
     // ...
     .create();
 // https://your-app/pulse
@@ -32,8 +32,11 @@ Application createApp() => Application.configure(basePath: '.')
   send their reports to the coordinator, so the page shows the whole
   process.
 - Laravel Pulse's threshold keys (`PULSE_SLOW_QUERIES_THRESHOLD`, ...); a
-  page with a nonce-based Content-Security-Policy and no external assets;
-  403 outside local until it is given middleware.
+  page with a nonce-based Content-Security-Policy and no external assets.
+- Open in `APP_ENV=local` only, as Laravel Pulse: elsewhere (`testing`
+  too) the `viewPulse` gate decides, or `Pulse.auth((request) => ...)` for
+  an application without sessions (call it inside `createApp`, so that
+  every worker isolate has it). Middleware never opens it.
 
 Documentation: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/pulse.md>.
 

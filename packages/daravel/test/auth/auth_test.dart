@@ -516,6 +516,19 @@ void main() {
       }),
     );
     await app.run(() => Auth.jwtGuard().invalidate(expired));
+    // An exp at the end of what a date holds (the leeway past it does not
+    // fit): revoked, held there.
+    const maxSeconds = 8640000000000;
+    for (final exp in [maxSeconds, maxSeconds - 10, maxSeconds - 30]) {
+      final far = await app.run(
+        () => Auth.jwtGuard().codec.sign({
+          'jti': 'far-$exp',
+          'sub': '${ana.id}',
+          'exp': exp,
+        }),
+      );
+      await app.run(() => Auth.jwtGuard().invalidate(far));
+    }
     // The real one still works, and revoking it works.
     await app.run(() => Auth.jwtGuard().invalidate(jwt));
     expect((await get('/jwt-me', token: jwt)).status, 401);

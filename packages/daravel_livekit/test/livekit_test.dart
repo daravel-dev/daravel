@@ -342,6 +342,116 @@ void main() {
         ),
       );
     });
+
+    test('a participant whose tracks are not a list is a LiveKit error (502) '
+        'when it is answered, not a FormatException when it is read', () async {
+      const bad = {'identity': 'ana', 'tracks': 'not a list'};
+      final client = HttpClientFactory();
+      client.fake({
+        '*/ListParticipants': Http.response({
+          'participants': [bad],
+        }),
+        '*/GetParticipant': Http.response(bad),
+        '*/UpdateParticipant': Http.response(bad),
+      });
+      final service = RoomServiceClient(
+        'https://lk.example.test',
+        apiKey: _key,
+        apiSecret: _secret,
+        http: client,
+      );
+      for (final call in <Future<Object?> Function()>[
+        () => service.listParticipants('class-7a'),
+        () => service.getParticipant('class-7a', 'ana'),
+        () => service.updateParticipant('class-7a', 'ana', name: 'Ana'),
+      ]) {
+        await expectLater(
+          call(),
+          throwsA(
+            isA<LivekitException>().having((e) => e.status, 'status', 502),
+          ),
+        );
+      }
+    });
+
+    test(
+      'Twirp response fields reject wrong types without a type error',
+      () async {
+        for (final value in <Object?>[
+          'bad',
+          1,
+          <Object?>[],
+          <String, Object?>{},
+          null,
+        ]) {
+          final client = HttpClientFactory();
+          client.fake({
+            '*/ListRooms': Http.response({'rooms': value}),
+            '*/ListParticipants': Http.response({'participants': value}),
+          });
+          final service = RoomServiceClient(
+            'https://lk.example.test',
+            apiKey: _key,
+            apiSecret: _secret,
+            http: client,
+          );
+          for (final read in <Future<Object?> Function()>[
+            () => service.listRooms(),
+            () => service.listParticipants('class-7a'),
+          ]) {
+            if (value is List<Object?> || value == null) {
+              expect(await read(), isEmpty, reason: '$value');
+            } else {
+              await expectLater(
+                read(),
+                throwsA(
+                  isA<LivekitException>().having(
+                    (error) => error is TypeError,
+                    'is TypeError',
+                    isFalse,
+                  ),
+                ),
+                reason: '$value',
+              );
+            }
+          }
+        }
+      },
+    );
+
+    test('Twirp error code types never become a type error', () async {
+      for (final value in <Object?>[
+        'not_found',
+        1,
+        <Object?>[],
+        <String, Object?>{},
+        null,
+      ]) {
+        final client = HttpClientFactory();
+        client.fake({
+          '*': Http.response({'code': value, 'msg': 'failed'}, 400),
+        });
+        final service = RoomServiceClient(
+          'https://lk.example.test',
+          apiKey: _key,
+          apiSecret: _secret,
+          http: client,
+        );
+        await expectLater(
+          service.listRooms(),
+          throwsA(
+            isA<LivekitException>()
+                .having((error) => error is TypeError, 'is TypeError', isFalse)
+                .having(
+                  (error) => error.code,
+                  'code',
+                  value is String ? value : null,
+                ),
+          ),
+          reason: '$value',
+        );
+      }
+    });
   });
 
   test('configuration from .env, with older names', () {
@@ -390,6 +500,22 @@ void main() {
         ),
       ),
     );
+    // Set but only whitespace, key or secret: the boot fails too.
+    for (final env in const [
+      {'LIVEKIT_API_KEY': '   ', 'LIVEKIT_API_SECRET': 'secret'},
+      {'LIVEKIT_API_KEY': 'k', 'LIVEKIT_API_SECRET': ' \t '},
+    ]) {
+      await expectLater(
+        build(env).boot(),
+        throwsA(
+          predicate(
+            (Object e) => '$e'.contains('holds only whitespace'),
+            'names the whitespace',
+          ),
+        ),
+        reason: '$env',
+      );
+    }
   });
 }
 
