@@ -76,7 +76,13 @@ final class GracefulServerSocket extends StreamView<Socket>
     await _subscription?.cancel();
     _subscription = null;
     if (!_connections.isClosed) {
-      await _connections.close();
+      final listening = _connections.hasListener;
+      final closed = _connections.close();
+      if (listening) {
+        await closed;
+      } else {
+        unawaited(closed);
+      }
     }
   }
 
