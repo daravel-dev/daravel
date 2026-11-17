@@ -263,8 +263,9 @@ final class WebSocketGuard {
 
   void _dispose() {
     _inbound.dispose();
-    // The one place where every end releases what is left of a chunk
-    // ([_GuardedSocket.destroy] comes here too).
+    // Each known way a session ends releases what is left of a chunk
+    // itself (parsed on, or dropped at a violation or the unread wait);
+    // this releases it should an end not yet known come here first.
     _socket?._dropUnparsed();
     // After a violation the grace stays: the WebSocket's `done` reports its
     // side closed, and a client that neither answers nor goes away would
@@ -1308,6 +1309,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
             // Refused or ended: the rest is not read.
             _discarded += next.length - read;
           } else if (!_destroyed) {
+            // (Destroyed meanwhile, the rest is dropped: nothing reads it,
+            // and [_discarded] only paces reading after a violation.)
             final rest = Uint8List.sublistView(next, read);
             final later = _unparsed;
             // A chunk that came meanwhile ([_read]) goes after the rest.
@@ -1348,6 +1351,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// however many reasons.
   bool _readPaused = false;
 
+  /// Only while a chunk read through [_reading] is handled, so [_reading]
+  /// exists by then.
   void _pauseReading() {
     if (!_readPaused) {
       _readPaused = true;

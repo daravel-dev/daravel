@@ -19,6 +19,7 @@ Future<void> expectWebSocketCountsReleased() async {
     'waiting',
     'queued',
     'unparsed',
+    'pinned',
   ];
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   var counts = WebSocketGuardStats.toJson();
