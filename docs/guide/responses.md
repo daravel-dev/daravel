@@ -465,7 +465,8 @@ message that is still arriving while the server holds the client back
 After a handler cancels its subscription and keeps the socket, what the
 client sends is read and dropped (its frames still checked): what the
 handler sends goes out as before, and the client's close or its going
-away ends the session at once.
+away ends the session at once. A client's close is answered with its code
+before the connection ends, also when its end of stream comes with it.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;

@@ -196,6 +196,12 @@ final class WebSocketGuard {
   /// client's code. A close is answered with that code, the socket
   /// destroyed after the grace; a client that went away is not waited for.
   void _closedUnread(int? code, String? reason, {required bool clientGone}) {
+    if (clientGone && _answering) {
+      // The client's close is being answered: the end of its stream does
+      // not cut the answer short. The answer's end closes the socket, the
+      // grace below bounds it.
+      return;
+    }
     final attached = _attached;
     if (attached is BufferedWebSocket) {
       // No close read: 1006 (gone) or 1005 (no code), as RFC 6455 §7.1.5.
@@ -207,6 +213,7 @@ final class WebSocketGuard {
       return;
     }
     _keepGrace = true;
+    _answering = true;
     // The answer echoes the client's code when it is 1000 or 3000-4999,
     // else closes with 1000; the reason, already checked as UTF-8 within
     // 123 bytes, goes with it.
@@ -217,13 +224,19 @@ final class WebSocketGuard {
       unawaited(
         attached
             .close(echo, echo == null ? null : reason)
-            .then<void>((_) {}, onError: (Object _) {}),
+            .then<void>(
+              (_) => socket?.destroy(),
+              onError: (Object _) => socket?.destroy(),
+            ),
       );
     } on Object {
       // Closing already: the grace below ends it.
     }
     _grace = Timer(limits.closeGrace, () => socket?.destroy());
   }
+
+  /// The client's close is being answered ([_closedUnread]).
+  bool _answering = false;
 
   /// The socket was destroyed: the session ends now, not when the
   /// BufferedWebSocket's own close gives up waiting for a client that
@@ -605,7 +618,11 @@ final class _Inbound {
           return _stop(1007, 'Invalid UTF-8 in the close reason');
         }
       }
-      emit(_frame(0x8, false, payload.length));
+      final header = _frame(0x8, false, payload.length);
+      // Known before it goes: the WebSocket may stop reading while it is
+      // handed on.
+      _guard._socket?._closeEmitting(header.length + payload.length);
+      emit(header);
       if (payload.isNotEmpty) {
         emit(payload);
       }
@@ -920,6 +937,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       // Checked already ([_Inbound]); nothing can read it: dropped.
       return;
     }
+    _emitted += bytes.length;
     if (!_passing || _held.isNotEmpty) {
       _hold(bytes);
       if (!_tcpHeldBack && _heldBytes > _heldLimit) {
@@ -933,6 +951,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       }
       return;
     }
+    // Counted before it goes: the WebSocket may stop reading inside.
+    _delivered += bytes.length;
     _in.add(
       (bytes.offsetInBytes & 15) == 0 ? bytes : Uint8List.fromList(bytes),
     );
@@ -992,11 +1012,13 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         final item = _held.removeFirst();
         if (item is Uint8List) {
           _heldBytes -= heldItemCost + item.length;
+          _delivered += item.length;
           _in.add(item);
         } else if (item is _HeldBytes) {
           // A fresh buffer: at offset 0, so handed on as it is.
           final bytes = item.builder.takeBytes();
           _heldBytes -= heldItemCost + bytes.length;
+          _delivered += bytes.length;
           _in.add(bytes);
         } else if (item is _TcpEnd) {
           _endIn(item);
@@ -1019,6 +1041,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   }
 
   void _endIn(_TcpEnd end) {
+    _endDelivered = true;
     final error = end.error;
     if (error != null) {
       _in.addError(error, end.stackTrace);
@@ -1107,7 +1130,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
       _guard._closedUnread(
         _guard._clientCloseCode,
         _guard._clientCloseReason,
-        clientGone: ended,
+        // A CLOSE that was read is answered, TCP ended after it or not.
+        clientGone: ended && !_closeRead,
       );
       return;
     }
@@ -1158,6 +1182,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     onCancel: () {
       if (!_destroyed &&
           !_guard._violated &&
+          !_protocolEnded &&
           _guard._attached?.readyState == WebSocket.open) {
         // The application cancelled its subscription and kept the socket:
         // the client is read on and what it sends dropped, as the server's
@@ -1176,7 +1201,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
           _guard._closedUnread(
             _guard._clientCloseCode,
             _guard._clientCloseReason,
-            clientGone: ended,
+            // A CLOSE that was read is answered, TCP ended after it or not.
+            clientGone: ended && !_closeRead,
           );
           return null;
         }
@@ -1194,6 +1220,28 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// open: nothing reads what arrives any more, and nothing can (a
   /// WebSocket is listened to once).
   bool _readerGone = false;
+
+  // Invariant: one unit (bytes for [_in], in order), never lowered.
+  /// Bytes [_Inbound] handed on ([_handOn]), held or not.
+  int _emitted = 0;
+
+  /// Bytes put into [_in]: the client's CLOSE reached the WebSocket once
+  /// this is at [_closeEndsAt].
+  int _delivered = 0;
+
+  /// [_emitted] where the client's CLOSE frame ends, once one is handed on.
+  int? _closeEndsAt;
+
+  /// The end of the client's TCP stream was put into [_in].
+  bool _endDelivered = false;
+
+  void _closeEmitting(int length) => _closeEndsAt ??= _emitted + length;
+
+  /// The WebSocket has the client's CLOSE or the end of its TCP stream: a
+  /// cancel now is the protocol ending, which ends the session the usual
+  /// way, not the application leaving its reading.
+  bool get _protocolEnded =>
+      _endDelivered || (_closeEndsAt != null && _delivered >= _closeEndsAt!);
 
   final Queue<List<int>> _waiting = Queue<List<int>>();
   int _waitingBytes = 0;
