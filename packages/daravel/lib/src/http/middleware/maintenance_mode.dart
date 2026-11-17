@@ -209,7 +209,11 @@ final class PreventRequestsDuringMaintenance implements Middleware {
       for (final part in line.split(';')) {
         final separator = part.indexOf('=');
         if (separator > 0 && part.substring(0, separator).trim() == name) {
-          return Uri.decodeComponent(part.substring(separator + 1).trim());
+          try {
+            return Uri.decodeComponent(part.substring(separator + 1).trim());
+          } on ArgumentError {
+            return null;
+          }
         }
       }
     }

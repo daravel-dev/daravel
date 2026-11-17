@@ -89,6 +89,33 @@ void main() {
     expect(expired.status, 503, reason: 'the cookie lasts 12 hours');
   });
 
+  test('malformed bypass cookie behaves like no bypass cookie', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final logs = await app.run(() async => Log.spy());
+    final normal = await app.handle(Request.fake(path: '/api/ping'));
+    final normalLogs = [
+      for (final r in logs.records) (r.level, r.message, '${r.error}'),
+    ];
+    logs.clear();
+    final response = await app.handle(
+      Request.fake(
+        path: '/api/ping',
+        headers: {'cookie': 'daravel_maintenance=%zz'},
+      ),
+    );
+    expect(response.status, normal.status);
+    expect(response.status, 503);
+    expect(await response.bodyText(), await normal.bodyText());
+    expect(
+      response.headers.toSingleValueMap(),
+      normal.headers.toSingleValueMap(),
+    );
+    expect([
+      for (final r in logs.records) (r.level, r.message, '${r.error}'),
+    ], normalLogs);
+  });
+
   test('up is noticed after the check interval', () async {
     app = await boot();
     final middleware = PreventRequestsDuringMaintenance(
