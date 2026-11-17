@@ -43,8 +43,16 @@ final class LivekitConfig implements ConfigSection {
   /// anyone could forge.
   static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
     final livekit = config.section<LivekitConfig>();
+    bool blank(String value) => value.isNotEmpty && value.trim().isEmpty;
     return [
-      if (livekit.apiKey.isNotEmpty && livekit.apiSecret.isEmpty)
+      // Set, but only whitespace: a mistake, not LiveKit left unused.
+      if (blank(livekit.apiKey) || blank(livekit.apiSecret))
+        const ConfigIssue(
+          ConfigIssueLevel.error,
+          'LiveKit: LIVEKIT_API_KEY or LIVEKIT_API_SECRET holds only '
+          'whitespace; tokens and webhooks need both.',
+        )
+      else if (livekit.apiKey.isNotEmpty && livekit.apiSecret.isEmpty)
         const ConfigIssue(
           ConfigIssueLevel.error,
           'LiveKit: LIVEKIT_API_KEY is set but LIVEKIT_API_SECRET is empty; '

@@ -628,14 +628,25 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
       return;
     }
     // Verification accepts a token up to the leeway after `exp`.
+    final expires = current!.expiresAt;
     await list.add(
       jti,
-      current!.expiresAt?.add(codec.leeway) ??
-          _clock().add(const Duration(days: 365)),
+      expires == null
+          ? _clock().add(const Duration(days: 365))
+          : _laterWithin(expires, codec.leeway),
     );
     if (token == null) {
       forgetUser();
     }
+  }
+
+  /// [time] plus [duration], held to the latest instant a [DateTime] holds:
+  /// a claim's `exp` near it plus the leeway would not fit.
+  static DateTime _laterWithin(DateTime time, Duration duration) {
+    final ms = time.millisecondsSinceEpoch;
+    return ms > JwtClaims._maxMs - duration.inMilliseconds
+        ? DateTime.fromMillisecondsSinceEpoch(JwtClaims._maxMs, isUtc: true)
+        : time.add(duration);
   }
 
   static String _jti() {

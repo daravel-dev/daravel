@@ -343,6 +343,37 @@ void main() {
       );
     });
 
+    test('a participant whose tracks are not a list is a LiveKit error (502) '
+        'when it is answered, not a FormatException when it is read', () async {
+      const bad = {'identity': 'ana', 'tracks': 'not a list'};
+      final client = HttpClientFactory();
+      client.fake({
+        '*/ListParticipants': Http.response({
+          'participants': [bad],
+        }),
+        '*/GetParticipant': Http.response(bad),
+        '*/UpdateParticipant': Http.response(bad),
+      });
+      final service = RoomServiceClient(
+        'https://lk.example.test',
+        apiKey: _key,
+        apiSecret: _secret,
+        http: client,
+      );
+      for (final call in <Future<Object?> Function()>[
+        () => service.listParticipants('class-7a'),
+        () => service.getParticipant('class-7a', 'ana'),
+        () => service.updateParticipant('class-7a', 'ana', name: 'Ana'),
+      ]) {
+        await expectLater(
+          call(),
+          throwsA(
+            isA<LivekitException>().having((e) => e.status, 'status', 502),
+          ),
+        );
+      }
+    });
+
     test(
       'Twirp response fields reject wrong types without a type error',
       () async {
@@ -469,6 +500,22 @@ void main() {
         ),
       ),
     );
+    // Set but only whitespace, key or secret: the boot fails too.
+    for (final env in const [
+      {'LIVEKIT_API_KEY': '   ', 'LIVEKIT_API_SECRET': 'secret'},
+      {'LIVEKIT_API_KEY': 'k', 'LIVEKIT_API_SECRET': ' \t '},
+    ]) {
+      await expectLater(
+        build(env).boot(),
+        throwsA(
+          predicate(
+            (Object e) => '$e'.contains('holds only whitespace'),
+            'names the whitespace',
+          ),
+        ),
+        reason: '$env',
+      );
+    }
   });
 }
 

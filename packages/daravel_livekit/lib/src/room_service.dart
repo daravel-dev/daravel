@@ -217,8 +217,23 @@ final class RoomServiceClient {
     }, VideoGrant(room: room, roomAdmin: true));
     return [
       for (final p in _list(reply, 'participants'))
-        if (p is Map<String, Object?>) LivekitParticipant(p),
+        if (p is Map<String, Object?>) _participant('ListParticipants', p),
     ];
+  }
+
+  /// A participant of [method]'s answer, its fields checked now (as a
+  /// webhook's are): a [LivekitParticipant] read later must not throw.
+  LivekitParticipant _participant(String method, Map<String, Object?> json) {
+    final participant = LivekitParticipant(json);
+    try {
+      participant.tracks;
+    } on FormatException {
+      throw LivekitException(
+        '$method: the participant tracks field is not a list.',
+        status: 502,
+      );
+    }
+    return participant;
   }
 
   List<Object?> _list(Map<String, Object?> reply, String name) =>
@@ -235,7 +250,8 @@ final class RoomServiceClient {
   Future<LivekitParticipant> getParticipant(
     String room,
     String identity,
-  ) async => LivekitParticipant(
+  ) async => _participant(
+    'GetParticipant',
     await _call('GetParticipant', {
       'room': room,
       'identity': identity,
@@ -258,7 +274,8 @@ final class RoomServiceClient {
     String? name,
     Map<String, String>? attributes,
     ParticipantPermission? permission,
-  }) async => LivekitParticipant(
+  }) async => _participant(
+    'UpdateParticipant',
     await _call('UpdateParticipant', {
       'room': room,
       'identity': identity,
