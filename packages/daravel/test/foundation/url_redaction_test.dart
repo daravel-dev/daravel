@@ -209,6 +209,12 @@ void main() {
           'GET https://h:8080/r/https://u:PASS@h2/x',
           'GET https://h:8080/r/https://u:***@h2/x',
         ),
+        // Credentials in a path segment, one URL after another: each its
+        // own, as for one URL alone.
+        (
+          'x://a/app:PASS1@h1;x://b/app:PASS2@h2',
+          'x://a/app:***@h1;x://b/app:***@h2',
+        ),
         // A digit before the scheme is not part of it.
         ('x=1pgsql://u:PASS@h/db', 'x=1pgsql://u:***@h/db'),
         // A query value that looks like a URL stays masked by its name.
@@ -220,6 +226,37 @@ void main() {
         ),
       ]) {
         expect(redactUrlInText(text), expected, reason: text);
+      }
+    });
+
+    test('redactUrl masks a URL nested in the path or the query', () {
+      for (final (url, expected) in [
+        (
+          'https://h:8080/r/https://u:$secret@h2/x',
+          'https://h:8080/r/https://u:***@h2/x',
+        ),
+        (
+          'https://h:8080/r?https://u:$secret@h2/x',
+          'https://h:8080/r?https://u:***@h2/x',
+        ),
+        (
+          'https://u:$secret@proxy/r/https://v:$secret@h2/x?token=$secret',
+          'https://u:***@proxy/r/https://v:***@h2/x?token=***',
+        ),
+        (
+          'x://a/app:$secret@h1;x://b/app:$secret@h2',
+          'x://a/app:***@h1;x://b/app:***@h2',
+        ),
+        // Only the URL's own user info is a lone password.
+        (
+          'redis://$secret@h/0?next=https://user@h2/',
+          'redis://***@h/0?next=https://user@h2/',
+        ),
+      ]) {
+        final masked = url.startsWith('redis')
+            ? redactUrl(url, loneUserIsPassword: true)
+            : redactUrl(url);
+        expect(masked, expected, reason: url);
       }
     });
 
@@ -282,7 +319,7 @@ void main() {
       }
     });
 
-    test('1 MiB of URLs side by side in text takes one pass', () {
+    test('1 MiB of URLs side by side or nested takes one pass', () {
       const mib = 1024 * 1024;
       for (final text in [
         '${'a://' * (mib ~/ 4)}u:$secret@h',
@@ -290,11 +327,21 @@ void main() {
         '${'x://h:1/' * (mib ~/ 8)}u:$secret@h',
         '${'a://b/' * (mib ~/ 6)}c:$secret@h',
         'https://h/p?next=${'a://' * (mib ~/ 4)}&token=$secret',
+        '${'x://a/b:c@d;' * (mib ~/ 12)}x://a/app:$secret@h',
       ]) {
         final watch = Stopwatch()..start();
         final masked = redactUrlInText(text);
         expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
         expect(masked, isNot(contains(secret)), reason: text.substring(0, 40));
+      }
+      for (final url in [
+        'https://h:1/${'a://' * (mib ~/ 4)}u:$secret@h',
+        'https://h/r/${'x://a/b:c@d/' * (mib ~/ 12)}x://u:$secret@h',
+      ]) {
+        final watch = Stopwatch()..start();
+        final masked = redactUrl(url);
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(masked, isNot(contains(secret)), reason: url.substring(0, 40));
       }
     });
   });

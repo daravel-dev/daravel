@@ -70,21 +70,28 @@ final class _Text {
   (int, int)? get segment {
     if (!_segmentRead) {
       _segmentRead = true;
-      final from = value.lastIndexOf('/', lastAt - 1) + 1;
-      var inner = -1;
-      for (var i = from; i < lastAt; i++) {
-        final c = value.codeUnitAt(i);
-        if (c == 0x3f || c == 0x23 || c == 0x26 || c == 0x3d) {
-          return null;
-        }
-        if (c == 0x3a && inner < 0) {
-          inner = i;
-        }
-      }
-      _segment = inner >= 0 ? (inner + 1, lastAt) : null;
+      _segment = _segmentSpan(value, 0, lastAt);
     }
     return _segment;
   }
+}
+
+/// The span masked in the segment of `url[from, at)` before the `@` at
+/// [at], after the last `/` before it: from its first `:` to [at], when it
+/// holds a `:` and no `?`, `#`, `&` or `=`; else null.
+(int, int)? _segmentSpan(String url, int from, int at) {
+  final slash = _lastIn(url, 0x2f, from, at);
+  var inner = -1;
+  for (var i = slash < 0 ? from : slash + 1; i < at; i++) {
+    final c = url.codeUnitAt(i);
+    if (c == 0x3f || c == 0x23 || c == 0x26 || c == 0x3d) {
+      return null;
+    }
+    if (c == 0x3a && inner < 0) {
+      inner = i;
+    }
+  }
+  return inner >= 0 ? (inner + 1, at) : null;
 }
 
 /// The span of `text.value` that [redactUrlPassword] masks for the URL
@@ -155,8 +162,10 @@ final class _Text {
     return (start, last);
   }
   // No `:` in the authority (`postgres//app:secret@host`): the segment
-  // before the last `@`, after the `/` before it.
-  return text.segment;
+  // before the last `@` of this URL (up to [limit]), after the `/` before
+  // it; when this URL holds no `@`, before the last `@` of the text.
+  final own = _lastIn(url, 0x40, end, limit);
+  return own >= 0 ? _segmentSpan(url, end, own) : text.segment;
 }
 
 /// The first [c] in `url[from, to)`, or -1.
@@ -272,6 +281,10 @@ const Set<String> _exactUrlKeyNames = {'sig', 'key', 'code', 'auth', 'pass'};
 /// name is sensitive replaced by `***`; other pairs stay
 /// (`?token=***&page=2`).
 ///
+/// - Every later `scheme://` in [url] starts a URL nested in it, in its
+///   path or query (`https://proxy/r/https://u:***@h/x`), whose password
+///   is masked as well ([loneUserIsPassword] applies to [url]'s own user
+///   info only).
 /// - Pairs are everything after the first `?` or `#`, split at every `?`,
 ///   `&`, `;` and `#`, so the query of a URL nested in a value
 ///   (`?next=https://other/cb?token=…`) and a fragment of pairs (an OAuth
@@ -295,8 +308,100 @@ String redactUrl(
   bool loneUserIsPassword = false,
   List<String> names = sensitiveKeyNames,
 }) {
-  final masked = redactUrlPassword(url, loneUserIsPassword: loneUserIsPassword);
+  final separator = url.indexOf('://');
+  final start = separator > 0 && _isScheme(url, separator)
+      ? separator + 3
+      : (url.startsWith('//') ? 2 : 0);
+  final masked = _maskPasswords(
+    url,
+    start,
+    _urlStarts(url),
+    loneUserIsPassword: loneUserIsPassword,
+  );
   return _maskPairs(masked, names);
+}
+
+/// Each `scheme://` in [text]: where its scheme starts (the scheme
+/// characters before `://`, from the first letter among them, so
+/// `x=1pgsql://` starts at `pgsql`) and where its authority starts.
+List<(int, int)> _urlStarts(String text) {
+  final starts = <(int, int)>[];
+  var separator = text.indexOf('://');
+  while (separator >= 0) {
+    var schemeStart = separator;
+    while (schemeStart > 0 &&
+        _isSchemeCharacter(text.codeUnitAt(schemeStart - 1))) {
+      schemeStart--;
+    }
+    while (schemeStart < separator &&
+        !_isLetter(text.codeUnitAt(schemeStart))) {
+      schemeStart++;
+    }
+    if (schemeStart < separator) {
+      starts.add((schemeStart, separator + 3));
+    }
+    separator = text.indexOf('://', separator + 3);
+  }
+  return starts;
+}
+
+/// [text] with the password masked of the URL whose authority starts at
+/// [start] and of every URL in [starts] after it, each read up to the
+/// next one; overlapping spans (a password running into the next URL) are
+/// merged. [loneUserIsPassword] applies to the URL at [start] only. One
+/// pass over [text].
+String _maskPasswords(
+  String text,
+  int start,
+  List<(int, int)> starts, {
+  bool loneUserIsPassword = false,
+}) {
+  final scan = _Text(text);
+  final later = [
+    for (final s in starts)
+      if (s.$2 > start) s,
+  ];
+  final spans = <(int, int)>[];
+  void add((int, int)? span) {
+    if (span != null) {
+      spans.add(span);
+    }
+  }
+
+  add(
+    _passwordSpan(
+      scan,
+      start,
+      later.isEmpty ? text.length : later.first.$1,
+      loneUserIsPassword: loneUserIsPassword,
+    ),
+  );
+  for (var i = 0; i < later.length; i++) {
+    final limit = i + 1 < later.length ? later[i + 1].$1 : text.length;
+    add(_passwordSpan(scan, later[i].$2, limit));
+  }
+  if (spans.isEmpty) {
+    return text;
+  }
+  spans.sort((a, b) => a.$1.compareTo(b.$1));
+  final out = StringBuffer();
+  var copied = 0;
+  var i = 0;
+  while (i < spans.length) {
+    final from = spans[i].$1;
+    var to = spans[i].$2;
+    for (i++; i < spans.length && spans[i].$1 <= to; i++) {
+      if (spans[i].$2 > to) {
+        to = spans[i].$2;
+      }
+    }
+    out
+      ..write(text.substring(copied, from))
+      ..write('***');
+    copied = to;
+  }
+  out.write(text.substring(copied));
+  return out.toString();
 }
 
 /// [masked] with the value of every sensitive pair after its first `?` or
@@ -358,59 +463,15 @@ String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
 }
 
 String _redactTextToken(String token, List<String> names) {
-  // Each URL: where it starts (its scheme) and where its authority starts.
-  final starts = <(int, int)>[];
-  var separator = token.indexOf('://');
-  while (separator >= 0) {
-    // The scheme: the scheme characters before `://`, from the first
-    // letter among them (`x=1pgsql://` starts at `pgsql`).
-    var schemeStart = separator;
-    while (schemeStart > 0 &&
-        _isSchemeCharacter(token.codeUnitAt(schemeStart - 1))) {
-      schemeStart--;
-    }
-    while (schemeStart < separator &&
-        !_isLetter(token.codeUnitAt(schemeStart))) {
-      schemeStart++;
-    }
-    if (schemeStart < separator) {
-      starts.add((schemeStart, separator + 3));
-    }
-    separator = token.indexOf('://', separator + 3);
-  }
+  final starts = _urlStarts(token);
   if (starts.isEmpty) {
     return token;
   }
-  final text = _Text(token);
-  final spans = <(int, int)>[];
-  for (var i = 0; i < starts.length; i++) {
-    final limit = i + 1 < starts.length ? starts[i + 1].$1 : token.length;
-    final span = _passwordSpan(text, starts[i].$2, limit);
-    if (span != null) {
-      spans.add(span);
-    }
-  }
-  // Overlapping spans (a password running into the next URL) are merged.
-  spans.sort((a, b) => a.$1.compareTo(b.$1));
+  // Text before the first URL stays; every span lies after it.
   final first = starts.first.$1;
-  final out = StringBuffer();
-  var copied = first;
-  var i = 0;
-  while (i < spans.length) {
-    final from = spans[i].$1;
-    var to = spans[i].$2;
-    for (i++; i < spans.length && spans[i].$1 <= to; i++) {
-      if (spans[i].$2 > to) {
-        to = spans[i].$2;
-      }
-    }
-    out
-      ..write(token.substring(copied, from))
-      ..write('***');
-    copied = to;
-  }
-  out.write(token.substring(copied));
-  return '${token.substring(0, first)}${_maskPairs(out.toString(), names)}';
+  final masked = _maskPasswords(token, starts.first.$2, starts);
+  return '${token.substring(0, first)}'
+      '${_maskPairs(masked.substring(first), names)}';
 }
 
 bool _isLetter(int c) => (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;

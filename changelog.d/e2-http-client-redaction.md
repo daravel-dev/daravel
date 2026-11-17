@@ -1,6 +1,6 @@
 ### Added
 
-- `redactUrl(url)` masks user-info passwords and sensitive query and fragment values for messages and logs. `redactUrlInText(text)` masks every URL in free-form messages: each `scheme://` starts one, whatever separates it from the text before. `sensitiveKeyNames`, `normalizeKeyName`, and `isSensitiveKeyName` provide the shared names and comparisons used by URL redaction and logging.
+- `redactUrl(url)` masks user-info passwords, including those of URLs nested in its path or query, and sensitive query and fragment values for messages and logs. `redactUrlInText(text)` masks every URL in free-form messages: each `scheme://` starts one, whatever separates it from the text before. `sensitiveKeyNames`, `normalizeKeyName`, and `isSensitiveKeyName` provide the shared names and comparisons used by URL redaction and logging.
 - `Http.isIdempotent(method)`, `ConnectionException.method`, and `ConnectionException.mayHaveBeenSent` support retry decisions based on the request method and connection phase.
 
 ### Fixed
