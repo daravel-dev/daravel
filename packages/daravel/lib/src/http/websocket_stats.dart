@@ -29,8 +29,10 @@ abstract final class WebSocketGuardStats {
   static int _unparsed = 0;
   static int _unparsedPeak = 0;
   static int _chunkPeak = 0;
+  static int _chunksWhileUnparsed = 0;
 
-  /// Peaks back to the current counts (the largest chunk to none).
+  /// Peaks back to the current counts (the largest chunk and the chunks
+  /// read while a rest waited to none).
   @visibleForTesting
   static void reset() {
     _assemblingPeak = _assembling;
@@ -40,6 +42,7 @@ abstract final class WebSocketGuardStats {
     _queuedPeak = _queued;
     _unparsedPeak = _unparsed;
     _chunkPeak = 0;
+    _chunksWhileUnparsed = 0;
   }
 
   /// Every count and peak, by name.
@@ -58,6 +61,7 @@ abstract final class WebSocketGuardStats {
     'unparsed': _unparsed,
     'unparsedPeak': _unparsedPeak,
     'chunkPeak': _chunkPeak,
+    'chunksWhileUnparsed': _chunksWhileUnparsed,
   };
 
   /// The rest of a chunk kept unparsed changed by [delta].
@@ -73,6 +77,12 @@ abstract final class WebSocketGuardStats {
     if (length > _chunkPeak) {
       _chunkPeak = length;
     }
+  }
+
+  /// A chunk was read while the rest of an earlier one waited unparsed,
+  /// which pausing the reading is to prevent: tests expect none.
+  static void chunkWhileUnparsed() {
+    _chunksWhileUnparsed++;
   }
 
   /// The bytes being assembled changed by [delta].

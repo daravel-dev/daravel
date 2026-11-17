@@ -17,6 +17,14 @@ import 'support/websocket_counts.dart';
 /// handler reads, and is given up on every way a session ends.
 void main() {
   tearDown(expectWebSocketCountsReleased);
+  // Reading is paused while the rest of a chunk waits: no chunk comes then.
+  tearDown(
+    () => expect(
+      WebSocketGuardStats.toJson()['chunksWhileUnparsed'],
+      0,
+      reason: 'no chunk read while the rest of one waited',
+    ),
+  );
 
   late Application app;
   late ServerEngine engine;
@@ -205,6 +213,22 @@ void main() {
       await sessionsEnd();
       expect(seen['w'], ['done:1008']);
       expect(count('unparsed'), 0);
+      client.socket.destroy();
+    });
+
+    test('after the unread wait (1008) the server reads on and drops what '
+        'the client still sends: no rest of a chunk grows', () async {
+      final client = await withUnparsed('/never?id=w2', numbered(40));
+      expect(await client.closeFrame(), 1008);
+      // The client does not answer and goes on sending.
+      final more = numbered(4, from: 40);
+      for (var i = 0; i < 20 && !client.ended; i++) {
+        client.socket.add(more);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(count('unparsed'), 0, reason: 'nothing kept after the 1008');
+      }
+      expect(count('unparsedPeak'), lessThanOrEqualTo(count('chunkPeak')));
+      await sessionsEnd();
       client.socket.destroy();
     });
 

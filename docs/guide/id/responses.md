@@ -1,4 +1,4 @@
-<!-- source: responses.md sha256:84205a4d7ae6 -->
+<!-- source: responses.md sha256:63cc47bd82f4 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -451,7 +451,10 @@ itu; sesudah client menutup, ia hanya menerima akhirnya.
 Selama belum ada yang mendengarkan, server tetap membaca client dan
 menahan yang dikirimnya, berurutan, untuk pendengar yang akan datang:
 sampai 64 KiB (atau `maxPayloadBytes` rute, bila lebih kecil) ditambah
-satu pesan; sesudah itu TCP menahan client. Jadi handler yang menunggu
+satu pesan atau 64 KiB frame; sesudah itu server berhenti mengurai. Sisa
+yang terakhir dibacanya dari koneksi menunggu tanpa diurai (satu kali
+baca, yang bisa sebesar yang diizinkan penyangga terima sistem), dan TCP
+menahan client. Jadi handler yang menunggu
 `socket.done` tanpa mendengarkan, atau yang menulis dalam loop selama
 `socket.readyState == WebSocket.open`, tetap tahu client menutup atau
 pergi: 5 detik sesudahnya sesi berakhir, `socket.closeCode` berisi kode
@@ -460,8 +463,9 @@ Bila yang tertahan sudah penuh dan 5 detik belum ada yang mendengarkan,
 server sendiri mengakhiri sesi dengan `1008` dan mencatat peringatan
 beserta path-nya: handler yang tidak pernah membaca tidak bisa memegang
 sesi, apa pun yang dikirim client. Kode penutupnya bergantung pada letak
-close client saat server menahan TCP: di dalam yang sudah dibaca, kode
-client; sesudahnya, masih menunggu di TCP, `1008`. `listen` sesudah itu
+close client saat server berhenti: di dalam yang sudah diurai, kode
+client; sesudahnya (di sisa bacaan atau masih di TCP), `1008`. PING di
+sana baru dijawab setelah yang di depannya dibaca. `listen` sesudah itu
 hanya menerima akhirnya. Dengarkan bila bisa, dengan
 `socket.listen((_) {})` bila pesannya
 tidak penting.
@@ -476,7 +480,9 @@ Begitu ada yang mendengarkan, tidak ada yang dibuang: pendengar yang
 menjeda (`await for` yang lama mengerjakan tiap pesan) menerima semua pesan
 lalu close-nya saat ia membaca lagi, berapa pun lamanya; pendengar yang
 tidak pernah membaca lagi mempertahankan sesinya, seperti pembaca yang
-macet selama ini. Pesan terfragmentasi yang masih tiba saat server menahan
+macet selama ini, beserta yang tertahan untuknya (batas di atas, termasuk
+satu kali baca) sampai ia membaca lagi atau membatalkan: selama server
+menahan client, server tidak melihat client pergi. Pesan terfragmentasi yang masih tiba saat server menahan
 client (lebih dari batas di atas menunggu) tetap menjalankan
 `assembleTimeout`-nya. Sesudah handler membatalkan langganannya tetapi
 mempertahankan socket, kiriman client dibaca lalu dibuang (frame-nya tetap

@@ -263,7 +263,8 @@ final class WebSocketGuard {
 
   void _dispose() {
     _inbound.dispose();
-    // Nothing parses what is left of a chunk any more.
+    // The one place where every end releases what is left of a chunk
+    // ([_GuardedSocket.destroy] comes here too).
     _socket?._dropUnparsed();
     // After a violation the grace stays: the WebSocket's `done` reports its
     // side closed, and a client that neither answers nor goes away would
@@ -427,6 +428,10 @@ final class _Inbound {
         if (_passHeader) {
           if (headerAt >= 0) {
             extend(headerAt, at);
+            if (runEnd - runStart >= runCap) {
+              // Frames without payload grow a run by their headers alone.
+              flushRun();
+            }
           } else {
             // Begun in an earlier chunk: a copy of what was read.
             out(
@@ -1226,8 +1231,10 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     WebSocketGuardStats.chunkRead(chunk.length);
     final tail = _unparsed;
     if (tail != null || _parsing) {
-      // Not while reading is paused for the rest of a chunk; should a
-      // chunk come anyway, it goes after that rest, in order.
+      // Not while reading is paused for the rest of a chunk (counted, so
+      // tests see it never happens); should a chunk come anyway, it goes
+      // after that rest, in order.
+      WebSocketGuardStats.chunkWhileUnparsed();
       _unparsed = tail == null
           ? chunk
           : (BytesBuilder(copy: false)
@@ -1244,7 +1251,9 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// chunk stays in memory until it is parsed (one chunk per connection,
   /// as large as the system's receive buffer let it be). Nothing more is
   /// read from TCP meanwhile; it is parsed first once what is held is
-  /// read.
+  /// read. A listener that stays paused keeps it, with [_held], until it
+  /// reads on or cancels: while TCP is held back the client's going away
+  /// is not seen.
   Uint8List? __unparsed;
   Uint8List? get _unparsed => __unparsed;
   set _unparsed(Uint8List? value) {
@@ -1642,7 +1651,6 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _held.clear();
     _heldBytes = 0;
     _heldItems = 0;
-    _dropUnparsed();
     _unreadWait?.cancel();
     _unreadWait = null;
     // The WebSocket still sees its stream end, so its close completes.

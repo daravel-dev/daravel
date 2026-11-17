@@ -163,6 +163,11 @@ void main() {
         lessThanOrEqualTo(c['chunkPeak']!),
         reason: 'what is left unparsed is part of one chunk',
       );
+      expect(
+        c['chunksWhileUnparsed'],
+        0,
+        reason: 'no chunk read while a rest waited',
+      );
     }
     expect(grew, lessThan((Platform.isMacOS ? 512 : 96) << 20));
     return (once, four);
@@ -291,6 +296,11 @@ void main() {
     );
     expect(counts['heldPeak'], lessThanOrEqualTo(bound));
     expect(counts['unparsedPeak'], lessThanOrEqualTo(counts['chunkPeak']!));
+    expect(
+      counts['chunksWhileUnparsed'],
+      0,
+      reason: 'no chunk read while a rest waited',
+    );
   }
 
   test('one write of 16 MiB of 64 KiB frames to a handler that does not '
@@ -337,6 +347,40 @@ void main() {
       },
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('throughput to a handler that reads (printed, not bounded)', () async {
+    // How fast a handler that reads gets a large stream, for the numbers on
+    // every system CI runs: 64 MiB per run, the first run a warm-up.
+    const total = 64 << 20;
+    for (final size in [1 << 20, 4 << 10]) {
+      final frame = RawWsClient.frame(0x2, Uint8List(size));
+      final client = await connect('/sink?bytes=$total');
+      final rates = <double>[];
+      for (var run = 0; run < 6; run++) {
+        final watch = Stopwatch()..start();
+        for (var i = 0; i < total ~/ size; i++) {
+          client.socket.add(frame);
+          if (i % 64 == 63) {
+            await client.socket.flush();
+          }
+        }
+        final done = await client.nextMessage();
+        expect(utf8.decode(done.payload), 'DONE');
+        if (run > 0) {
+          rates.add(total / watch.elapsedMicroseconds);
+        }
+      }
+      client.socket.destroy();
+      rates.sort();
+      print(
+        'throughput, ${size >> 10} KiB frames: median '
+        '${rates[rates.length ~/ 2].toStringAsFixed(0)} MB/s, range '
+        '${rates.first.toStringAsFixed(0)}-${rates.last.toStringAsFixed(0)} '
+        'MB/s (5 runs of 64 MiB)',
+      );
+    }
+    await expectReleased();
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('a handler that does not read: the client is held back by TCP, what '
       'is held stays within the bound', () async {

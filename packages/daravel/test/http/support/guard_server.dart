@@ -64,6 +64,24 @@ Future<void> main() async {
               compress: false,
               maxPayloadBytes: 64 << 20,
             )
+            // Reads and counts; says DONE once `bytes` bytes of messages
+            // came (a throughput measurement).
+            ..ws(
+              '/sink',
+              (socket, request) async {
+                final bytes = int.parse(request.uri.queryParameters['bytes']!);
+                var received = 0;
+                await for (final message in socket) {
+                  received += (message as List<int>).length;
+                  if (received >= bytes) {
+                    socket.add('DONE');
+                    received = 0;
+                  }
+                }
+              },
+              compress: false,
+              maxPayloadBytes: 2 << 20,
+            )
             ..ws(
               '/silent',
               (socket, _) => socket.done,
