@@ -1,5 +1,6 @@
 import 'package:daravel/daravel.dart';
 
+import 'conversion.dart';
 import 'media.dart';
 import 'media_library.dart';
 
@@ -61,11 +62,24 @@ final class PerformConversionsJob extends Job {
     if (media == null) {
       return;
     }
-    await MediaLibrary.performConversions(
-      media,
-      only: conversions,
-      onlyMissing: onlyMissing,
-      now: true,
-    );
+    try {
+      await MediaLibrary.performConversions(
+        media,
+        only: conversions,
+        onlyMissing: onlyMissing,
+        now: true,
+      );
+    } on ImageConversionException catch (error) {
+      // The same file fails the same way on every try (an image past the
+      // limits, a damaged file, a defect of the image library met on it):
+      // fail at once instead of three times.
+      if (error is ImageLibraryException) {
+        Log.warning('The image library failed converting a media', {
+          'media_id': mediaId,
+          'error': error.errorType,
+        });
+      }
+      ctx.fail(error);
+    }
   }
 }

@@ -114,7 +114,7 @@ result of the one before, as in Spatie:
 | Method | Result |
 | :-- | :-- |
 | `width(w)`, `height(h)` | That width or height, the other side following the aspect ratio; `width(200).height(200)` therefore resizes twice |
-| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white |
+| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white (every frame of an animation) |
 | `fit(Fit.crop, w, h)` | Exactly the box, cut from the middle |
 | `fit(Fit.stretch, w, h)` | Exactly the box, aspect ratio ignored |
 | `crop(w, h, CropPosition.top)` | A cut-out at a position |
@@ -122,11 +122,67 @@ result of the one before, as in Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP or TIFF instead of JPEG |
 | `greyscale()`, `blur(10)` | Filters |
 
-JPEG, PNG, GIF, WebP, BMP and TIFF files are converted, after their EXIF
-rotation is applied. WebP and AVIF cannot be written: `package:image` has
-no encoder for them.
+JPEG, PNG, GIF (animated too), WebP and BMP files are converted, after
+their EXIF rotation is applied; the format is told from the content, not
+the name. TIFF and animated PNG or WebP are not converted in this version:
+such a file keeps its original and gets no conversions. WebP and AVIF
+cannot be written: `package:image` has no encoder for them.
 
-Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
+The size of an image is read from its header before it is decoded: one
+that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
+width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
+(1 000) is not converted (`ImageTooLargeException`), and the original stays
+stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
+takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
+sample), and a JPEG must have 1 or 3 color components. A conversion
+refused this way fails its job at once, without retries.
+
+Every image made by `width`, `height`, `fit`, or `crop` is also limited to a
+quarter of `MEDIA_MAX_IMAGE_PIXELS`, frames counted, even when it is
+smaller than its input. Blur has a separate work budget: pixels x
+frames x radius, counted eleven times for a 16-bit image and by its
+channels (an RGBA image 4/3, a grayscale one 1/3); a 1, 2 or 4-bit image
+is blurred as 8 bits (its PNG was written 8-bit already). A GIF written
+by a conversion holds at most `MEDIA_MAX_GIF_PIXELS` pixels (width x
+height x frames; a tenth of `MEDIA_MAX_IMAGE_PIXELS`, 4 million, by
+default): encoding a GIF costs about 1.1 to 1.2 s per million pixels of a
+photograph. When a conversion resizes and blurs, put `width` or `height`
+before `blur` so the blur works on the smaller image. Manipulations keep
+the order in which the conversion defines them. Dimensions must be
+greater than zero, and no image read or made may have a side longer than
+65 535 pixels.
+
+The limits keep memory bounded, though not small. Converting an image at
+the default limit takes (measured peaks):
+
+| Image | Memory | Time |
+|---|---|---|
+| baseline JPEG, 8 000 x 5 000 | about 130 MiB | 2.5 s |
+| the same, EXIF orientation 6 | about 130 MiB | 3.5 s |
+| progressive JPEG, 8 000 x 5 000 (with or without orientation) | about 415 MiB | 3 s |
+| PNG, 6 324 x 6 324 | about 205 MiB | 1 s |
+| PNG, 16-bit, 4 472 x 4 472 | about 205 MiB | 1 s |
+| WebP, 4 472 x 4 472 | about 170 to 175 MiB | 0.3 to 0.9 s |
+| the same, EXIF orientation 6 | about 245 MiB | 0.8 s |
+| WebP, 4 472 x 4 472, worst measured | about 395 MiB, up to 470 MiB with orientation | 2 to 2.6 s |
+| GIF, 1 000 frames of 200 x 200 | about 140 MiB | 1.2 s |
+| JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB | up to 9.1 s |
+| a manipulation making 10 million pixels | about 47 to 76 MiB | 4.5 to 7.2 s, depending on shape and machine |
+| still blur at its budget (8 or 16 bits, 1, 3 or 4 channels) | up to about 130 MiB (40 MP, radius 2) | 2.1 to 4.0 s here |
+| animated blur at its 20-million pixel-frame-radius budget | about 125 MiB for a GIF | 3.2 to 4.4 s, depending on machine |
+| encoding an unchanged 40-million-pixel photograph as JPEG or PNG | about 132 to 140 MiB | 3.4 to 4.9 s here, up to 6.7 s on a slower machine |
+| a GIF written at its limit (4 million pixels of a photograph) | about 100 MiB | about 4.7 s to encode |
+| a crop or resize of a 1, 2 or 4-bit image | small | up to about 4 s at 40 MP (crop) |
+| **a whole conversion at the limits**, slowest measured: a 16-bit PNG of 20 MP resized, blurred and written as PNG (a 40 MP JPEG blurred and written as PNG: 16 s) | up to about 384 MiB | **up to about 19 s here, 26 s on a slower reference machine** |
+
+A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
+The limit bounds an image's size, not memory exactly: at the default
+limit, plan about 500 MiB of memory per conversion running at once,
+whatever the size of the image, and lower `MEDIA_MAX_IMAGE_PIXELS` where conversions share a process with
+requests.
+
+Run conversions on the queue, not inside a request, and give their job a
+timeout above that whole-conversion time. Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
 unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on
 the `sync` queue they run at once. The image work itself runs in a separate
 isolate, so a large photo does not hold up the requests beside it.
@@ -144,6 +200,9 @@ isolate, so a large photo does not hold up the requests beside it.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | The disk of collections that choose none |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
+| `MEDIA_MAX_GIF_PIXELS` | a tenth of `MEDIA_MAX_IMAGE_PIXELS` | The most pixels (width x height x frames) a conversion writes as a GIF; about 1.2 s per million |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |

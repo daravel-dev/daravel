@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/medialibrary.md`.
 const String pageIdMedialibrary =
-    r'''<!-- source: medialibrary.md sha256:a2e83e3e2cf3 -->
+    r'''<!-- source: medialibrary.md sha256:79b480d202b3 -->
 # Media library
 
 `daravel_medialibrary` melekatkan file ke model, seperti
@@ -117,7 +117,7 @@ masing-masing pada hasil manipulasi sebelumnya, seperti di Spatie:
 | Method | Hasil |
 | :-- | :-- |
 | `width(w)`, `height(h)` | Lebar atau tinggi tersebut, sisi lain mengikuti rasio aspek; jadi `width(200).height(200)` me-resize dua kali |
-| `fit(Fit.contain, w, h)` | Di dalam kotak; `Fit.max` tanpa memperbesar; `Fit.fill` dan `Fit.fillMax` lalu mengisi kotak dengan putih |
+| `fit(Fit.contain, w, h)` | Di dalam kotak; `Fit.max` tanpa memperbesar; `Fit.fill` dan `Fit.fillMax` lalu mengisi kotak dengan putih (setiap frame animasi) |
 | `fit(Fit.crop, w, h)` | Tepat seukuran kotak, dipotong dari tengah |
 | `fit(Fit.stretch, w, h)` | Tepat seukuran kotak, rasio aspek diabaikan |
 | `crop(w, h, CropPosition.top)` | Potongan di posisi tertentu |
@@ -125,11 +125,69 @@ masing-masing pada hasil manipulasi sebelumnya, seperti di Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP, atau TIFF sebagai ganti JPEG |
 | `greyscale()`, `blur(10)` | Filter |
 
-File JPEG, PNG, GIF, WebP, BMP, dan TIFF bisa dikonversi, setelah rotasi
-EXIF-nya diterapkan. WebP dan AVIF tidak bisa ditulis: `package:image` tidak
-memiliki encoder untuk keduanya.
+File JPEG, PNG, GIF (termasuk yang beranimasi), WebP, dan BMP bisa
+dikonversi, setelah rotasi EXIF-nya diterapkan; formatnya ditentukan dari
+isi, bukan dari nama. TIFF serta PNG atau WebP beranimasi tidak dikonversi
+di versi ini: file seperti itu tetap menyimpan file aslinya tanpa
+konversi. WebP dan AVIF tidak bisa ditulis: `package:image` tidak memiliki
+encoder untuk keduanya.
 
-Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
+Ukuran gambar dibaca dari header-nya sebelum didekode: gambar yang akan
+menjadi lebih dari `MEDIA_MAX_IMAGE_PIXELS` piksel (40 juta, lebar x tinggi x
+frame) atau memuat lebih dari `MEDIA_MAX_IMAGE_FRAMES` frame (1 000) tidak
+dikonversi (`ImageTooLargeException`), dan file aslinya tetap tersimpan.
+File berukuran satu megabyte bisa menyatakan 16 000 x 16 000 piksel, yang
+butuh gigabyte untuk didekode. PNG 16-bit dihitung dua kali (dua byte per
+sampel), dan JPEG harus memiliki 1 atau 3 komponen warna. Konversi yang
+ditolak dengan cara ini langsung menggagalkan job-nya, tanpa diulang.
+
+Setiap gambar yang dibuat oleh `width`, `height`, `fit`, atau `crop` juga dibatasi
+seperempat `MEDIA_MAX_IMAGE_PIXELS`, dengan frame ikut dihitung, sekalipun
+hasilnya lebih kecil dari masukan. Blur memiliki anggaran kerja
+tersendiri: piksel x frame x radius, dihitung sebelas kali untuk gambar
+16-bit dan menurut kanalnya (gambar RGBA 4/3, gambar abu-abu 1/3); gambar
+1, 2, atau 4-bit di-blur sebagai 8-bit (PNG-nya memang sudah ditulis
+8-bit). GIF yang ditulis konversi memuat paling banyak
+`MEDIA_MAX_GIF_PIXELS` piksel (lebar x tinggi x frame; sepersepuluh
+`MEDIA_MAX_IMAGE_PIXELS`, 4 juta, secara bawaan): menyandikan GIF memakan
+sekitar 1,1 sampai 1,2 dtk per juta piksel foto. Jika suatu konversi mengubah ukuran dan
+melakukan blur, tulis `width` atau `height` sebelum `blur` agar blur bekerja
+pada gambar yang lebih kecil. Manipulasi tetap berjalan dalam urutan yang
+ditentukan konversi. Dimensi harus lebih besar dari nol, dan tidak ada
+gambar yang dibaca atau dibuat boleh memiliki sisi lebih panjang dari
+65 535 piksel.
+
+Batas ini menjaga memori tetap terbatas, tetapi tidak kecil. Mengonversi
+gambar tepat di batas bawaan memakan (puncak terukur):
+
+| Gambar | Memori | Waktu |
+|---|---|---|
+| JPEG baseline, 8 000 x 5 000 | sekitar 130 MiB | 2,5 dtk |
+| sama, orientasi EXIF 6 | sekitar 130 MiB | 3,5 dtk |
+| JPEG progresif, 8 000 x 5 000 (dengan atau tanpa orientasi) | sekitar 415 MiB | 3 dtk |
+| PNG, 6 324 x 6 324 | sekitar 205 MiB | 1 dtk |
+| PNG 16-bit, 4 472 x 4 472 | sekitar 205 MiB | 1 dtk |
+| WebP, 4 472 x 4 472 | sekitar 170 sampai 175 MiB | 0,3 sampai 0,9 dtk |
+| sama, orientasi EXIF 6 | sekitar 245 MiB | 0,8 dtk |
+| WebP, 4 472 x 4 472, terburuk yang terukur | sekitar 395 MiB, sampai 470 MiB dengan orientasi | 2 sampai 2,6 dtk |
+| GIF, 1 000 frame 200 x 200 | sekitar 140 MiB | 1,2 dtk |
+| JPEG pada batas scan-nya (40, 20, atau 5 MP) | sampai sekitar 430 MiB | sampai 9,1 dtk |
+| manipulasi yang membuat 10 juta piksel | sekitar 47 sampai 76 MiB | 4,5 sampai 7,2 dtk, bergantung bentuk dan mesin |
+| blur gambar diam pada anggarannya (8 atau 16 bit, 1, 3, atau 4 kanal) | sampai sekitar 130 MiB (40 MP, radius 2) | 2,1 sampai 4,0 dtk di sini |
+| blur animasi pada anggaran 20 juta piksel-frame-radius | sekitar 125 MiB untuk GIF | 3,2 sampai 4,4 dtk, bergantung mesin |
+| penyandian foto 40 juta piksel tanpa perubahan sebagai JPEG atau PNG | sekitar 132 sampai 140 MiB | 3,4 sampai 4,9 dtk di sini, sampai 6,7 dtk di mesin yang lebih lambat |
+| GIF yang ditulis pada batasnya (4 juta piksel foto) | sekitar 100 MiB | sekitar 4,7 dtk untuk menyandikan |
+| crop atau resize gambar 1, 2, atau 4-bit | kecil | sampai sekitar 4 dtk pada 40 MP (crop) |
+| **satu konversi utuh pada batas-batasnya**, yang paling lambat terukur: PNG 16-bit 20 MP di-resize, di-blur, dan ditulis sebagai PNG (JPEG 40 MP di-blur dan ditulis sebagai PNG: 16 dtk) | sampai sekitar 384 MiB | **sampai sekitar 19 dtk di sini, 26 dtk di mesin acuan yang lebih lambat** |
+
+WebP dan PNG 16-bit dihitung terhadap separuh `MEDIA_MAX_IMAGE_PIXELS`.
+Batas ini membatasi ukuran gambar, bukan memori secara persis: pada batas
+bawaan, siapkan sekitar 500 MiB memori untuk setiap konversi yang berjalan
+bersamaan, berapa pun ukuran gambarnya, dan turunkan `MEDIA_MAX_IMAGE_PIXELS` bila konversi berbagi
+proses dengan request.
+
+Jalankan konversi di queue, bukan di dalam permintaan, dan beri job-nya
+timeout di atas waktu konversi utuh itu. Konversi berjalan di queue (`PerformConversionsJob`, di `MEDIA_QUEUE`),
 kecuali konversi menyatakan `nonQueued()` atau
 `QUEUE_CONVERSIONS_BY_DEFAULT=false`; di queue `sync` konversi langsung
 berjalan. Pemrosesan gambar sendiri berjalan di isolate terpisah, sehingga
@@ -148,6 +206,9 @@ foto besar tidak menahan request lain.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | Disk untuk collection yang tidak memilih disk |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | Ukuran file terbesar, dalam byte |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | Jumlah piksel terbanyak hasil dekode gambar untuk konversinya |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | Jumlah frame terbanyak sebuah gambar untuk konversinya |
+| `MEDIA_MAX_GIF_PIXELS` | sepersepuluh `MEDIA_MAX_IMAGE_PIXELS` | Piksel terbanyak (lebar x tinggi x frame) yang ditulis konversi sebagai GIF; sekitar 1,2 dtk per juta |
 | `MEDIA_QUEUE` | queue default | Queue untuk job konversi |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Konversi tanpa `nonQueued()` dijalankan di queue |
 | `MEDIA_PREFIX` | tidak ada | Direktori di depan setiap direktori media |
