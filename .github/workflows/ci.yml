@@ -141,37 +141,6 @@ jobs:
       - name: Test (WebSocket memory, alone)
         run: (cd packages/daravel && dart test --tags memory --run-skipped --concurrency=1 --reporter=expanded)
 
-      # TEMPORARY (removed again on this branch before review): the memory
-      # suite 20 times in a row, and a mutation it must catch.
-      - name: Test (WebSocket memory, 20 rounds, temporary)
-        if: ${{ !cancelled() && runner.os == 'Linux' }}
-        run: |
-          cd packages/daravel
-          failed=0
-          for i in $(seq 1 20); do
-            echo "== round $i"
-            dart test --tags memory --run-skipped --concurrency=1 --reporter=expanded || failed=$((failed + 1))
-          done
-          echo "== $failed of 20 rounds failed"
-          [ "$failed" -eq 0 ]
-
-      - name: Mutation, the unparsed rest not released (temporary)
-        if: ${{ !cancelled() && runner.os == 'Linux' }}
-        run: |
-          cd packages/daravel
-          file=lib/src/http/websocket_guard.dart
-          cp "$file" /tmp/guard.bak
-          sed -i 's|^    _socket?._dropUnparsed();|    // mutation: not released|' "$file"
-          grep -n 'mutation: not released' "$file"
-          if dart test --tags memory --run-skipped --concurrency=1 --reporter=expanded > /tmp/mutation.log 2>&1; then
-            cp /tmp/guard.bak "$file"
-            echo "== the mutation was not caught"
-            exit 1
-          fi
-          cp /tmp/guard.bak "$file"
-          grep -E '\[E\]|released once|Expected|Actual' /tmp/mutation.log | head -30
-          echo "== the mutation was caught"
-
       # The same suites again through a real ServerEngine socket instead of
       # Application.handle: dart:io's own behaviour (default headers, HEAD,
       # lengths, compression) is only visible there.
