@@ -222,6 +222,53 @@ void main() {
     <String>[],
   );
 
+  // A release commit: tool/release.dart moved the notes under the version.
+  final released = releaseChangelog(withUpgrade, '1.1.0');
+  check(
+    'a release with its note under the version passes',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: released,
+      addedExports: added,
+      releasedVersion: '1.1.0',
+    ),
+    <String>[],
+  );
+  check(
+    'a release without a note under the version is a problem',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: releaseChangelog(withNotes, '1.1.0'),
+      addedExports: added,
+      releasedVersion: '1.1.0',
+    ).length,
+    1,
+  );
+  check(
+    'a note under another version does not count',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: released,
+      addedExports: added,
+      releasedVersion: '1.2.0',
+    ).length,
+    1,
+  );
+  check(
+    'the same version and an empty Unreleased is a problem, as before',
+    upgradeNoteProblems(
+      baseChangelog: empty,
+      headChangelog: released,
+      addedExports: added,
+    ).length,
+    1,
+  );
+  check(
+    'the version is read from version.dart',
+    daravelVersionIn("const String daravelVersion = '1.27.6';\n"),
+    '1.27.6',
+  );
+
   if (failures > 0) {
     stderr.writeln('$failures failure(s).');
     exitCode = 1;
