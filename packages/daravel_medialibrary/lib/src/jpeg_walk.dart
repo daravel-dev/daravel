@@ -7,7 +7,7 @@ import 'dart:typed_data';
 
 /// A marker the JPEG decoder of `package:image` 4.12.0 finds from [at], as
 /// `JpegData._nextMarker` finds it (`lib/src/formats/jpeg/jpeg_data.dart`,
-/// lines 327-347): every byte up to an `FF` is passed over, then the `FF`
+/// lines 327-348): every byte up to an `FF` is passed over, then the `FF`
 /// fill bytes after it, and `FF 00` is no marker (the search goes on).
 /// [at] of the result is the marker byte, [after] the byte after it. Null
 /// when the bytes end first or right after the marker: the decoder's loop
@@ -39,8 +39,8 @@ import 'dart:typed_data';
 /// The segments of a JPEG after its start of image ([from]), in the order
 /// the decoder of `package:image` 4.12.0 reads them when it decodes
 /// (`JpegData._read`, `lib/src/formats/jpeg/jpeg_data.dart` lines
-/// 213-309): each marker found by [jpegMarker]; RSTn and TEM have no
-/// length (lines 217-222); EOI ends the walk (line 220); any other marker
+/// 211-309): each marker found by [jpegMarker]; RSTn and TEM have no
+/// length (lines 221-226); EOI ends the walk (line 220); any other marker
 /// is followed by a 16-bit length that counts itself, and the next marker
 /// is searched after the block it covers (`_readBlock`, lines 319-325).
 /// [next] is where the following search starts; [length] is -1 without a
@@ -51,6 +51,14 @@ import 'dart:typed_data';
 /// The decoder's reading of the image's size (`readInfo`, lines 123-168)
 /// walks differently (it gives RSTn a length); what decoding costs is the
 /// walk above, so the conversion's checks follow that one.
+///
+/// Against ITU-T T.81: a marker is `FF` and a byte other than `00` and
+/// `FF` (B.1.1.3), any number of `FF` fill bytes may come before one
+/// (B.1.1.2), and the markers without a length are RSTm, SOI, EOI and TEM
+/// (Table B.1). The decoder differs on one: an SOI after the first is read
+/// with a length and then refused as an unknown marker (lines 292-305), so
+/// the walk reads it with a length too, and the scan count treats it as a
+/// marker it does not follow (counting every scan of the file).
 Iterable<({int marker, int at, int next, int length})> jpegSegments(
   Uint8List bytes,
   int from,
