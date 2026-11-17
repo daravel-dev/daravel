@@ -65,6 +65,18 @@ Future<void> main(List<String> args) async {
       if (topLevel.hasMatch(e)) e,
   ];
   if (exports.isNotEmpty) {
+    // A release commit (tool/release.dart) moves the notes under the new
+    // version and leaves `## Unreleased` and changelog.d/ empty.
+    const versionFile = 'packages/daravel/lib/src/foundation/version.dart';
+    final version = daravelVersionIn(File(versionFile).readAsStringSync());
+    final baseVersion = daravelVersionIn(
+      await _git(['show', '$base:$versionFile']),
+    );
+    final released =
+        version != null &&
+        version != baseVersion &&
+        !hasNotes(unreleasedBody(head) ?? '') &&
+        headFragments.isEmpty;
     problems.addAll(
       upgradeNoteProblems(
         baseChangelog: before,
@@ -72,6 +84,7 @@ Future<void> main(List<String> args) async {
         addedExports: exports,
         baseFragments: await _fragmentsAt(base),
         headFragments: headFragments,
+        releasedVersion: released ? version : null,
       ),
     );
   }
