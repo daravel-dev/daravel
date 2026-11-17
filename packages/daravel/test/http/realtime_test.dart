@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel/src/http/buffered_web_socket.dart';
@@ -46,6 +47,40 @@ Future<String> readToEnd(StreamIterator<String> chunks) async {
 
 void main() {
   group('SseEvent', () {
+    test('generated event names cannot inject lines', () {
+      for (var seed = 0; seed < 500; seed++) {
+        final random = Random(seed);
+        final name = List.generate(
+          64,
+          (_) => ['a', ':', '\r', '\n'][random.nextInt(4)],
+        ).join();
+        final expected = name.replaceAll('\r', '').replaceAll('\n', '');
+        expect(
+          SseEvent('hello', event: name).encode(),
+          'event: $expected\ndata: hello\n\n',
+          reason: 'seed $seed',
+        );
+      }
+    });
+
+    test('CI reports event name filtering costs', () {
+      final cases = <String, String>{
+        'long-name': 'a' * (1024 * 1024),
+        'many-breaks': '\r\n' * (512 * 1024),
+        'mixed': List.generate(65536, (i) => 'item$i\n').join(),
+      };
+      for (final entry in cases.entries) {
+        final event = SseEvent('x', event: entry.value);
+        final timer = Stopwatch()..start();
+        for (var i = 0; i < 20; i++) {
+          event.encode();
+        }
+        timer.stop();
+        print(
+          'sse ${entry.key}: ${entry.value.length} characters, 20 runs, ${timer.elapsedMicroseconds} us',
+        );
+      }
+    }, skip: Platform.environment['CI'] != 'true' ? 'CI timing only' : false);
     test('event and id cannot add fields or frames', () {
       expect(
         const SseEvent(
