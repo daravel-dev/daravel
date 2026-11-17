@@ -12,7 +12,13 @@ import 'package:test/test.dart';
 /// Prometheus label escapes `\r`.
 void main() {
   group('/up/ready', () {
-    Future<(TestResponse, MemoryHandler)> ready({required bool debug}) async {
+    Future<(TestResponse, MemoryHandler)> ready({
+      required bool debug,
+      String message =
+          'GET /health failed; primary '
+          'redis://:pass123@10.0.5.9:6379/0 replica '
+          'redis://:pass456@10.0.5.10:6379/0',
+    }) async {
       final app = Application.configure(basePath: Directory.systemTemp.path)
           .withEnv({
             'APP_ENV': 'testing',
@@ -22,14 +28,7 @@ void main() {
           .withLogLevel(LogLevel.debug)
           .withRouting(web: (router) {})
           .withHealthChecks([
-            CallbackHealthCheck(
-              'redis',
-              () => throw StateError(
-                'GET /health failed; primary '
-                'redis://:pass123@10.0.5.9:6379/0 replica '
-                'redis://:pass456@10.0.5.10:6379/0',
-              ),
-            ),
+            CallbackHealthCheck('redis', () => throw StateError(message)),
           ])
           .create();
       await app.boot();
@@ -65,6 +64,40 @@ void main() {
         );
       },
     );
+
+    test('without APP_DEBUG: every URL of the logged error is masked, '
+        'whatever separates them', () async {
+      for (final (message, expected) in [
+        (
+          'primary=pgsql://u1:PASS1@h1/db,replica=pgsql://u2:PASS2@h2/db',
+          'primary=pgsql://u1:***@h1/db,replica=pgsql://u2:***@h2/db',
+        ),
+        (
+          'primary=pgsql://u1:PASS1@h1/db&replica=pgsql://u2:PASS2@h2/db',
+          'primary=pgsql://u1:***@h1/db&replica=pgsql://u2:***@h2/db',
+        ),
+        (
+          'pgsql://u1:PASS1@h1/db;pgsql://u2:PASS2@h2/db',
+          'pgsql://u1:***@h1/db;pgsql://u2:***@h2/db',
+        ),
+        (
+          'pgsql://u1:PASS1@h1/db|pgsql://u2:PASS2@h2/db',
+          'pgsql://u1:***@h1/db|pgsql://u2:***@h2/db',
+        ),
+      ]) {
+        final (response, logs) = await ready(debug: false, message: message);
+        expect(response.status, 503);
+        final logged = logs.matching(
+          LogLevel.warning,
+          'Readiness check [redis] failed',
+        );
+        expect(
+          '${logged.single.context['error']}',
+          'Bad state: $expected',
+          reason: message,
+        );
+      }
+    });
 
     test('with APP_DEBUG: the error is in the body', () async {
       final (response, _) = await ready(debug: true);

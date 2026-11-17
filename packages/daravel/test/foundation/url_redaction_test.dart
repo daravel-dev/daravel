@@ -177,6 +177,52 @@ void main() {
       expect(redactUrlInText('redis://se://PASS@h'), 'redis://se:***@h');
     });
 
+    test('in text, every `scheme://` starts a URL, whatever is before it', () {
+      for (final (text, expected) in [
+        // Two URLs joined by `,name=`, `&`, `;` or `|`.
+        (
+          'Bad state: primary=pgsql://u1:PASS1@h1/db,replica=pgsql://u2:PASS2@h2/db',
+          'Bad state: primary=pgsql://u1:***@h1/db,replica=pgsql://u2:***@h2/db',
+        ),
+        (
+          'primary=pgsql://u1:PASS1@h1/db&replica=pgsql://u2:PASS2@h2/db end',
+          'primary=pgsql://u1:***@h1/db&replica=pgsql://u2:***@h2/db end',
+        ),
+        (
+          'pgsql://u1:PASS1@h1/db;pgsql://u2:PASS2@h2/db',
+          'pgsql://u1:***@h1/db;pgsql://u2:***@h2/db',
+        ),
+        (
+          'pgsql://u1:PASS1@h1/db|pgsql://u2:PASS2@h2/db',
+          'pgsql://u1:***@h1/db|pgsql://u2:***@h2/db',
+        ),
+        // Nested in a query, a bare query or a path after a port.
+        (
+          'redirect to https://app/cb?next=https://u:PASS@h/x refused',
+          'redirect to https://app/cb?next=https://u:***@h/x refused',
+        ),
+        (
+          'GET https://h:8080/r?https://u:PASS@h2/x',
+          'GET https://h:8080/r?https://u:***@h2/x',
+        ),
+        (
+          'GET https://h:8080/r/https://u:PASS@h2/x',
+          'GET https://h:8080/r/https://u:***@h2/x',
+        ),
+        // A digit before the scheme is not part of it.
+        ('x=1pgsql://u:PASS@h/db', 'x=1pgsql://u:***@h/db'),
+        // A query value that looks like a URL stays masked by its name.
+        ('https://h/p?token=abc://PASS', 'https://h/p?token=***'),
+        // URLs without a password stay as they are.
+        (
+          'a=https://h1/p,b=https://h2/q;c=http://h3:80/@user|d=s3://b/k',
+          'a=https://h1/p,b=https://h2/q;c=http://h3:80/@user|d=s3://b/k',
+        ),
+      ]) {
+        expect(redactUrlInText(text), expected, reason: text);
+      }
+    });
+
     test('short names match whole only', () {
       expect(
         redactUrl(
@@ -205,6 +251,17 @@ void main() {
       expect(redactUrl('https://h/p;page=2'), 'https://h/p;page=2');
       // Scheme-like text in a password is included in its masked span.
       expect(redactUrl('redis://se://$secret@h'), 'redis://se:***@h');
+      // A password of digits holding `?`, `#` or a second `/` reads as a
+      // port and a path, query or fragment (RFC 3986 §3.2): the same text
+      // as an `@` there, which stays.
+      for (final url in [
+        'redis://my:1234/dir/$secret@127.0.0.1:6379/0',
+        'pgsql://u:1234?$secret@host/db',
+        'pgsql://u:1234#$secret@host/db',
+        'https://h:8080/files/a@2x.png',
+      ]) {
+        expect(redactUrlPassword(url), url, reason: url);
+      }
     });
 
     test('1 MiB of each shape takes one pass', () {
@@ -222,6 +279,22 @@ void main() {
         final masked = redactUrl(url);
         expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
         expect(masked, isNot(contains(secret)), reason: url.substring(0, 40));
+      }
+    });
+
+    test('1 MiB of URLs side by side in text takes one pass', () {
+      const mib = 1024 * 1024;
+      for (final text in [
+        '${'a://' * (mib ~/ 4)}u:$secret@h',
+        'pgsql://u:$secret@h' * (mib ~/ 20),
+        '${'x://h:1/' * (mib ~/ 8)}u:$secret@h',
+        '${'a://b/' * (mib ~/ 6)}c:$secret@h',
+        'https://h/p?next=${'a://' * (mib ~/ 4)}&token=$secret',
+      ]) {
+        final watch = Stopwatch()..start();
+        final masked = redactUrlInText(text);
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(masked, isNot(contains(secret)), reason: text.substring(0, 40));
       }
     });
   });

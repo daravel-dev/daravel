@@ -12,7 +12,8 @@ import 'dart:convert';
 /// | --- | --- | --- |
 /// | holds an `@` | from its first `:` to its last `@` | `pgsql://u:p@ss@h/db` → `pgsql://u:***@h/db` |
 /// | no `@`, a `:` followed by something other than a port | from that `:` to the last `@` of the text (a password holding `/`, `?` or `#`) | `pgsql://u:pa/ss@h/db` → `pgsql://u:***@h/db` |
-/// | no `@`, a port | nothing | `https://h:8080/p?email=a@b` stays |
+/// | no `@`, a port, then a `/` and one path segment holding an `@` that does not start it | from the `:` to that `@` (a password of digits and one `/`) | `redis://my:1234/secret@h/0` → `redis://my:***@h/0` |
+/// | no `@`, a port, otherwise | nothing | `https://h:8080/p?email=a@b` and `https://h:443/@user` stay |
 /// | no `:` | the segment before the last `@`, after the `/` before it, when it holds a `:` and no `?`, `#`, `&` or `=` | `postgres//app:secret@host` → `postgres//app:***@host` |
 ///
 /// Masking more than the password (`mailto:***@b`) is accepted; less is
@@ -24,12 +25,82 @@ import 'dart:convert';
 ///
 /// The first authority `:` starts the masked password. Scheme-like text
 /// inside that password is therefore included in the masked span.
+///
+/// Known limit: a password that starts with digits and holds a `?`, a `#`
+/// or a second `/` before its `@` (`redis://my:1234/a/b@h`,
+/// `pgsql://u:1234?b@h`) is not masked. RFC 3986 allows none of `/`, `?`,
+/// `#` and `@` raw in user info (§3.2.1: `userinfo = *( unreserved /
+/// pct-encoded / sub-delims / ":" )`) and ends the authority at the first
+/// `/`, `?` or `#` (§3.2), so such a URL is a host and a port with an `@`
+/// in its path, query or fragment, the same text as
+/// `https://h:8080/files/a@2x.png` or `https://h:8080/p?email=a@b`, which
+/// stay as they are. Percent-encode such a password (`1234%2Fa%2Fb`), as
+/// the RFC requires.
 String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
-  final n = url.length;
   final separator = url.indexOf('://');
   final start = separator > 0 && _isScheme(url, separator)
       ? separator + 3
       : (url.startsWith('//') ? 2 : 0);
+  final span = _passwordSpan(
+    _Text(url),
+    start,
+    url.length,
+    loneUserIsPassword: loneUserIsPassword,
+  );
+  return span == null
+      ? url
+      : '${url.substring(0, span.$1)}***${url.substring(span.$2)}';
+}
+
+/// A text with its last `@`, read once for every URL in it.
+final class _Text {
+  _Text(this.value) : lastAt = value.lastIndexOf('@');
+
+  final String value;
+
+  /// The last `@` of [value], or -1.
+  final int lastAt;
+
+  (int, int)? _segment;
+  var _segmentRead = false;
+
+  /// The span masked in the segment before [lastAt], after the `/` before
+  /// it, when it holds a `:` and no `?`, `#`, `&` or `=`: from that `:` to
+  /// [lastAt]. The same for every URL of the text, so computed once.
+  (int, int)? get segment {
+    if (!_segmentRead) {
+      _segmentRead = true;
+      final from = value.lastIndexOf('/', lastAt - 1) + 1;
+      var inner = -1;
+      for (var i = from; i < lastAt; i++) {
+        final c = value.codeUnitAt(i);
+        if (c == 0x3f || c == 0x23 || c == 0x26 || c == 0x3d) {
+          return null;
+        }
+        if (c == 0x3a && inner < 0) {
+          inner = i;
+        }
+      }
+      _segment = inner >= 0 ? (inner + 1, lastAt) : null;
+    }
+    return _segment;
+  }
+}
+
+/// The span of `text.value` that [redactUrlPassword] masks for the URL
+/// whose authority starts at [start], or null. Its path is read up to
+/// [limit] (where the next URL of a text starts). Every scan is bounded by
+/// this URL's authority or path, so the URLs of one text are read in one
+/// pass.
+(int, int)? _passwordSpan(
+  _Text text,
+  int start,
+  int limit, {
+  bool loneUserIsPassword = false,
+}) {
+  final url = text.value;
+  final n = url.length;
+  // The authority runs to the first `/`, `?` or `#` (RFC 3986 §3.2).
   var end = start;
   while (end < n) {
     final c = url.codeUnitAt(end);
@@ -38,80 +109,84 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
     }
     end++;
   }
-  String masked(int from, int to) =>
-      '${url.substring(0, from)}***${url.substring(to)}';
-
   // An `@` inside the authority.
-  final at = end > start ? url.lastIndexOf('@', end - 1) : -1;
-  if (at >= start) {
-    final colon = url.indexOf(':', start);
-    if (colon >= 0 && colon < at) {
-      return masked(colon + 1, at);
+  final at = _lastIn(url, 0x40, start, end);
+  if (at >= 0) {
+    final colon = _firstIn(url, 0x3a, start, at);
+    if (colon >= 0) {
+      return (colon + 1, at);
     }
-    return loneUserIsPassword && at > start ? masked(start, at) : url;
+    return loneUserIsPassword && at > start ? (start, at) : null;
   }
-  final last = url.lastIndexOf('@');
+  final last = text.lastAt;
   if (last < end) {
-    return url;
+    return null;
   }
   // A password holding `/`, `?` or `#`: a `:` in the authority that is not
   // a port's.
   final colon = _authorityColon(url, start, end);
-  if (colon >= 0 && colon < end) {
+  if (colon >= 0) {
     if (!_isPort(url, colon + 1, end)) {
-      return masked(colon + 1, last);
+      return (colon + 1, last);
     }
     // When a port-shaped authority continues into user info, mask through
     // that user info. Keep an ordinary `/@user` path and query `@` intact.
-    if (end < n && url.codeUnitAt(end) == 0x2f) {
+    if (end < limit && url.codeUnitAt(end) == 0x2f) {
       var segmentEnd = end + 1;
-      while (segmentEnd < n) {
+      while (segmentEnd < limit) {
         final c = url.codeUnitAt(segmentEnd);
         if (c == 0x2f || c == 0x3f || c == 0x23) {
           break;
         }
         segmentEnd++;
       }
-      final pathAt = url.indexOf('@', end + 1);
-      if (pathAt > end + 1 && pathAt < segmentEnd) {
-        return masked(colon + 1, pathAt);
+      final pathAt = _firstIn(url, 0x40, end + 1, segmentEnd);
+      if (pathAt > end + 1) {
+        return (colon + 1, pathAt);
       }
     }
-    return url;
+    return null;
   }
   if (start < end && url.codeUnitAt(start) == 0x5b) {
     // An unmatched IPv6 bracket is not evidence of user info.
-    return url;
+    return null;
   }
   if (loneUserIsPassword) {
-    return masked(start, last);
+    return (start, last);
   }
   // No `:` in the authority (`postgres//app:secret@host`): the segment
   // before the last `@`, after the `/` before it.
-  final segment = url.lastIndexOf('/', last - 1) + 1;
-  for (var i = segment; i < last; i++) {
-    final c = url.codeUnitAt(i);
-    if (c == 0x3f || c == 0x23 || c == 0x26 || c == 0x3d) {
-      return url;
-    }
-  }
-  final inner = url.indexOf(':', segment);
-  return inner >= 0 && inner < last ? masked(inner + 1, last) : url;
+  return text.segment;
 }
 
-/// The `:` separating user info or a port in an authority. Colons inside
-/// an IPv6 literal are skipped.
+/// The first [c] in `url[from, to)`, or -1.
+int _firstIn(String url, int c, int from, int to) {
+  for (var i = from; i < to; i++) {
+    if (url.codeUnitAt(i) == c) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/// The last [c] in `url[from, to)`, or -1.
+int _lastIn(String url, int c, int from, int to) {
+  for (var i = to - 1; i >= from; i--) {
+    if (url.codeUnitAt(i) == c) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/// The `:` separating user info or a port in `url[start, end)`, or -1.
+/// Colons inside an IPv6 literal are skipped.
 int _authorityColon(String url, int start, int end) {
   if (start < end && url.codeUnitAt(start) == 0x5b) {
-    final close = url.indexOf(']', start + 1);
-    if (close < 0 || close >= end) {
-      return -1;
-    }
-    final colon = url.indexOf(':', close + 1);
-    return colon >= 0 && colon < end ? colon : -1;
+    final close = _firstIn(url, 0x5d, start + 1, end);
+    return close < 0 ? -1 : _firstIn(url, 0x3a, close + 1, end);
   }
-  final colon = url.indexOf(':', start);
-  return colon >= 0 && colon < end ? colon : -1;
+  return _firstIn(url, 0x3a, start, end);
 }
 
 /// Whether `url[from, to)` is a port: one or more digits.
@@ -221,6 +296,12 @@ String redactUrl(
   List<String> names = sensitiveKeyNames,
 }) {
   final masked = redactUrlPassword(url, loneUserIsPassword: loneUserIsPassword);
+  return _maskPairs(masked, names);
+}
+
+/// [masked] with the value of every sensitive pair after its first `?` or
+/// `#` replaced by `***` ([redactUrl]).
+String _maskPairs(String masked, List<String> names) {
   var first = -1;
   for (var i = 0; i < masked.length; i++) {
     final c = masked.codeUnitAt(i);
@@ -247,14 +328,18 @@ String redactUrl(
   return out.toString();
 }
 
-/// Masks every URL-shaped token in free-form [text].
+/// Masks every URL in free-form [text], as [redactUrl] does.
 ///
-/// A token starts with a URL scheme followed by `://` and ends at
-/// whitespace, a quote, or surrounding parentheses/braces/angle brackets.
-/// Each token is passed to [redactUrl] independently, so one message may
-/// safely contain several URLs. Percent-encoded nested URLs, matrix
-/// parameters before a query, and text without a scheme remain outside the
-/// redactor's contract.
+/// The text is cut into tokens at whitespace, quotes, parentheses, braces
+/// and angle brackets. In a token, every `scheme://` starts a URL whatever
+/// comes before it (`a=pgsql://…;b=redis://…`, `…|…`, a URL nested in a
+/// query): its password is masked as [redactUrlPassword] does, up to its
+/// `@` even past the next URL. Then the pairs of the token after its first
+/// `?` or `#` are masked as in [redactUrl]. Text before the first URL
+/// stays. A password that runs on to an `@` of a later URL masks the text
+/// between them as well: more, never less. One pass per token.
+/// Percent-encoded nested URLs, matrix parameters before a query, and text
+/// without a scheme remain outside the redactor's contract.
 String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
   final out = StringBuffer();
   var start = 0;
@@ -273,38 +358,62 @@ String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
 }
 
 String _redactTextToken(String token, List<String> names) {
-  final starts = <int>[];
+  // Each URL: where it starts (its scheme) and where its authority starts.
+  final starts = <(int, int)>[];
   var separator = token.indexOf('://');
   while (separator >= 0) {
+    // The scheme: the scheme characters before `://`, from the first
+    // letter among them (`x=1pgsql://` starts at `pgsql`).
     var schemeStart = separator;
     while (schemeStart > 0 &&
         _isSchemeCharacter(token.codeUnitAt(schemeStart - 1))) {
       schemeStart--;
     }
-    if (_isScheme(
-          token.substring(schemeStart, separator),
-          separator - schemeStart,
-        ) &&
-        (starts.isEmpty || _startsAnotherTextUrl(token, schemeStart))) {
-      starts.add(schemeStart);
+    while (schemeStart < separator &&
+        !_isLetter(token.codeUnitAt(schemeStart))) {
+      schemeStart++;
+    }
+    if (schemeStart < separator) {
+      starts.add((schemeStart, separator + 3));
     }
     separator = token.indexOf('://', separator + 3);
   }
   if (starts.isEmpty) {
     return token;
   }
-  final out = StringBuffer(token.substring(0, starts.first));
+  final text = _Text(token);
+  final spans = <(int, int)>[];
   for (var i = 0; i < starts.length; i++) {
-    final end = i + 1 < starts.length ? starts[i + 1] : token.length;
-    out.write(redactUrl(token.substring(starts[i], end), names: names));
+    final limit = i + 1 < starts.length ? starts[i + 1].$1 : token.length;
+    final span = _passwordSpan(text, starts[i].$2, limit);
+    if (span != null) {
+      spans.add(span);
+    }
   }
-  return out.toString();
+  // Overlapping spans (a password running into the next URL) are merged.
+  spans.sort((a, b) => a.$1.compareTo(b.$1));
+  final first = starts.first.$1;
+  final out = StringBuffer();
+  var copied = first;
+  var i = 0;
+  while (i < spans.length) {
+    final from = spans[i].$1;
+    var to = spans[i].$2;
+    for (i++; i < spans.length && spans[i].$1 <= to; i++) {
+      if (spans[i].$2 > to) {
+        to = spans[i].$2;
+      }
+    }
+    out
+      ..write(token.substring(copied, from))
+      ..write('***');
+    copied = to;
+  }
+  out.write(token.substring(copied));
+  return '${token.substring(0, first)}${_maskPairs(out.toString(), names)}';
 }
 
-bool _startsAnotherTextUrl(String token, int start) {
-  final before = token.codeUnitAt(start - 1);
-  return before == 0x2c || before == 0x5b || before == 0x5d;
-}
+bool _isLetter(int c) => (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;
 
 bool _isSchemeCharacter(int c) {
   final letter = (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7a;
