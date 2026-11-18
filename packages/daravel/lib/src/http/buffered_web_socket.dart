@@ -85,6 +85,11 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// then hands on what it held.
   void Function()? onReader;
 
+  /// Told once when this side starts closing (the application's close, a
+  /// slow client's, the server's): for the server, which from then on
+  /// bounds what it reads from the client.
+  void Function()? onClosing;
+
   /// The server's subscription of [drainUnlistened], which a later [listen]
   /// takes over.
   StreamSubscription<dynamic>? _drain;
@@ -341,6 +346,7 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     Duration grace = closeGrace,
   }) async {
     _closing = true;
+    onClosing?.call();
     if (!_listened && _drain == null) {
       // Closed with nobody reading: a listen from now on gets the end
       // only.

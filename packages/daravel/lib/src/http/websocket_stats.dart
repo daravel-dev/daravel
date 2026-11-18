@@ -33,6 +33,9 @@ abstract final class WebSocketGuardStats {
   static int _pinnedPeak = 0;
   static int _chunkPeak = 0;
   static int _chunksWhileUnparsed = 0;
+  static int _graces = 0;
+  static int _discardRead = 0;
+  static int _readWhileEnding = 0;
 
   /// Peaks back to the current counts (the largest chunk and the chunks
   /// read while a rest waited to none).
@@ -47,6 +50,8 @@ abstract final class WebSocketGuardStats {
     _pinnedPeak = _pinned;
     _chunkPeak = 0;
     _chunksWhileUnparsed = 0;
+    _discardRead = 0;
+    _readWhileEnding = 0;
   }
 
   /// Every count and peak, by name.
@@ -68,6 +73,9 @@ abstract final class WebSocketGuardStats {
     'pinnedPeak': _pinnedPeak,
     'chunkPeak': _chunkPeak,
     'chunksWhileUnparsed': _chunksWhileUnparsed,
+    'graces': _graces,
+    'discardRead': _discardRead,
+    'readWhileEnding': _readWhileEnding,
   };
 
   /// The rest of a chunk kept unparsed changed by [delta].
@@ -99,6 +107,24 @@ abstract final class WebSocketGuardStats {
   /// which pausing the reading is to prevent: tests expect none.
   static void chunkWhileUnparsed() {
     _chunksWhileUnparsed++;
+  }
+
+  /// The pending graces (timers that destroy a socket after its session or
+  /// its violation) changed by [delta]: none once the sockets are gone.
+  static void graceBy(int delta) {
+    _graces += delta;
+  }
+
+  /// [length] bytes were read only to be dropped (after a violation, or
+  /// once the session ended), which is paced.
+  static void discardRead(int length) {
+    _discardRead += length;
+  }
+
+  /// [length] bytes were read from a client after this side started
+  /// closing or its session ended (bounded, then the socket destroyed).
+  static void readWhileEnding(int length) {
+    _readWhileEnding += length;
   }
 
   /// The bytes being assembled changed by [delta].

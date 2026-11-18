@@ -487,7 +487,9 @@ not read yet are dropped, even if it resumes after, and `closeCode` stays
 null unless the client's own close was read before; the connection ending
 afterwards does not make it `1006`. Once a session has ended (its `done`
 completed), however it ended, nothing it held stays held, and its
-connection is destroyed at the latest after the close grace (5 seconds).
+connection is destroyed at the latest one second after. From the moment the
+server starts closing (`close()`, a slow client, a shutdown) a client is
+read for at most 4 MiB more, about what can be in flight, and then cut off.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;
