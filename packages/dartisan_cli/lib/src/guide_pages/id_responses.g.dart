@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:917c101109f4 -->
+    r'''<!-- source: responses.md sha256:86f35b41358a -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -507,7 +507,9 @@ sesi berakhir (`done`-nya selesai), apa pun caranya, tidak ada yang tetap
 ditahan untuknya, dan koneksinya dihancurkan paling lambat satu detik
 sesudahnya. Sejak server mulai menutup (`close()`, client lambat, server
 berhenti), client dibaca paling banyak 4 MiB lagi, kira-kira yang bisa
-sedang di jalan, lalu diputus.
+sedang di jalan. Sesudah itu server berhenti membacanya: yang menunggu
+dikirim dan frame close tetap keluar, dan koneksinya berakhir paling lambat
+11 detik sesudah close.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame

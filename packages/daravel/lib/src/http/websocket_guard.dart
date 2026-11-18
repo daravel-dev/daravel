@@ -1274,26 +1274,36 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _resumeReading();
   }
 
-  /// What the client may still send after a violation, or once the session
-  /// ended ([_sessionOver]), read and dropped:
-  /// enough for its close frame and what was in flight, so the connection
-  /// ends with a FIN and the client sees the close code. Past it, reading
-  /// stops and TCP holds the client back (a socket destroyed with unread
-  /// bytes is reset, and the client may lose the close frame, which one
-  /// that floods on can do without).
+  /// How much the client may still send once this side stopped caring what
+  /// it sends (it closes, the client broke the protocol, or the session
+  /// ended): enough for its close frame and what was in flight. Counted by
+  /// [_readSinceDone].
   static const int discardAfterViolation = 4 << 20;
-  int _discarded = 0;
 
-  /// This side started closing ([_closingStarted]): what the client sends
-  /// from then on is counted ([_readWhileEnding]).
+  /// This side started closing ([_closingStarted]).
   bool _ending = false;
 
-  /// Bytes read since this side started closing or the session ended.
-  /// Past [discardAfterViolation] (more than a client can have had in
-  /// flight) the socket is destroyed: a client that sends on after the
-  /// server's close, a slow client's or the end of its session, is not
-  /// read (and parsed) at whatever rate it sends for the grace.
-  int _readWhileEnding = 0;
+  /// The one count of what was read from the client since this side
+  /// stopped caring: from the first of this side closing ([_ending]), a
+  /// violation, or the end of the session ([_sessionOver]); going from one
+  /// of these to another never resets it.
+  ///
+  /// At most [discardAfterViolation] of it is taken (while closing, also
+  /// parsed, so the client's answer to the close is seen): the chunk that
+  /// crosses it is taken up to the bound and the rest of it dropped, so
+  /// what the system hands over is at most the bound plus one chunk. Past
+  /// it ([_overBound]): while closing or after a violation reading stops,
+  /// a pause of the guard's own, and what waits to be written, the close
+  /// frame included, still goes out; the socket then ends with the graces,
+  /// at most 11 seconds after the server's close (the WebSocket's close
+  /// gives up after 10 seconds, then the guard's 1 second). Once the
+  /// session ended, nothing is left to send: the socket is destroyed.
+  int _readSinceDone = 0;
+
+  /// Reading was stopped at the bound ([_overBound]).
+  bool _stoppedAtBound = false;
+
+  bool get _caringStopped => _ending || _guard._violated || _sessionOver;
 
   /// The WebSocket started closing from this side.
   void _closingStarted() {
@@ -1301,26 +1311,50 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   }
 
   void _read(Uint8List chunk) {
-    if ((_ending || _sessionOver) && !_guard._violated) {
-      _readWhileEnding += chunk.length;
-      WebSocketGuardStats.readWhileEnding(chunk.length);
-      if (_readWhileEnding > discardAfterViolation) {
-        destroy();
+    var data = chunk;
+    var crossed = false;
+    if (_caringStopped) {
+      final room = discardAfterViolation - _readSinceDone;
+      if (room <= 0) {
+        _overBound();
+        return;
+      }
+      if (data.length > room) {
+        data = Uint8List.sublistView(data, 0, room);
+        crossed = true;
+      }
+      _readSinceDone += data.length;
+      WebSocketGuardStats.readWhileEnding(data.length);
+      if (_guard._violated || _sessionOver) {
+        // Nothing parses it any more: dropped.
+        WebSocketGuardStats.discardRead(data.length);
+        if (crossed) {
+          _overBound();
+        }
         return;
       }
     }
-    if (_guard._violated || _sessionOver) {
-      // Nothing parses it any more: dropped, and paced the same way after
-      // the session ended (its close or its going away is waited for
-      // within the grace, not read at whatever rate the client sends).
-      WebSocketGuardStats.discardRead(chunk.length);
-      _discarded += chunk.length;
-      if (_discarded > discardAfterViolation) {
-        // A pause of its own, which no resume from the WebSocket undoes.
-        _reading?.pause();
-      }
+    _take(data);
+    if (crossed) {
+      _overBound();
+    }
+  }
+
+  /// Past the bound of [_readSinceDone]: once the session ended the socket
+  /// is destroyed; before (closing, a violation) reading stops, a pause of
+  /// its own which no resume from the WebSocket undoes.
+  void _overBound() {
+    if (_sessionOver) {
+      destroy();
       return;
     }
+    if (!_stoppedAtBound) {
+      _stoppedAtBound = true;
+      _reading?.pause();
+    }
+  }
+
+  void _take(Uint8List chunk) {
     WebSocketGuardStats.chunkRead(chunk.length);
     final tail = _unparsed;
     if (tail != null || _parsing) {
@@ -1398,11 +1432,10 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         final read = _guard._inbound.add(next, _handOn, stop: _stopParsing);
         if (read < next.length) {
           if (_guard._inbound.stopped || _guard._violated) {
-            // Refused or ended: the rest is not read.
-            _discarded += next.length - read;
+            // Refused or ended: the rest is not read (it was counted by
+            // [_readSinceDone] when it was read, if that count ran).
           } else if (!_destroyed) {
-            // (Destroyed meanwhile, the rest is dropped: nothing reads it,
-            // and [_discarded] only paces reading after a violation.)
+            // (Destroyed meanwhile, the rest is dropped: nothing reads it.)
             final rest = Uint8List.sublistView(next, read);
             final later = _unparsed;
             // A chunk that came meanwhile ([_read]) goes after the rest.
@@ -1432,9 +1465,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// What [_unparsed] keeps is given up (the session ends, or what the
   /// client sends is dropped from now on).
   void _dropUnparsed() {
-    final tail = _unparsed;
-    if (tail != null) {
-      _discarded += tail.length;
+    if (_unparsed != null) {
       _unparsed = null;
     }
   }
@@ -1507,11 +1538,13 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         _parse(null);
         return null;
       }
-      if (!_destroyed && (_guard._violated || _sessionOver)) {
-        // After a violation, or once the session ended, TCP is read on
-        // ([_read] drops it, within its bound), so the client's going away
-        // is seen and destroys the socket then, not only when the grace
-        // runs out.
+      if (!_destroyed && (_guard._violated || _sessionOver || _ending)) {
+        // While this side closes, after a violation, or once the session
+        // ended, TCP is read on within the bound of [_readSinceDone] (and
+        // what arrives no longer handed on: nothing reads it), so the
+        // client's close or its going away is seen, not only when the
+        // grace runs out.
+        _readerGone = true;
         return null;
       }
       return _reading?.cancel();

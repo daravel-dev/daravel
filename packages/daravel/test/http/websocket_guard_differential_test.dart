@@ -22,9 +22,10 @@ import 'support/websocket_counts.dart';
 /// sent, the client gets a PONG for every PING and the same close, and
 /// every count is back to zero.
 ///
-/// `DIFF_SEEDS=<n>` runs more seeds than the 300 of CI.
+/// `DIFF_SEEDS=<n>` runs more seeds than the 100 of CI (300 took 84 s on
+/// Linux, 110 s on macOS and 134 s on Windows CI runners).
 void main() {
-  final seeds = int.tryParse(Platform.environment['DIFF_SEEDS'] ?? '') ?? 300;
+  final seeds = int.tryParse(Platform.environment['DIFF_SEEDS'] ?? '') ?? 100;
 
   late Application app;
   late ServerEngine engine;

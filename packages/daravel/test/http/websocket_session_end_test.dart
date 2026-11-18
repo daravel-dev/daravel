@@ -173,6 +173,41 @@ void main() {
               compress: false,
               maxPayloadBytes: 2 << 20,
             )
+            ..ws(
+              '/queue-then-close',
+              (socket, request) async {
+                // At the client's first message: 768 KiB queued, then the
+                // close; it reads on (and drops) what the client sends.
+                final first = Completer<void>();
+                final reading = socket.listen(
+                  (_) => first.isCompleted ? null : first.complete(),
+                  onDone: () => first.isCompleted ? null : first.complete(),
+                );
+                await first.future;
+                for (var i = 0; i < 12; i++) {
+                  socket.add(Uint8List(64 << 10));
+                }
+                await socket.close(1000, 'bye');
+                await socket.done.then<void>((_) {}, onError: (Object _) {});
+                await reading.cancel();
+              },
+              compress: false,
+              maxPayloadBytes: 8 << 20,
+              maxBufferedBytes: 2 << 20,
+            )
+            ..ws('/close-then-cancel', (socket, request) async {
+              // Closes at the client's first message, then cancels its
+              // subscription while the close waits for the answer.
+              final first = Completer<void>();
+              late final StreamSubscription<dynamic> reading;
+              reading = socket.listen(
+                (_) => first.isCompleted ? null : first.complete(),
+              );
+              await first.future;
+              unawaited(socket.close(1000).then<void>((_) {}, onError: (_) {}));
+              await reading.cancel();
+              await socket.done.then<void>((_) {}, onError: (Object _) {});
+            }, compress: false)
             ..ws('/resume-after-close', (socket, request) async {
               // Pauses at once; resumes after closing from the server.
               final reading = socket.listen((m) => got.add('$m'.length))
@@ -462,7 +497,8 @@ void main() {
         final read =
             (WebSocketGuardStats.toJson()['readWhileEnding'] ?? 0) - before;
         expect(flushed, lessThan(50 << 20), reason: 'cut off, not read on');
-        expect(read, lessThanOrEqualTo((4 << 20) + (1 << 20)));
+        // Only up to the bound is taken from what the system hands over.
+        expect(read, lessThanOrEqualTo(4 << 20));
         client.socket.destroy();
         expect(await gracesWithin(const Duration(seconds: 2)), 0);
       } finally {
@@ -524,6 +560,241 @@ void main() {
       await engine.stop();
       await app.shutdown();
     }
+  });
+
+  // The table of how a session ends (closing, a violation, the session
+  // over), cell by cell; the open state is the matrix above.
+  group('closing table', () {
+    const bound = 4 << 20;
+
+    /// Sends [frames] binary frames of 64 KiB, one message in fragments,
+    /// each flushed within 2 s; how many went out before one did not.
+    Future<int> sendFragmented(RawWsClient client, int frames) async {
+      final payload = Uint8List(64 << 10);
+      var sent = 0;
+      for (var i = 0; i < frames; i++) {
+        final opcode = i == 0 ? 0x2 : 0x0;
+        try {
+          client.socket.add(
+            RawWsClient.frame(opcode, payload, fin: i == frames - 1),
+          );
+          await client.socket.flush().timeout(const Duration(seconds: 2));
+        } on Object {
+          break;
+        }
+        sent++;
+      }
+      return sent;
+    }
+
+    /// The data bytes and the close code the client got, until the close
+    /// or until nothing came for 10 s.
+    Future<(int, int?)> drain(RawWsClient client) async {
+      var bytes = 0;
+      while (true) {
+        final WsFrame frame;
+        try {
+          frame = await client.next();
+        } on Object {
+          return (bytes, null);
+        }
+        if (frame.opcode == 0x8) {
+          return (bytes, frame.closeCode);
+        }
+        if (frame.opcode < 0x8) {
+          bytes += frame.payload.length;
+        }
+      }
+    }
+
+    int readSinceDone() => WebSocketGuardStats.toJson()['readWhileEnding'] ?? 0;
+
+    for (final (name, paused, waitFirst) in [
+      ('while the client reads', false, false),
+      ('while the client does not read, then reads', true, false),
+      ('with the close already queued', true, true),
+    ]) {
+      test(
+        'closing x past the bound ($name): the client gets what was '
+        'queued and the close, as on main; reading stops, no reset',
+        () async {
+          final (app, engine) = await serve();
+          try {
+            final client = await RawWsClient.connect(
+              engine.port!,
+              '/queue-then-close',
+            );
+            if (paused) {
+              client.pauseReading();
+            }
+            final before = readSinceDone();
+            client.send(0x1, utf8.encode('go'));
+            if (waitFirst) {
+              await Future<void>.delayed(const Duration(milliseconds: 200));
+            }
+            // 5 MiB in fragments, under the message limit: past the bound.
+            await sendFragmented(client, 80);
+            if (paused) {
+              client.resumeReading();
+            }
+            final (bytes, close) = await drain(client);
+            expect(bytes, 12 * (64 << 10), reason: 'everything queued');
+            expect(close, 1000);
+            expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+            client.socket.destroy();
+          } finally {
+            await engine.stop();
+            await app.shutdown();
+          }
+        },
+        timeout: const Timeout(Duration(seconds: 60)),
+      );
+    }
+
+    test('closing x past the bound, the client sending on: the graces end '
+        'the socket within 11 s of the close', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/close-on-first',
+        );
+        final watch = Stopwatch()..start();
+        client.send(0x1, utf8.encode('go'));
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        while (!client.ended && watch.elapsed < const Duration(seconds: 20)) {
+          try {
+            client.socket.add(payload);
+            await client.socket.flush().timeout(
+              const Duration(milliseconds: 500),
+            );
+          } on TimeoutException {
+            // Held back: the server stopped reading. Keep trying.
+          } on Object {
+            break;
+          }
+        }
+        final deadline = DateTime.now().add(const Duration(seconds: 20));
+        while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(engine.openWebSockets, 0);
+        expect(await gracesWithin(const Duration(seconds: 13)), 0);
+        expect(
+          watch.elapsed,
+          lessThan(const Duration(seconds: 11) + const Duration(seconds: 2)),
+        );
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('closing x sub.cancel(): the client is read on, its close and its '
+        'end are seen and end the session', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/close-then-cancel',
+        );
+        final before = readSinceDone();
+        client.send(0x1, utf8.encode('go'));
+        expect(await client.closeFrame(), 1000);
+        // What it still had to send before its answer: read on, not cut.
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        for (var i = 0; i < 16; i++) {
+          client.socket.add(payload);
+          await client.socket.flush().timeout(const Duration(seconds: 2));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(
+          readSinceDone() - before,
+          greaterThanOrEqualTo(16 * (64 << 10)),
+          reason: 'TCP still read after the cancel',
+        );
+        client.send(0x8, const [0x03, 0xE8]);
+        await client.socket.flush();
+        await client.socket.close();
+        final watch = Stopwatch()..start();
+        while (engine.openWebSockets > 0 &&
+            watch.elapsed < const Duration(seconds: 3)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(engine.openWebSockets, 0, reason: 'ended by the answer');
+        expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    });
+
+    test('closing, then a violation: one count, never started again; it '
+        'stops at the bound', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/close-on-first',
+        );
+        final before = readSinceDone();
+        client.send(0x1, utf8.encode('go'));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        // 3.875 MiB, a frame of a reserved opcode, then 4 MiB more.
+        final payload = Uint8List(64 << 10);
+        Future<void> frames(int n) async {
+          for (var i = 0; i < n; i++) {
+            try {
+              client.socket.add(RawWsClient.frame(0x2, payload));
+              await client.socket.flush().timeout(const Duration(seconds: 2));
+            } on Object {
+              return;
+            }
+          }
+        }
+
+        await frames(62);
+        client.socket.add(RawWsClient.frame(0x3, const []));
+        await frames(64);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(readSinceDone() - before, bound, reason: 'one count');
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('a violation x past the bound: reading stops at the bound, the '
+        'close frame still goes out', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/end?handler=reads&end=client-close',
+        );
+        final before = readSinceDone();
+        client.socket.add(RawWsClient.frame(0x3, const []));
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        for (var i = 0; i < 96; i++) {
+          try {
+            client.socket.add(payload);
+            await client.socket.flush().timeout(const Duration(seconds: 2));
+          } on Object {
+            break;
+          }
+        }
+        expect(await client.closeFrame(), 1002);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(readSinceDone() - before, bound);
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }
 
