@@ -78,7 +78,15 @@ final class GracefulServerSocket extends StreamView<Socket>
   /// then closes its idle connections. Idempotent: every caller, also one
   /// that calls while another's [finish] is under way, gets the same
   /// future, which completes once it is all done.
-  Future<void> finish() => _finishing ??= _finish();
+  Future<void> finish() => _finishing ??= _finish().then<void>(
+    (_) {},
+    // Shared by every caller, possibly from different error zones (a
+    // stored future that fails gives its error only in the zone it was
+    // made in): it never fails. What could (cancelling the listening
+    // subscription, closing the stream of connections) changes nothing
+    // once the listening socket is closed.
+    onError: (Object _) {},
+  );
 
   Future<void>? _finishing;
 

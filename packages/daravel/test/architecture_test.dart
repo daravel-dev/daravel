@@ -389,7 +389,7 @@ const Map<String, String> _knownFutureFields = {
   'http/graceful_server_socket.dart:_stopping':
       'the server socket, one owner (stop, HttpServer.close); never fails',
   'http/graceful_server_socket.dart:_finishing':
-      'the server socket, one owner (stop, HttpServer.close)',
+      'the server socket, one owner (stop, HttpServer.close); never fails',
   'http/kernel.dart:result': 'per request, one zone',
   'http/multipart.dart:_changed': 'per request body, one zone',
   'http/server_engine.dart:_done': 'completed with no error',
