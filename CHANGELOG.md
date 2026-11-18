@@ -62,7 +62,7 @@ clients that stop reading comes in Daravel 1.28.0.
   of 300 000 cells and `B1` then `A1` put A1 in column C. A cell reference
   is letters then digits (`""`, `1A1` and `12A34B5` are a
   `FormatException`), and `columnIndex('')` throws instead of answering -1.
-  Since 1.0.0.
+  Since 1.15.0.
 
 ### Fixed
 
