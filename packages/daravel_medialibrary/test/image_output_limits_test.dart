@@ -450,14 +450,14 @@ void main() {
           shape(100, 100, PixelKind.rgb8),
           reviewerChain,
         ).ceil(),
-        12880,
+        16132,
       );
       expect(
         cost(ImageContainer.png, shape(239, 1416, PixelKind.gray8), {
           'crop': [609, 2042, 'left'],
           'format': ['gif'],
         }).ceil(),
-        108,
+        135,
       );
     });
 
@@ -465,8 +465,8 @@ void main() {
         'decoding; at its golden units it converts', () {
       final bytes = png(100, 100);
       expect(convert(bytes, reviewerChain), refused);
-      expect(convert(bytes, reviewerChain, maxWork: 12879), refused);
-      expect(convert(bytes, reviewerChain, maxWork: 12880), converted);
+      expect(convert(bytes, reviewerChain, maxWork: 16131), refused);
+      expect(convert(bytes, reviewerChain, maxWork: 16132), converted);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('a step with no measured cost for the pixels is not run', () {

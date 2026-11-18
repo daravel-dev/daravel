@@ -99,8 +99,9 @@ final class MediaLibraryConfig implements ConfigSection {
   /// The most work a conversion may take (`MEDIA_MAX_CONVERSION_WORK`),
   /// estimated before it runs from the image's size, frames and pixels and
   /// every step of the conversion. A unit is a relative measure of work,
-  /// about a millisecond of one core of the reference machine (a GitHub
-  /// Actions `ubuntu-latest` runner), not a promise of seconds on another:
+  /// at most about a millisecond of one core of the slowest CI runner
+  /// measured (a GitHub Actions `ubuntu-latest` runner with an AMD EPYC
+  /// 7763), not a promise of seconds on another:
   /// a slower machine takes longer for the same units. A conversion past
   /// it is not generated (`ImageTooLargeException`); the original stays
   /// stored.
