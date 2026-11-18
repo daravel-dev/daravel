@@ -84,6 +84,14 @@ HorizonDashboard.auth(
 );
 ```
 
+`HorizonDashboard.auth` is kept per isolate: call it inside `createApp`
+(bootstrap), not in `main()`, so that every worker isolate of the HTTP
+server has it; an isolate without it asks the gate.
+
+Job payloads are shown with the keys `LOG_REDACT` names hidden, as in the
+logs; a secret kept in a job's own properties is shown as it was stored, so
+keep secrets out of job properties.
+
 `middleware: ['web', 'auth']` sends guests to the login page instead of a
 403; a `middleware:` entry the application does not register stops the boot.
 Behind the `web` group, a POST or DELETE without the XSRF token (retry,

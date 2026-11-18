@@ -89,6 +89,14 @@ HorizonDashboard.auth(
 );
 ```
 
+`HorizonDashboard.auth` disimpan per isolate: panggil di dalam `createApp`
+(bootstrap), bukan di `main()`, supaya setiap worker isolate server HTTP
+memilikinya; isolate tanpa callback ini bertanya ke gate.
+
+Payload job ditampilkan dengan key yang disebut `LOG_REDACT` disembunyikan,
+seperti di log; rahasia yang disimpan di properti job sendiri tampil apa
+adanya, jadi jangan simpan rahasia di properti job.
+
 `middleware: ['web', 'auth']` mengarahkan tamu ke halaman login, bukan 403;
 entri `middleware:` yang tidak didaftarkan aplikasi menghentikan boot. Di
 belakang grup `web`, POST atau DELETE tanpa token XSRF (retry, monitoring)

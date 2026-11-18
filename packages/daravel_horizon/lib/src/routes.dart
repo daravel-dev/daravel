@@ -126,9 +126,15 @@ abstract final class HorizonDashboard {
           (Request q) => guard((r) => _page(prefix, 'dashboard')),
         ).name('horizon.index')
         ..get(
-          '$prefix/{view}',
-          (Request q) => guard((r) => _page(prefix, r.param<String>('view'))),
-        ).name('horizon.view');
+              '$prefix/{view}',
+              (Request q) =>
+                  guard((r) => _page(prefix, r.param<String>('view'))),
+            )
+            // Only the tabs: anything else is not this route (a 404, or
+            // the application's own route when HORIZON_PATH is /), not a
+            // 403 from the gate.
+            .whereIn('view', horizonTabs)
+            .name('horizon.view');
     }, middleware: middleware);
   }
 
@@ -187,25 +193,12 @@ abstract final class HorizonDashboard {
 
   /// Whether [request] may use the dashboard. A callback or a gate that
   /// throws denies it, logged.
-  static Future<bool> _authorized(Request request) async {
-    final app = Container.current.make<ConfigRepository>().section<AppConfig>();
-    if (app.isLocal) {
-      return true;
-    }
-    try {
-      if (_authUsing case final callback?) {
-        return await callback(request);
-      }
-      return Gate.has('viewHorizon') && await Gate.allows('viewHorizon');
-    } on Object catch (e, stack) {
-      Container.current.make<Logger>().error(
-        'Horizon dashboard authorization failed; the request is denied.',
-        error: e,
-        stackTrace: stack,
-      );
-      return false;
-    }
-  }
+  static Future<bool> _authorized(Request request) => DashboardGate.allows(
+    request,
+    ability: 'viewHorizon',
+    name: 'Horizon dashboard',
+    callback: _authUsing,
+  );
 
   /// [read] from the store, or null when it fails.
   static Future<T?> _call<T>(
@@ -337,8 +330,10 @@ abstract final class HorizonDashboard {
 
   /// The queues of a worker in a master's status: the comma-separated
   /// list it was assigned ([HorizonMaster.status]), or a list.
+  /// A worker of another shape (not a map) has none, as [_status] reads
+  /// what it cannot.
   static Iterable<String> _queuesOf(Object? worker) =>
-      switch ((worker as Map?)?['queues']) {
+      switch (worker is Map ? worker['queues'] : null) {
         final String queues => queues.split(',').map((q) => q.trim()),
         final List<Object?> queues => queues.whereType<String>(),
         _ => const <String>[],
@@ -471,10 +466,18 @@ abstract final class HorizonDashboard {
   /// that many with `Iterable.skip`, which throws for a negative count, and
   /// the list came back empty (the database store's query already reads
   /// it as 0).
+  ///
+  /// At most [maxOffset]: the pending list counts a skipped queue by
+  /// bisection, about log2 of the offset in queries per queue, so the
+  /// offset bounds the work one request asks for (17 queries a queue at
+  /// most).
   static int _offset(Request request) {
     final offset = int.tryParse(request.query['starting_at'] ?? '') ?? 0;
-    return offset < 0 ? 0 : offset;
+    return offset.clamp(0, maxOffset);
   }
+
+  /// The largest `starting_at` honoured: 2 000 pages of 50.
+  static const int maxOffset = 100000;
 
   /// The pending jobs of every plan queue, one list in plan and queue
   /// order, paged by `limit` and `starting_at` over the whole list.

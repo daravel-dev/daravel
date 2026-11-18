@@ -79,15 +79,76 @@ Set each gateway's notification URL to `https://<your app>/payments/webhook/<gat
    a `v1` signature in `Stripe-Signature` must be the HMAC-SHA256 of
    `<timestamp>.<body>` with the endpoint secret, and the timestamp must
    be within five minutes. Comparisons take constant time. Anything else
-   gets 401 and changes nothing.
+   gets 401 and changes nothing. Each verified Midtrans notification
+   triggers a [status API lookup](https://docs.midtrans.com/reference/get-transaction-status)
+   for its authenticated `order_id`. A missing transaction (code 404,
+   without a transaction status) triggers one further lookup using the
+   notification's `transaction_id`, supporting DANA and BI SNAP. Both
+   lookup paths require an answer for the authenticated order, with a
+   nonempty transaction id and status, and code 2xx or 407 with `expire`.
+   The API supplies the event id, status, amount, currency, time and raw
+   payload. Invalid answers, a paid answer without a readable
+   `gross_amount`, or two missing answers produce 5xx without applying or
+   logging an event, so Midtrans sends the notification again. Direct
+   `status(orderId, reference:)` calls look the order up by `reference`
+   when Midtrans does not know it by its id, and return `pending` when
+   neither is known; a paid answer without a readable amount throws
+   `PaymentGatewayException` there too, so reconciling never pays without
+   comparing the amount. A notification without its `transaction_id`, with
+   a `transaction_id` over 255 characters, with `.` or `..` as its order
+   or transaction id, or with a field that should be text and is not, gets
+   400 before any lookup.
+   Per order, one batch of lookups runs at a time and one waits: arrivals
+   during a batch join the waiting one. A batch looks the order up once
+   and, when Midtrans does not know it by its id, each distinct
+   `transaction_id` of the batch in turn, so each notification gets the
+   answer for its own transaction: at most 1 + 4 outgoing calls per batch.
+   A fifth distinct `transaction_id` while the waiting batch is full is
+   answered 429 with `Retry-After: 1`, which Midtrans retries. Each
+   notification about another order makes its own call;
+   `HTTP_MAX_IN_FLIGHT` bounds how many run at once. Completed answers are
+   not cached. A sender holding one validly signed notification for an
+   order can keep those four places full with forged transaction ids:
+   measured with eight senders, valid deliveries 150 ms apart were all
+   answered 429 while the flood lasted and applied once it stopped
+   (Midtrans retries 429). Configure an ingress rate limit through
+   `Payment.webhookRoutes(middleware: ...)` and account for outbound status
+   calls and gateway availability; with `throttle` there, the 429 answers
+   count against its quota like any other request.
+   Allow outbound HTTPS to `api.midtrans.com` in production or
+   `api.sandbox.midtrans.com` in the sandbox.
 2. **Applied once.** Its id goes into `payment_webhook_logs` (unique per
-   gateway), in the same transaction as the change. A retry answers
-   `{"status": "duplicate"}` and does nothing.
+   gateway), in the same transaction as the change. Once a notification
+   has moved the payment, a retry answers `{"status": "duplicate"}` and
+   does nothing. One that moved nothing (`unknownOrder`, `unchanged`,
+   `ignored`, `amountMismatch`) is looked at again when it comes back, so
+   a notification that arrives before its order is stored applies on the
+   gateway's retry. A Midtrans id holds the order, the transaction, the
+   status and `fraud_status`: a card `capture` held for review
+   (`challenge`) and the same `capture` once accepted are two
+   notifications, and a notification of one order is never taken for
+   another's.
 3. **Checked.** The payment row is locked; a notification for another
-   amount changes nothing and dispatches `PaymentAmountMismatch`.
+   currency or another amount changes nothing and dispatches
+   `PaymentAmountMismatch`. Without a currency, only the amount is
+   compared.
 4. **Moved forward only.** `pending` → `paid`, `failed`, `expired`;
    `failed` or `expired` → `paid` (a late settlement); `paid` →
    `refunded`. A late `pending` after `paid` is ignored.
+
+Order and event identifiers are limited to 255 Unicode characters:
+webhooks receive 400 when they exceed this, while application calls to
+`Payment.checkout` and `Payment.manager.apply` throw `ArgumentError`
+before the gateway or the database is reached. A Midtrans event id holds
+the order id, the transaction id and the status, so with Midtrans an
+order id stays well under that: Midtrans itself allows 50 characters for
+a Snap order id (`transaction_details.order_id`,
+https://docs.midtrans.com/reference/json-objects). On MySQL, event ids
+that differ only in letter case are one event under the default
+collation, while PostgreSQL and SQLite keep them apart.
+The JSON log payload is stored intact up to 65,535 UTF-8 bytes; larger
+payloads store only `{"truncated":true,"bytes":N}`. The event passed to
+application listeners retains its raw payload. No schema migration is needed.
 
 Events are dispatched after the commit, so a listener sees the stored
 payment:
@@ -100,14 +161,29 @@ events
   ..listen<PaymentAmountMismatch>((e) => Log.critical('Amount mismatch', {'order': e.payment.orderId}));
 ```
 
-The answer is 200 in every other case (`applied`, `unchanged`, `ignored`,
-`unknownOrder`, `amountMismatch`), so the gateway stops retrying a
-notification there is nothing more to do with.
+A notification for an order not stored yet (`unknownOrder`) is answered
+409: Stripe, Midtrans and Xendit send a notification again only after a
+non-2xx answer, so it applies once the order exists. On a gateway account
+shared with another system, notifications for its orders are then retried
+until the gateway gives up, and show as failed in its dashboard; pass
+`withPayments(unknownOrderStatus: 200)` to answer them 200 as before. The
+answer is 200 in every other case (`applied`, `duplicate`, `unchanged`,
+`ignored`, `amountMismatch`). An `amountMismatch` notification delivered
+again is checked again and dispatches `PaymentAmountMismatch` again, so
+its listeners should be idempotent.
 
 ## Reconciling
 
 A notification can get lost. `dartisan payment:check ORDER-42` asks the
-gateway for the payment's status and applies it the same way. Add
+gateway for the payment's status and applies it the same way. With
+Midtrans, the order is looked up by its id and, when Midtrans does not know
+it, by the stored reference: for an order paid through Snap that never got
+a notification, that reference is the Snap token, which costs one more call
+answered 404. A reconciled Midtrans event id is
+`status:<order>:<transaction>:<status>[:<fraud_status>]`, at most 255
+characters, so the order id may hold 238 characters when Midtrans does not
+know the order, 200 with a 36-character transaction id and `settlement`,
+and 193 when a fraud status follows. Add
 `...paymentCommands` from `package:daravel_payments/commands.dart` to
 `bootstrap/commands.dart`.
 
@@ -125,3 +201,8 @@ await Payment.manager.apply(fake.named('midtrans').event('ORDER-42', PaymentStat
 The package's own tests check the signatures against values computed with
 `sha512sum` and `openssl`, and run against the Midtrans sandbox when
 `MIDTRANS_SERVER_KEY` holds a sandbox key (`dart test --tags integration`).
+
+Tests delivering real Midtrans webhook shapes must fake
+`api.sandbox.midtrans.com/v2/*/status` as well as Snap checkout creation.
+Return the requested order, transaction id, status, code and amount from
+that fake; use `Payment.fake()` when testing application behavior alone.

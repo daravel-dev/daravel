@@ -1,4 +1,4 @@
-<!-- source: livekit.md sha256:f10fb6c90551 -->
+<!-- source: livekit.md sha256:20155fec9b08 -->
 # LiveKit
 
 [LiveKit](https://livekit.io) membawa video, audio, dan berbagi layar
@@ -103,14 +103,17 @@ router.post('/livekit/webhook', (request) async {
 });
 ```
 
-`Livekit.webhook` mengecek token di `Authorization` (signature, masa
-berlaku, diterbitkan atas API key) dan bahwa klaim `sha256`-nya adalah
+`Livekit.webhook` mengecek token di `Authorization` (signature, `exp` yang
+belum lewat, diterbitkan atas API key) dan bahwa klaim `sha256`-nya adalah
 SHA-256 base64 dari body yang persis sama, seperti SDK LiveKit, dan, lebih
-dari SDK itu, bahwa `created_at` event-nya berada dalam `maxAge` (lima
-menit, toleransi skew 30 detik ke dua arah), karena webhook yang tertangkap
-bisa dikirim ulang selama tokennya masih berlaku, dan bahwa id event-nya
-belum pernah diterima (setiap id disimpan di cache aplikasi selama jendela
-itu); selain itu dijawab 401 dengan `LivekitWebhookException`. Tidak ada opsi untuk melewati
+dari SDK itu, bahwa event-nya punya id dan `created_at` dalam `maxAge`
+(lima menit, toleransi skew 30 detik ke dua arah), karena webhook yang
+tertangkap bisa dikirim ulang selama tokennya masih berlaku, dan bahwa id
+event-nya belum pernah diterima (setiap id disimpan di cache aplikasi
+selama event bisa diterima, enam menit); selain itu dijawab 401 dengan
+`LivekitWebhookException`. `LIVEKIT_API_KEY` atau `LIVEKIT_API_SECRET` yang
+kosong adalah kesalahan konfigurasi (500), dan identity token tidak boleh
+memuat karakter kendali. Tidak ada opsi untuk melewati
 pengecekan itu: route webhook yang menerima event tanpa tanda tangan
 membuat siapa pun bisa menandai sebuah rapat sudah selesai.
 

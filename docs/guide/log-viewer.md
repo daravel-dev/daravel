@@ -20,7 +20,7 @@ register it yourself:
 import 'package:daravel_log_viewer/daravel_log_viewer.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
-    .withLogViewer(middleware: ['auth', 'can:view-logs'])
+    .withLogViewer()
     // ...
     .create();
 ```
@@ -35,14 +35,22 @@ LOG_STACK=console,daily
 
 ## Who can see it
 
-Logs say a lot about an application. Outside `APP_ENV=local` and `testing`
-the viewer answers 403 until `withLogViewer` is given middleware, such as
-`auth` and a gate:
+Logs say a lot about an application. The viewer is open in
+`APP_ENV=local` only; anywhere else (`testing` and staging too) every route,
+downloads, deletes and the live tail included, answers 403 unless the
+`viewLogViewer` gate allows the signed-in user:
 
 ```dart
 // bootstrap/policies.dart
-gate.define('view-logs', (user, args) => user is User && user.isAdmin);
+gate.define('viewLogViewer', (user, args) => user is User && user.isAdmin);
 ```
+
+Without sessions, `LogViewer.auth` decides per request (opcodesio/log-viewer
+has the same `LogViewer::auth`); call it inside `createApp`, so that every
+worker isolate has it. Unlike opcodesio/log-viewer, an environment other
+than local with neither is closed, not open. Middleware never opens it:
+`withLogViewer(middleware: [...])` only runs before that decision, and
+defaults to the `web` group when the application has sessions.
 
 `LOG_VIEWER_ENABLED=false` turns it off (404) everywhere.
 

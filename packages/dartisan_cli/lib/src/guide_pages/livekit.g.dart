@@ -104,14 +104,17 @@ router.post('/livekit/webhook', (request) async {
 });
 ```
 
-`Livekit.webhook` checks the `Authorization` token (signature, expiry,
-issued under the API key) and that its `sha256` claim is the base64
-SHA-256 of the exact body, as LiveKit's SDKs do, and, beyond them, that
-the event's `created_at` is within `maxAge` (five minutes, 30 s of skew
-either way), since a captured webhook could otherwise be sent again for
-as long as its token lives, and that the event's id was not received
-already (each id is kept in the application's cache for that window);
-anything else is a 401 `LivekitWebhookException`. There is no switch to skip that check: a
+`Livekit.webhook` checks the `Authorization` token (signature, an `exp`
+that has not passed, issued under the API key) and that its `sha256`
+claim is the base64 SHA-256 of the exact body, as LiveKit's SDKs do, and,
+beyond them, that the event has an id and a `created_at` within `maxAge`
+(five minutes, 30 s of skew either way), since a captured webhook could
+otherwise be sent again for as long as its token lives, and that the
+event's id was not received already (each id is kept in the application's
+cache for as long as an event is accepted, six minutes); anything else is
+a 401 `LivekitWebhookException`. An empty `LIVEKIT_API_KEY` or
+`LIVEKIT_API_SECRET` is a configuration error (500), and a token's
+identity may not hold control characters. There is no switch to skip that check: a
 webhook route that accepts unsigned events lets anyone mark a meeting as
 finished.
 

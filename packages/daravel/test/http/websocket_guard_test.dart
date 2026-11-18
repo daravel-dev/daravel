@@ -43,7 +43,7 @@ void main() {
               ..ws('/echo', echo, compress: false, maxPayloadBytes: 65536)
               // The default limit (1 MiB).
               ..ws('/default', echo, compress: false)
-              ..ws('/deflate', echo, maxPayloadBytes: 65536)
+              ..ws('/deflate', echo, compress: true, maxPayloadBytes: 65536)
               // Many pings between fragments (the differential test).
               ..ws(
                 '/diff',
@@ -55,6 +55,7 @@ void main() {
               ..ws(
                 '/diff-deflate',
                 echo,
+                compress: true,
                 maxPayloadBytes: 65536,
                 controlFrameBurst: 100000,
               )

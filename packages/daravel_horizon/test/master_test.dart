@@ -216,7 +216,11 @@ void main() {
 
   HorizonMaster master(
     SupervisorPlan plan, {
-    Duration heartbeat = const Duration(milliseconds: 100),
+    // Not about the lease of an idle worker (no test here is): a heartbeat
+    // a loaded runner keeps up with. At 100 ms that lease is 400 ms, and
+    // idle workers were killed (reason lease) on a busy Windows runner.
+    // The reclaim margin stays 1 s, its floor, so job limits are the same.
+    Duration heartbeat = const Duration(milliseconds: 500),
     Duration killGrace = const Duration(seconds: 10),
     ApplicationFactory factory = masterApp,
     Application? driverApp,

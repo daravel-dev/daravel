@@ -13,14 +13,17 @@ extension ReverbApplicationBuilder on ApplicationBuilder {
   /// `REVERB_APPS_PROVIDER` unless given, see [ReverbApps]), and the
   /// `reverb:restart` watcher of the isolates `dartisan reverb:start` runs.
   ///
-  /// The dashboard is served at [dashboard] (`/reverb`; empty for none)
-  /// behind [middleware]; outside `APP_ENV=local` and `testing` it answers
-  /// 403 until [middleware] protects it (`['auth', 'can:viewReverb']`).
-  /// `reverb:start` does not serve it: the HTTP application does.
+  /// The dashboard is served at [dashboard] (`/reverb`; empty for none).
+  /// Outside `APP_ENV=local` (`testing` too) [ReverbDashboard.auth] or the
+  /// `viewReverb` gate decides who sees it; anything else is a 403.
+  /// [middleware] only runs before that decision: without it, the `web`
+  /// group when the application registers it, else none; middleware the
+  /// application does not register is a ConfigException. `reverb:start`
+  /// does not serve it: the HTTP application does.
   ApplicationBuilder withReverb({
     ReverbAppsFactory apps = ReverbApps.fromSource,
     String dashboard = '/reverb',
-    List<Object> middleware = const [],
+    List<Object>? middleware,
   }) => withConfig<ReverbConfig>(ReverbConfig.fromEnv)
       .withConfigCheck(ReverbConfig.check)
       .withBroadcastApps(apps)
@@ -57,10 +60,10 @@ void Function()? _rollingReverbRestart(Application app, Supervisor supervisor) {
 }
 
 final class _ReverbProvider extends ServiceProvider {
-  _ReverbProvider(this.dashboard, this.middleware);
+  _ReverbProvider(this.dashboard, this.given);
 
   final String dashboard;
-  final List<Object> middleware;
+  final List<Object>? given;
 
   @override
   void boot(Container container) {
@@ -89,7 +92,12 @@ final class _ReverbProvider extends ServiceProvider {
       ReverbDashboard.routes(
         container.make<Router>(),
         path: path,
-        middleware: middleware,
+        middleware: DashboardGate.middleware(
+          container.make<MiddlewareRegistry>(),
+          given,
+          setup: 'withReverb',
+          authHint: 'ReverbDashboard.auth',
+        ),
       );
     }
   }

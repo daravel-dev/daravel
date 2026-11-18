@@ -14,7 +14,10 @@ Object? field(Map<String, Object?> json, String name) {
 /// A protobuf integer: a number, or a string for 64-bit ones.
 int intField(Map<String, Object?> json, String name) =>
     switch (field(json, name)) {
-      final num n => n.toInt(),
+      final int n => n,
+      // A number past what an int holds (1e400 decodes as infinity) reads
+      // as 0, like a missing one, rather than throwing.
+      final double n when n.isFinite && n.abs() < 9.2e18 => n.toInt(),
       final String s => int.tryParse(s) ?? 0,
       _ => 0,
     };
@@ -30,9 +33,20 @@ String stringField(Map<String, Object?> json, String name) =>
 bool boolField(Map<String, Object?> json, String name) =>
     field(json, name) == true;
 
-DateTime? _seconds(int seconds) => seconds == 0
-    ? null
-    : DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+DateTime? _seconds(int seconds) {
+  const maxSeconds = 8640000000000;
+  if (seconds == 0 || seconds > maxSeconds || seconds < -maxSeconds) {
+    return null;
+  }
+  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+}
+
+List<Object?> _listField(Map<String, Object?> json, String name) =>
+    switch (field(json, name)) {
+      null => const [],
+      final List<Object?> values => values,
+      _ => throw FormatException('The LiveKit [$name] field is not a list.'),
+    };
 
 /// A room on the LiveKit server.
 final class LivekitRoom {
@@ -124,7 +138,7 @@ final class LivekitParticipant {
 
   /// The tracks the participant publishes, as the server describes them.
   List<Map<String, Object?>> get tracks => [
-    for (final track in field(json, 'tracks') as List<Object?>? ?? const [])
+    for (final track in _listField(json, 'tracks'))
       if (track is Map<String, Object?>) track,
   ];
 

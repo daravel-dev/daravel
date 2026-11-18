@@ -21,7 +21,7 @@ yourself:
 import 'package:daravel_pulse/daravel_pulse.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
-    .withPulse(middleware: ['auth', 'can:viewPulse'])
+    .withPulse()
     // ...
     .create();
 ```
@@ -32,14 +32,28 @@ The dashboard is at `/pulse` (`PULSE_PATH`, or `withPulse(path:
 
 ## Who can see it
 
-Outside `APP_ENV=local` and `testing` the dashboard answers 403 until
-`withPulse` is given middleware, such as `auth` and the gate Laravel Pulse
-uses:
+As in Laravel Pulse, the dashboard is open in `APP_ENV=local` only.
+Anywhere else (`testing` too) the `viewPulse` gate decides, for the user
+the session signed in:
 
 ```dart
 // bootstrap/policies.dart
 gate.define('viewPulse', (user, args) => user is User && user.isAdmin);
 ```
+
+Without sessions, `Pulse.auth` decides per request: a Daravel addition,
+since Laravel Pulse has only the gate. It is kept per isolate, so call it
+inside `createApp`, where every worker isolate runs it:
+
+```dart
+Pulse.auth(
+  (request) => constantTimeEquals(request.header('x-pulse-key') ?? '', key),
+);
+```
+
+Middleware never opens the dashboard: `withPulse(middleware: [...])` only
+runs before that decision. Without it, the dashboard sits behind the `web`
+group when the application has sessions, else behind nothing.
 
 `PULSE_ENABLED=false` records nothing and answers 404.
 

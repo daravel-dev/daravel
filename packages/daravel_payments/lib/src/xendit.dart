@@ -2,7 +2,9 @@ import 'dart:convert';
 
 import 'package:daravel/daravel.dart';
 
+import 'secrets.dart';
 import 'types.dart';
+import 'webhook_checks.dart';
 
 /// Xendit invoices (payment links: virtual accounts, QRIS, e-wallets,
 /// retail outlets, cards) and their callbacks, which carry the merchant's
@@ -12,13 +14,15 @@ import 'types.dart';
 /// calls legacy next to its Payment Sessions; it remains the payment link
 /// most Xendit merchants use.
 final class XenditGateway implements PaymentGateway {
-  /// Xendit invoices, with the secret key from `XENDIT_SECRET_KEY`.
+  /// Xendit invoices, with the secret key from `XENDIT_SECRET_KEY`; an
+  /// empty or blank key or callback token is an [ArgumentError].
   XenditGateway({
-    required this.secretKey,
-    required this.callbackToken,
+    required String secretKey,
+    required String callbackToken,
     this.name = 'xendit',
     this.baseUrl = 'https://api.xendit.co',
-  });
+  }) : secretKey = requireSecret(secretKey, 'secretKey'),
+       callbackToken = requireSecret(callbackToken, 'callbackToken');
 
   @override
   final String name;
@@ -102,16 +106,23 @@ final class XenditGateway implements PaymentGateway {
         body: response.body,
       );
     }
-    final decoded = jsonDecode(response.body);
-    final Map<String, Object?> invoice;
-    if (decoded is List) {
-      if (decoded.isEmpty) {
-        throw PaymentGatewayException('Xendit has no invoice for $orderId.');
-      }
-      // The newest invoice for the order.
-      invoice = decoded.first as Map<String, Object?>;
-    } else {
-      invoice = decoded as Map<String, Object?>;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException {
+      decoded = null;
+    }
+    if (decoded is List && decoded.isEmpty) {
+      throw PaymentGatewayException('Xendit has no invoice for $orderId.');
+    }
+    // The newest invoice for the order, when a list.
+    final invoice = decoded is List ? decoded.first : decoded;
+    if (invoice is! Map<String, Object?>) {
+      throw PaymentGatewayException(
+        'Xendit status answered ${response.status} without an invoice.',
+        status: response.status,
+        body: response.body,
+      );
     }
     return _event(invoice, prefix: 'status:');
   }
@@ -131,7 +142,7 @@ final class XenditGateway implements PaymentGateway {
     if (body is! Map<String, Object?> || body['external_id'] == null) {
       throw const BadRequestHttpException('Not a Xendit invoice callback.');
     }
-    return _event(body);
+    return requireAmountWhenPaid(_event(body));
   }
 
   PaymentEvent _event(Map<String, Object?> invoice, {String prefix = ''}) {

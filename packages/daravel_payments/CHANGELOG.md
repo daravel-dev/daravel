@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.27.6
+
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Midtrans notifications are confirmed through the status API for the authenticated order, at most five outgoing calls per batch; a fifth distinct transaction id while the waiting batch is full receives 429.
+- Amounts and currencies are compared with the order; unknown orders receive 409 by default (`unknownOrderStatus`); order and event identifiers are bounded to 255 characters; a paid Midtrans status without an amount is a gateway failure.
+
 ## 1.27.5
 
 - Version aligned with Daravel 1.27.5; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
