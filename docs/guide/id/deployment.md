@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:72cef39351a9 -->
+<!-- source: deployment.md sha256:1be055b8fe04 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -293,6 +293,11 @@ TrustProxiesMiddleware(proxies: ['10.0.0.0/8'])
 ```
 
 Tanpa itu, header `X-Forwarded-*` diabaikan.
+
+Biarkan proxy itu menyangga respons (nginx `proxy_buffering on`, nilai
+bawaannya): proxy membaca respons besar sekaligus, sehingga klien yang
+berhenti membaca menahan buffer proxy, bukan salah satu slot in-flight
+aplikasi. Batas untuk klien seperti itu di Daravel sendiri hadir di 1.28.0.
 
 ## Secret: file environment terenkripsi
 

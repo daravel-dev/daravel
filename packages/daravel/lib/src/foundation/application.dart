@@ -840,6 +840,7 @@ final class Application {
       exceptions: exceptions,
       logger: logger,
       multipartLimits: MultipartLimits.fromEnv(env),
+      maxInputVars: Request.maxInputVarsFromEnv(env),
       jsonMaxDepth: Request.jsonMaxDepthFromEnv(env),
       jsonBodyLimit: BodyLimits.jsonFromEnv(env),
       formBodyLimit: BodyLimits.formFromEnv(env),
@@ -1449,6 +1450,7 @@ final class Application {
     await boot();
     return container.runScoped<Response>('request', (scope) async {
       scope.put<Request>(request);
+      scope.onDispose(request.releaseRefusedBody);
       await prepare?.call();
       return kernel.handle(request);
     });

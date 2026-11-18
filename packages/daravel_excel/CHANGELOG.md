@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.27.6
+
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: a cell reference past `XFD` is a `FormatException`, a cell is written at its column, and cell references are parsed strictly (since 1.15.0).
+
 ## 1.27.5
 
 - Version aligned with Daravel 1.27.5; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
