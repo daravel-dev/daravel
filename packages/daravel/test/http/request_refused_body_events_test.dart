@@ -147,4 +147,19 @@ void main() {
     expect(answer, startsWith('HTTP/1.1 413'));
     await expectSettled();
   });
+
+  test('two refused bodies at once, each in a request zone of its own: '
+      'neither zone gets an error from its rest, both settle', () async {
+    await serve(answer: 'stream');
+    final answers = await Future.wait([
+      send('eof'),
+      send('silent'),
+      send('eof'),
+      send('silent'),
+    ]);
+    for (final answer in answers) {
+      expect(answer, startsWith('HTTP/1.1 413'));
+    }
+    await expectSettled();
+  });
 }
