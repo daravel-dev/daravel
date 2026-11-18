@@ -1730,7 +1730,7 @@ final class DistinctRule extends Rule {
     // item took time quadratic in their number.
     final (:keys, :index) = _valuesOf(c);
     final value = c.value;
-    final self = keys.contains(c.attribute);
+    final self = keys.contains(c.dataPath);
     final int others;
     if (ignoreCase && value is String && _wellFormed(value)) {
       others = index.caseInsensitive(value) - (self ? 1 : 0);
@@ -1824,7 +1824,7 @@ final class ConfirmedRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     // 13.x validateConfirmed calls validateSame: `===`.
-    final other = field ?? '${c.attribute}_confirmation';
+    final other = field ?? '${c.dataPath}_confirmation';
     return _phpIdentical(c.value, c.root(other)) ? null : 'confirmed';
   }
 }

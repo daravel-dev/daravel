@@ -28,6 +28,23 @@ abstract final class LaravelContract {
   /// `ValidationException::summarize` with no messages.
   static const String invalidData = 'The given data was invalid.';
 
+  /// The error key of a failure under a wildcard whose data key holds a
+  /// dot (`{"items": {"a.b": {"role": "admin"}}}` against
+  /// `items.*.role`): `Validator::parseData` replaces the dot in the data
+  /// key with a placeholder while the rules run, and `addFailure` puts it
+  /// back before the message is added (`laravel/framework` 12.x
+  /// `src/Illuminate/Validation/Validator.php` :366-385, :998-1020).
+  static const String dottedKeyErrorKey = 'items.a.b.role';
+
+  /// The error key of a failure under a top-level wildcard whose data key
+  /// is empty (`{"": {"role": "admin"}}` against `*.role`): `Arr::dot`
+  /// joins the empty key into `.role` (`$prefix.$key`, then `.`), and
+  /// `ValidationData::extractValuesForWildcards` matches it, since a `*`
+  /// becomes `[^\.]*`, which matches nothing as well (`laravel/framework`
+  /// 12.x `src/Illuminate/Collections/Arr.php` :184-206,
+  /// `src/Illuminate/Validation/ValidationData.php` :17-24, :54-75).
+  static const String emptyKeyErrorKey = '.role';
+
   /// `AbstractRouteCollection::handleMatchedRoute` (404).
   static String routeNotFound(String path) =>
       'The route $path could not be found.';

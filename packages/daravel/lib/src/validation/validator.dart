@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:math';
+
+import 'package:meta/meta.dart';
 
 import '../foundation/container.dart';
 import 'messages.dart';
@@ -72,8 +75,115 @@ final class Validator {
   }
 
   /// Adds a literal error message for [attribute].
-  void addError(String attribute, String message) =>
-      (_errors ??= {}).putIfAbsent(attribute, () => []).add(message);
+  void addError(String attribute, String message) => (_errors ??= {})
+      .putIfAbsent(_decodeKey(attribute), () => [])
+      .add(_decodeMessage(message));
+
+  /// [message] with any placeholder of this validator put back, also in
+  /// the form a display name gives it (`_` written as spaces): the one
+  /// place every message passes, so a message a `Rule` class of the
+  /// application writes from the encoded attribute comes out clean too.
+  String _decodeMessage(String message) =>
+      _hasPlaceholders && message.contains(_hash)
+      ? message
+            .replaceAll(_dot, ".")
+            .replaceAll(_asterisk, "*")
+            .replaceAll(_dot.replaceAll("_", " "), ".")
+            .replaceAll(_asterisk.replaceAll("_", " "), "*")
+      : message;
+
+  /// Laravel's `Validator::$placeholderHash`: a `.` or `*` in a key of the
+  /// data stands for itself, not for a level or a wildcard, so it is
+  /// replaced while the rules run (Laravel's `parseData`, `Validator.php`
+  /// 12.x :366-385) and put back in what comes out: [validated], the
+  /// error keys and the attribute in messages (`replacePlaceholders`,
+  /// :393-405). Random per validator, so a client cannot send a key that
+  /// reads as one.
+  late final String _hash = () {
+    final random = Random.secure();
+    return String.fromCharCodes([
+      for (var i = 0; i < 16; i++) 0x61 + random.nextInt(26),
+    ]);
+  }();
+  late final String _dot = '__dot__$_hash';
+  late final String _asterisk = '__asterisk__$_hash';
+
+  String _encodeKey(String key) => key.contains('.') || key.contains('*')
+      ? key.replaceAll('.', _dot).replaceAll('*', _asterisk)
+      : key;
+
+  String _decodeKey(String key) => _hasPlaceholders && key.contains(_hash)
+      ? key.replaceAll(_dot, '.').replaceAll(_asterisk, '*')
+      : key;
+
+  /// Whether the input of this run holds a key with a `.` or `*` (set by
+  /// [_encodeInput]). When it does not, which is almost every request,
+  /// nothing is ever decoded: values and keys are the input's own.
+  bool _hasPlaceholders = false;
+
+  /// The input encoded for a run; sets [_hasPlaceholders] and forgets the
+  /// values decoded for the last one.
+  Map<String, Object?> _encodeInput() {
+    final encoded = _encode(data)! as Map<String, Object?>;
+    _hasPlaceholders = !identical(encoded, data);
+    _decodedAt.clear();
+    return encoded;
+  }
+
+  /// The values decoded in this run, by attribute: a parent shared by many
+  /// elements (`items` for each `items.*` with `forEach`) is decoded once,
+  /// not once per element.
+  final Map<String, Object?> _decodedAt = {};
+
+  /// The value at [attribute] of the input, as sent.
+  Object? _valueAt(String attribute) {
+    final raw = ValidationContext.dig(_input, attribute);
+    if (!_hasPlaceholders) {
+      return raw;
+    }
+    return _decodedAt.putIfAbsent(attribute, () => _decode(raw));
+  }
+
+  /// [value] with every map key encoded ([_encodeKey]); what has no such
+  /// key is returned as it is, not copied.
+  Object? _encode(Object? value) => _rekey(value, _encodeKey);
+
+  /// [value] with every map key decoded ([_decodeKey]).
+  Object? _decode(Object? value) =>
+      _hasPlaceholders ? _rekey(value, _decodeKey) : value;
+
+  /// The map entries [_rekey] has visited in this isolate: a test counts
+  /// the work of a run with it, which does not vary with the machine as a
+  /// time does.
+  @visibleForTesting
+  static int rekeyedEntries = 0;
+
+  static Object? _rekey(Object? value, String Function(String) key) {
+    switch (value) {
+      case final Map<Object?, Object?> map:
+        var changed = false;
+        final copy = <String, Object?>{};
+        rekeyedEntries += map.length;
+        for (final MapEntry(key: k, value: v) in map.entries) {
+          final name = k is String ? key(k) : '$k';
+          final child = _rekey(v, key);
+          changed |= !identical(name, k) || !identical(child, v);
+          copy[name] = child;
+        }
+        return changed ? copy : map;
+      case final List<Object?> list:
+        List<Object?>? copy;
+        for (var i = 0; i < list.length; i++) {
+          final child = _rekey(list[i], key);
+          if (!identical(child, list[i])) {
+            (copy ??= List.of(list))[i] = child;
+          }
+        }
+        return copy ?? list;
+      default:
+        return value;
+    }
+  }
 
   /// Errors from the last [run] (empty when valid).
   Map<String, List<String>> get errors => Map.unmodifiable(_errors ?? const {});
@@ -96,7 +206,7 @@ final class Validator {
     _failed.clear();
     _excluded.clear();
     _nestedPatterns.clear();
-    _input = data;
+    _input = _encodeInput();
     // Laravel's filterConditionalRules: `when`/`unless` are decided once,
     // on the whole input, before any rule runs.
     final resolved = {
@@ -147,7 +257,10 @@ final class Validator {
     return validated();
   }
 
-  /// The subset of [data] covered by rules, keeping nested structure.
+  /// The subset of [data] covered by rules, keeping nested structure: each
+  /// level has the shape it has in [data] (a map stays a map, its keys as
+  /// sent; a list stays a list), so a key the client sent never decides
+  /// the length of a list.
   ValidatedData validated() {
     final result = <String, Object?>{};
     for (final pattern in [...rules.keys, ..._nestedPatterns]) {
@@ -156,11 +269,7 @@ final class Validator {
             !ValidationContext.exists(_input, attribute)) {
           continue;
         }
-        _assign(
-          result,
-          attribute.split('.'),
-          ValidationContext.dig(_input, attribute),
-        );
+        _assign(result, _input, attribute.split('.'));
       }
     }
     return ValidatedData(result);
@@ -168,7 +277,7 @@ final class Validator {
 
   /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
   /// a later rule sees them as missing. [data] itself stays as given.
-  late Map<String, Object?> _input = data;
+  late Map<String, Object?> _input = _encodeInput();
 
   // ValidationContext.memo, one per run: keyed by the errors map, which
   // each run makes anew.
@@ -231,12 +340,11 @@ final class Validator {
     }
     _checkNesting(depth, pattern);
     final dot = attribute.lastIndexOf('.');
+    // The callback sees the data as sent: keys with a `.` or `*` decoded.
     final ForEachItem item = (
-      value: ValidationContext.dig(_input, attribute),
-      attribute: attribute,
-      parent: dot == -1
-          ? null
-          : ValidationContext.dig(_input, attribute.substring(0, dot)),
+      value: _valueAt(attribute),
+      attribute: _decodeKey(attribute),
+      parent: dot == -1 ? null : _valueAt(attribute.substring(0, dot)),
       input: data,
     );
     final own = <Rule>[];
@@ -270,6 +378,8 @@ final class Validator {
   void _exclude(String attribute) {
     _excluded.add(attribute);
     _input = _without(_input, attribute.split('.')) as Map<String, Object?>;
+    // The values decoded so far may hold what was just left out.
+    _decodedAt.clear();
   }
 
   /// Copies the path, so nothing the caller holds changes. An element of a
@@ -302,7 +412,11 @@ final class Validator {
     List<Rule> ruleList,
   ) async {
     final present = ValidationContext.exists(_input, attribute);
-    final value = present ? ValidationContext.dig(_input, attribute) : null;
+    // Every rule sees the value as sent (Laravel decodes it for custom
+    // rules, `validateUsingCustomRule`, Validator.php 12.x :926): a rule
+    // that compares keys (`required_array_keys`, `array:a,b`) compares the
+    // keys the client sent with the ones written in the rule.
+    final value = present ? _valueAt(attribute) : null;
     final nullable = ruleList.any((r) => r is NullableRule);
     final sometimes = ruleList.any((r) => r is SometimesRule);
     final bail = ruleList.any((r) => r is BailRule);
@@ -330,11 +444,15 @@ final class Validator {
       // Laravel's hasNotFailedPreviousRuleIfPresenceRule: no query for an
       // attribute that already failed another rule.
       if ((rule.name == 'unique' || rule.name == 'exists') &&
-          (_errors?[attribute]?.isNotEmpty ?? false)) {
+          (_errors?[_decodeKey(attribute)]?.isNotEmpty ?? false)) {
         continue;
       }
       final context = ValidationContext(
-        attribute: attribute,
+        // Every rule sees the attribute as sent (Laravel's
+        // `$originalAttribute` for rule objects, :917); `dataPath` keeps
+        // the form the data is looked up with.
+        attribute: _decodeKey(attribute),
+        dataPath: attribute,
         pattern: pattern,
         value: value,
         present: present,
@@ -345,6 +463,8 @@ final class Validator {
         booleans: _booleans,
         attributeNames: attributes,
         memo: _memos[_errors!] ??= {},
+        keyAsSent: _hasPlaceholders ? _decodeKey : null,
+        valueAsSent: _hasPlaceholders ? _decode : null,
       );
       final failure = await rule.passes(context);
       if (failure != null && ExcludeRule.names.contains(rule.name)) {
@@ -353,7 +473,7 @@ final class Validator {
       }
       if (failure != null) {
         addError(attribute, _message(failure, context, rule));
-        _failed.putIfAbsent(attribute, () => []).add(rule.name);
+        _failed.putIfAbsent(_decodeKey(attribute), () => []).add(rule.name);
         // Laravel's shouldStopValidating: `bail` stops at any failure; a
         // failed rule of Laravel's $implicitRules stops too, since the other
         // rules would only describe the empty field again ("must be a
@@ -366,7 +486,8 @@ final class Validator {
   }
 
   String _message(String key, ValidationContext context, Rule rule) {
-    final ValidationContext(:attribute, :pattern) = context;
+    final ValidationContext(attribute: encoded, :pattern) = context;
+    final attribute = _decodeKey(encoded);
     final display =
         attributes[pattern] ??
         attributes[attribute] ??
@@ -386,42 +507,63 @@ final class Validator {
     );
   }
 
-  static void _assign(
+  /// Puts the value at [path] of [input] into [target], building each level
+  /// as it is in [input]: where [input] has a map, [target] gets a map (the
+  /// key decoded, as sent); where it has a list, a list, at an index that
+  /// exists in it (the gaps of what was not validated are `null`, as
+  /// before). Nothing here reads a key as a number: a list is never longer
+  /// than the list it comes from.
+  void _assign(
     Map<String, Object?> target,
+    Map<String, Object?> input,
     List<String> path,
-    Object? value,
   ) {
     Object current = target;
+    Object? source = input;
     for (var i = 0; i < path.length; i++) {
       final segment = path[i];
       final last = i == path.length - 1;
-      final index = int.tryParse(segment);
-      if (current is Map<String, Object?>) {
-        if (last) {
-          current[segment] = value;
+      final Object? child;
+      final int? index;
+      switch (source) {
+        case final Map<Object?, Object?> map:
+          child = map[segment];
+          index = null;
+        case final List<Object?> list:
+          final at = ValidationContext.listIndex(segment, list.length);
+          if (at == null) {
+            return;
+          }
+          child = list[at];
+          index = at;
+        default:
           return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[segment] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else if (current is List<Object?> && index != null) {
-        while (current.length <= index) {
-          current.add(null);
-        }
-        if (last) {
-          current[index] = value;
-          return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[index] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else {
-        return;
       }
+      Object? put(Object? existing) => last
+          ? _decode(child)
+          : existing ??
+                (child is List<Object?> ? <Object?>[] : <String, Object?>{});
+      switch (current) {
+        case final Map<String, Object?> map when index == null:
+          final key = _decodeKey(segment);
+          final next = map[key] = put(map[key]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        case final List<Object?> list when index != null:
+          while (list.length <= index) {
+            list.add(null);
+          }
+          final next = list[index] = put(list[index]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        default:
+          return;
+      }
+      source = child;
     }
   }
 
@@ -433,13 +575,17 @@ final class Validator {
     }
     final segments = pattern.split('.');
     final results = <String>[];
-    void walk(Object? current, int index, String prefix) {
+    // [prefix] is null before the first segment: an empty key is a key
+    // (`{"": {"role": …}}` against `*.role` is `.role`, as Laravel's
+    // `Arr::dot` writes it, `Arr.php` 12.x :184-206), not the absence of a
+    // prefix.
+    void walk(Object? current, int index, String? prefix) {
       if (index == segments.length) {
-        results.add(prefix);
+        results.add(prefix ?? '');
         return;
       }
       final segment = segments[index];
-      final next = prefix.isEmpty ? '' : '$prefix.';
+      final next = prefix == null ? '' : '$prefix.';
       if (segment == '*') {
         if (current is List<Object?>) {
           for (var i = 0; i < current.length; i++) {
@@ -454,16 +600,19 @@ final class Validator {
       }
       final child = switch (current) {
         Map<Object?, Object?>() => current[segment],
-        List<Object?>()
-            when int.tryParse(segment) != null &&
-                int.parse(segment) < current.length =>
-          current[int.parse(segment)],
+        List<Object?>() => switch (ValidationContext.listIndex(
+          segment,
+          current.length,
+        )) {
+          final int at => current[at],
+          null => null,
+        },
         _ => null,
       };
       walk(child, index + 1, '$next$segment');
     }
 
-    walk(data, 0, '');
+    walk(data, 0, null);
     return results;
   }
 }

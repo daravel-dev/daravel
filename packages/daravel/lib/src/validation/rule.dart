@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/container.dart';
 
 /// Everything a [Rule] needs to evaluate one attribute (BLUEPRINT_V2 §7.4.1).
@@ -19,7 +21,28 @@ final class ValidationContext {
     this.booleans = const <String>{},
     this.attributeNames = const <String, String>{},
     this.memo,
-  });
+    this.keyAsSent,
+    this.valueAsSent,
+    String? dataPath,
+  }) : dataPath = dataPath ?? attribute;
+
+  /// [attribute] in the form [data] is looked up with: the same, unless a
+  /// key of the input holds a `.` or `*` (then that key is a placeholder
+  /// here). The framework's rules find other fields with it; [resolve],
+  /// [root] and [sibling] already use it.
+  @internal
+  final String dataPath;
+
+  /// Turns a path or key of [data] back into what the client sent, set by
+  /// the validator when some key of the input holds a `.` or `*` (kept as
+  /// a placeholder while the rules run); null otherwise.
+  @internal
+  final String Function(String key)? keyAsSent;
+
+  /// Turns a value of [data] back into what the client sent (its keys
+  /// decoded), set with [keyAsSent].
+  @internal
+  final Object? Function(Object? value)? valueAsSent;
 
   /// The attributes with a `boolean` rule (Laravel's
   /// `shouldConvertToBoolean`).
@@ -32,11 +55,20 @@ final class ValidationContext {
   /// does (a custom name given for the resolved path wins, then one for the
   /// path as written).
   String displayName(String attribute) {
-    final resolved = resolve(attribute);
+    // The attribute under validation is concrete and as sent: a `*` in it
+    // is a key's own, never a wildcard to resolve.
+    final resolved = attribute == this.attribute
+        ? attribute
+        : _asSent(resolve(attribute));
     return attributeNames[resolved] ??
         attributeNames[attribute] ??
         resolved.replaceAll('_', ' ');
   }
+
+  String _asSent(String path) => keyAsSent?.call(path) ?? path;
+
+  Object? _valueAsSent(Object? value) =>
+      valueAsSent == null ? value : valueAsSent!(value);
 
   /// [path] with each `*` replaced by the key the current [attribute] has
   /// at the matching `*` of its [pattern], in order: `items.*.b` is
@@ -50,7 +82,7 @@ final class ValidationContext {
     }
     final keys = <String>[];
     final patternParts = pattern.split('.');
-    final attributeParts = attribute.split('.');
+    final attributeParts = dataPath.split('.');
     for (var i = 0; i < patternParts.length && i < attributeParts.length; i++) {
       if (patternParts[i] == '*') {
         keys.add(attributeParts[i]);
@@ -69,6 +101,13 @@ final class ValidationContext {
   final bool numeric;
 
   /// Concrete attribute path (`items.2.id`).
+  ///
+  /// A key of the data that holds a `.` or a `*` stands for itself: every
+  /// rule gets the attribute as sent (`meta.a.b` for the key `a.b` of
+  /// `meta`), as Laravel hands a rule object its `$originalAttribute`
+  /// (`validateUsingCustomRule`, `Validator.php` 12.x :915-926). To look
+  /// another field up, use [root], [has] or [sibling], never a path built
+  /// from this string: `meta.a.b` would read as three levels.
   final String attribute;
 
   /// Rule key as written (`items.*.id`).
@@ -97,8 +136,9 @@ final class ValidationContext {
   final String locale;
 
   /// Looks up another attribute by dot path from the root; a `*` in [path]
-  /// is [resolve]d first.
-  Object? root(String path) => dig(data, resolve(path));
+  /// is [resolve]d first. The value is as sent, like [value], so two
+  /// fields compare in one form.
+  Object? root(String path) => _valueAsSent(dig(data, resolve(path)));
 
   /// Whether another attribute's key exists, by dot path from the root
   /// (Laravel's `Arr::has`); a `*` in [path] is [resolve]d first.
@@ -107,8 +147,23 @@ final class ValidationContext {
   /// Looks up a sibling of the current attribute (`items.2.qty` from
   /// `items.2.id` when [key] is `qty`).
   Object? sibling(String key) {
-    final dot = attribute.lastIndexOf('.');
-    return dig(data, dot == -1 ? key : '${attribute.substring(0, dot)}.$key');
+    final dot = dataPath.lastIndexOf('.');
+    return _valueAsSent(
+      dig(data, dot == -1 ? key : '${dataPath.substring(0, dot)}.$key'),
+    );
+  }
+
+  /// [segment] as an index of a list of [length]: only the canonical form
+  /// of an index that exists (`'1'`, not `'01'`, `'+1'` or `'-1'`), else
+  /// null. PHP reads `'01'` as a string key, never as the index 1
+  /// (`Arr::get`/`Arr::exists` use `array_key_exists`, `Arr.php` 12.x
+  /// :263-279, :480-510).
+  @internal
+  static int? listIndex(String segment, int length) {
+    final index = int.tryParse(segment);
+    return index != null && index >= 0 && index < length && '$index' == segment
+        ? index
+        : null;
   }
 
   /// Dot-path lookup supporting list indexes.
@@ -121,8 +176,8 @@ final class ValidationContext {
         }
         current = current[segment];
       } else if (current is List<Object?>) {
-        final index = int.tryParse(segment);
-        if (index == null || index < 0 || index >= current.length) {
+        final index = listIndex(segment, current.length);
+        if (index == null) {
           return null;
         }
         current = current[index];
@@ -143,8 +198,8 @@ final class ValidationContext {
         }
         current = current[segment];
       } else if (current is List<Object?>) {
-        final index = int.tryParse(segment);
-        if (index == null || index < 0 || index >= current.length) {
+        final index = listIndex(segment, current.length);
+        if (index == null) {
           return false;
         }
         current = current[index];
