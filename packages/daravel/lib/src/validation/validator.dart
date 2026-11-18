@@ -98,16 +98,45 @@ final class Validator {
       ? key.replaceAll('.', _dot).replaceAll('*', _asterisk)
       : key;
 
-  String _decodeKey(String key) => key.contains(_hash)
+  String _decodeKey(String key) => _hasPlaceholders && key.contains(_hash)
       ? key.replaceAll(_dot, '.').replaceAll(_asterisk, '*')
       : key;
+
+  /// Whether the input of this run holds a key with a `.` or `*` (set by
+  /// [_encodeInput]). When it does not, which is almost every request,
+  /// nothing is ever decoded: values and keys are the input's own.
+  bool _hasPlaceholders = false;
+
+  /// The input encoded for a run; sets [_hasPlaceholders] and forgets the
+  /// values decoded for the last one.
+  Map<String, Object?> _encodeInput() {
+    final encoded = _encode(data)! as Map<String, Object?>;
+    _hasPlaceholders = !identical(encoded, data);
+    _decodedAt.clear();
+    return encoded;
+  }
+
+  /// The values decoded in this run, by attribute: a parent shared by many
+  /// elements (`items` for each `items.*` with `forEach`) is decoded once,
+  /// not once per element.
+  final Map<String, Object?> _decodedAt = {};
+
+  /// The value at [attribute] of the input, as sent.
+  Object? _valueAt(String attribute) {
+    final raw = ValidationContext.dig(_input, attribute);
+    if (!_hasPlaceholders) {
+      return raw;
+    }
+    return _decodedAt.putIfAbsent(attribute, () => _decode(raw));
+  }
 
   /// [value] with every map key encoded ([_encodeKey]); what has no such
   /// key is returned as it is, not copied.
   Object? _encode(Object? value) => _rekey(value, _encodeKey);
 
   /// [value] with every map key decoded ([_decodeKey]).
-  Object? _decode(Object? value) => _rekey(value, _decodeKey);
+  Object? _decode(Object? value) =>
+      _hasPlaceholders ? _rekey(value, _decodeKey) : value;
 
   static Object? _rekey(Object? value, String Function(String) key) {
     switch (value) {
@@ -156,7 +185,7 @@ final class Validator {
     _failed.clear();
     _excluded.clear();
     _nestedPatterns.clear();
-    _input = _encode(data)! as Map<String, Object?>;
+    _input = _encodeInput();
     // Laravel's filterConditionalRules: `when`/`unless` are decided once,
     // on the whole input, before any rule runs.
     final resolved = {
@@ -227,7 +256,7 @@ final class Validator {
 
   /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
   /// a later rule sees them as missing. [data] itself stays as given.
-  late Map<String, Object?> _input = _encode(data)! as Map<String, Object?>;
+  late Map<String, Object?> _input = _encodeInput();
 
   // ValidationContext.memo, one per run: keyed by the errors map, which
   // each run makes anew.
@@ -292,11 +321,9 @@ final class Validator {
     final dot = attribute.lastIndexOf('.');
     // The callback sees the data as sent: keys with a `.` or `*` decoded.
     final ForEachItem item = (
-      value: _decode(ValidationContext.dig(_input, attribute)),
+      value: _valueAt(attribute),
       attribute: _decodeKey(attribute),
-      parent: dot == -1
-          ? null
-          : _decode(ValidationContext.dig(_input, attribute.substring(0, dot))),
+      parent: dot == -1 ? null : _valueAt(attribute.substring(0, dot)),
       input: data,
     );
     final own = <Rule>[];
@@ -330,6 +357,8 @@ final class Validator {
   void _exclude(String attribute) {
     _excluded.add(attribute);
     _input = _without(_input, attribute.split('.')) as Map<String, Object?>;
+    // The values decoded so far may hold what was just left out.
+    _decodedAt.clear();
   }
 
   /// Copies the path, so nothing the caller holds changes. An element of a
@@ -366,9 +395,7 @@ final class Validator {
     // rules, `validateUsingCustomRule`, Validator.php 12.x :926): a rule
     // that compares keys (`required_array_keys`, `array:a,b`) compares the
     // keys the client sent with the ones written in the rule.
-    final value = present
-        ? _decode(ValidationContext.dig(_input, attribute))
-        : null;
+    final value = present ? _valueAt(attribute) : null;
     final nullable = ruleList.any((r) => r is NullableRule);
     final sometimes = ruleList.any((r) => r is SometimesRule);
     final bail = ruleList.any((r) => r is BailRule);

@@ -1830,6 +1830,10 @@ final class ConfirmedRule extends Rule {
 }
 
 /// `same` and `different`: see [Rules.same].
+///
+/// Two objects compared whole whose keys hold a `.` or `*` are not the
+/// same here: the value under the rule is read as sent, the other field as
+/// the validator holds it while the rules run (those keys replaced).
 final class SameRule extends Rule {
   /// Equal to [other], or different when [negate].
   const SameRule(this.other, {this.negate = false}) : others = const [];

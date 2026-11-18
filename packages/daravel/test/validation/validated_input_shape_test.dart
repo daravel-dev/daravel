@@ -183,6 +183,13 @@ void main() {
                 '/two',
                 (request) async =>
                     (await request.validate({'a.*.*': 'string'})).toMap(),
+              )
+              ..post(
+                '/exists',
+                (request) async => (await request.validate({
+                  // No `users` table: a query would fail, not pass.
+                  'items.*.id': 'integer|exists:users,id',
+                })).toMap(),
               ),
           )
           .create();
@@ -195,6 +202,26 @@ void main() {
       final response = await app.handle(request);
       return (response.status, jsonDecode(await response.bodyText()));
     }
+
+    test('exists is not queried after another rule failed, also under a '
+        'dotted key', () async {
+      final (status, body) = await send(
+        Request.fake(
+          method: 'POST',
+          path: '/exists',
+          json: {
+            'items': {
+              'a.b': {'id': 'abc'},
+            },
+          },
+          headers: {'accept': 'application/json'},
+        ),
+      );
+      expect(status, 422);
+      final errors = (body! as Map)['errors'] as Map;
+      expect(errors.keys, ['items.a.b.id']);
+      expect((errors['items.a.b.id'] as List), hasLength(1));
+    });
 
     test('JSON, form and multipart: the key stays a key', () async {
       final json = await send(
@@ -540,4 +567,44 @@ void main() {
       await app.shutdown();
     }
   });
+
+  test('forEach over n elements costs linear time, also with a dotted key '
+      'in the input (2 000 against 8 000)', () async {
+    Future<int> run(int n, {required bool dotted}) async {
+      final data = <String, Object?>{
+        'items': [
+          for (var i = 0; i < n; i++) {'name': 'v$i'},
+        ],
+        if (dotted) 'meta': {'a.b': 1},
+      };
+      final rules = <String, Object>{
+        'items.*': [
+          Rules.forEach((item) => [Rules.custom((_) => null)]),
+        ],
+        'items.*.name': 'string',
+      };
+      var best = 1 << 62;
+      for (var round = 0; round < 3; round++) {
+        final watch = Stopwatch()..start();
+        await Validator(data, rules).validate();
+        watch.stop();
+        if (watch.elapsedMicroseconds < best) {
+          best = watch.elapsedMicroseconds;
+        }
+      }
+      return best;
+    }
+
+    for (final dotted in [false, true]) {
+      final small = await run(2000, dotted: dotted);
+      final large = await run(8000, dotted: dotted);
+      final ratio = large / small;
+      print(
+        'forEach ${dotted ? 'with' : 'without'} a dotted key: 2000 in '
+        '$small us, 8000 in $large us, ratio ${ratio.toStringAsFixed(2)}',
+      );
+      // Linear is about 4; a quadratic walk of the parent is about 16.
+      expect(ratio, lessThan(8), reason: dotted ? 'dotted' : 'plain');
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
