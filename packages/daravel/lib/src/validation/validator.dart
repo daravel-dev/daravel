@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import '../foundation/container.dart';
 import 'messages.dart';
@@ -72,8 +73,66 @@ final class Validator {
   }
 
   /// Adds a literal error message for [attribute].
-  void addError(String attribute, String message) =>
-      (_errors ??= {}).putIfAbsent(attribute, () => []).add(message);
+  void addError(String attribute, String message) => (_errors ??= {})
+      .putIfAbsent(_decodeKey(attribute), () => [])
+      .add(message);
+
+  /// Laravel's `Validator::$placeholderHash`: a `.` or `*` in a key of the
+  /// data stands for itself, not for a level or a wildcard, so it is
+  /// replaced while the rules run (Laravel's `parseData`, `Validator.php`
+  /// 12.x :366-385) and put back in what comes out: [validated], the
+  /// error keys and the attribute in messages (`replacePlaceholders`,
+  /// :393-405). Random per validator, so a client cannot send a key that
+  /// reads as one.
+  late final String _hash = () {
+    final random = Random.secure();
+    return String.fromCharCodes([
+      for (var i = 0; i < 16; i++) 0x61 + random.nextInt(26),
+    ]);
+  }();
+  late final String _dot = '__dot__$_hash';
+  late final String _asterisk = '__asterisk__$_hash';
+
+  String _encodeKey(String key) => key.contains('.') || key.contains('*')
+      ? key.replaceAll('.', _dot).replaceAll('*', _asterisk)
+      : key;
+
+  String _decodeKey(String key) => key.contains(_hash)
+      ? key.replaceAll(_dot, '.').replaceAll(_asterisk, '*')
+      : key;
+
+  /// [value] with every map key encoded ([_encodeKey]); what has no such
+  /// key is returned as it is, not copied.
+  Object? _encode(Object? value) => _rekey(value, _encodeKey);
+
+  /// [value] with every map key decoded ([_decodeKey]).
+  Object? _decode(Object? value) => _rekey(value, _decodeKey);
+
+  static Object? _rekey(Object? value, String Function(String) key) {
+    switch (value) {
+      case final Map<Object?, Object?> map:
+        var changed = false;
+        final copy = <String, Object?>{};
+        for (final MapEntry(key: k, value: v) in map.entries) {
+          final name = k is String ? key(k) : '$k';
+          final child = _rekey(v, key);
+          changed |= !identical(name, k) || !identical(child, v);
+          copy[name] = child;
+        }
+        return changed ? copy : map;
+      case final List<Object?> list:
+        List<Object?>? copy;
+        for (var i = 0; i < list.length; i++) {
+          final child = _rekey(list[i], key);
+          if (!identical(child, list[i])) {
+            (copy ??= List.of(list))[i] = child;
+          }
+        }
+        return copy ?? list;
+      default:
+        return value;
+    }
+  }
 
   /// Errors from the last [run] (empty when valid).
   Map<String, List<String>> get errors => Map.unmodifiable(_errors ?? const {});
@@ -96,7 +155,7 @@ final class Validator {
     _failed.clear();
     _excluded.clear();
     _nestedPatterns.clear();
-    _input = data;
+    _input = _encode(data)! as Map<String, Object?>;
     // Laravel's filterConditionalRules: `when`/`unless` are decided once,
     // on the whole input, before any rule runs.
     final resolved = {
@@ -147,7 +206,10 @@ final class Validator {
     return validated();
   }
 
-  /// The subset of [data] covered by rules, keeping nested structure.
+  /// The subset of [data] covered by rules, keeping nested structure: each
+  /// level has the shape it has in [data] (a map stays a map, its keys as
+  /// sent; a list stays a list), so a key the client sent never decides
+  /// the length of a list.
   ValidatedData validated() {
     final result = <String, Object?>{};
     for (final pattern in [...rules.keys, ..._nestedPatterns]) {
@@ -156,11 +218,7 @@ final class Validator {
             !ValidationContext.exists(_input, attribute)) {
           continue;
         }
-        _assign(
-          result,
-          attribute.split('.'),
-          ValidationContext.dig(_input, attribute),
-        );
+        _assign(result, _input, attribute.split('.'));
       }
     }
     return ValidatedData(result);
@@ -168,7 +226,7 @@ final class Validator {
 
   /// [data] without the excluded attributes, as Laravel's `removeAttribute`:
   /// a later rule sees them as missing. [data] itself stays as given.
-  late Map<String, Object?> _input = data;
+  late Map<String, Object?> _input = _encode(data)! as Map<String, Object?>;
 
   // ValidationContext.memo, one per run: keyed by the errors map, which
   // each run makes anew.
@@ -353,7 +411,7 @@ final class Validator {
       }
       if (failure != null) {
         addError(attribute, _message(failure, context, rule));
-        _failed.putIfAbsent(attribute, () => []).add(rule.name);
+        _failed.putIfAbsent(_decodeKey(attribute), () => []).add(rule.name);
         // Laravel's shouldStopValidating: `bail` stops at any failure; a
         // failed rule of Laravel's $implicitRules stops too, since the other
         // rules would only describe the empty field again ("must be a
@@ -366,7 +424,8 @@ final class Validator {
   }
 
   String _message(String key, ValidationContext context, Rule rule) {
-    final ValidationContext(:attribute, :pattern) = context;
+    final ValidationContext(attribute: encoded, :pattern) = context;
+    final attribute = _decodeKey(encoded);
     final display =
         attributes[pattern] ??
         attributes[attribute] ??
@@ -386,43 +445,73 @@ final class Validator {
     );
   }
 
-  static void _assign(
+  /// Puts the value at [path] of [input] into [target], building each level
+  /// as it is in [input]: where [input] has a map, [target] gets a map (the
+  /// key decoded, as sent); where it has a list, a list, at an index that
+  /// exists in it (the gaps of what was not validated are `null`, as
+  /// before). Nothing here reads a key as a number: a list is never longer
+  /// than the list it comes from.
+  void _assign(
     Map<String, Object?> target,
+    Map<String, Object?> input,
     List<String> path,
-    Object? value,
   ) {
     Object current = target;
+    Object? source = input;
     for (var i = 0; i < path.length; i++) {
       final segment = path[i];
       final last = i == path.length - 1;
-      final index = int.tryParse(segment);
-      if (current is Map<String, Object?>) {
-        if (last) {
-          current[segment] = value;
+      final Object? child;
+      final int? index;
+      switch (source) {
+        case final Map<Object?, Object?> map:
+          child = map[segment];
+          index = null;
+        case final List<Object?> list:
+          final at = _listIndex(segment, list.length);
+          if (at == null) {
+            return;
+          }
+          child = list[at];
+          index = at;
+        default:
           return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[segment] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else if (current is List<Object?> && index != null) {
-        while (current.length <= index) {
-          current.add(null);
-        }
-        if (last) {
-          current[index] = value;
-          return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[index] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else {
-        return;
       }
+      Object? put(Object? existing) => last
+          ? _decode(child)
+          : existing ??
+                (child is List<Object?> ? <Object?>[] : <String, Object?>{});
+      switch (current) {
+        case final Map<String, Object?> map when index == null:
+          final key = _decodeKey(segment);
+          final next = map[key] = put(map[key]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        case final List<Object?> list when index != null:
+          while (list.length <= index) {
+            list.add(null);
+          }
+          final next = list[index] = put(list[index]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        default:
+          return;
+      }
+      source = child;
     }
+  }
+
+  /// [segment] as an index of a list of [length]: only the canonical form
+  /// of an index that exists (`'1'`, not `'01'` or `'-1'`), else null.
+  static int? _listIndex(String segment, int length) {
+    final index = int.tryParse(segment);
+    return index != null && index >= 0 && index < length && '$index' == segment
+        ? index
+        : null;
   }
 
   /// Expands a wildcard [pattern] against [data] into concrete attributes.
