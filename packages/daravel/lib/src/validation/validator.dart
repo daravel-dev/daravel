@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/container.dart';
 import 'messages.dart';
 import 'object_rules.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
-import 'rules.dart'
-    show BooleanRule, ClosureRule, ExcludeRule, IntegerRule, NumericRule;
+import 'rules.dart' show BooleanRule, ExcludeRule, IntegerRule, NumericRule;
 import 'validated_data.dart';
 import 'validation_exception.dart';
 
@@ -76,7 +77,20 @@ final class Validator {
   /// Adds a literal error message for [attribute].
   void addError(String attribute, String message) => (_errors ??= {})
       .putIfAbsent(_decodeKey(attribute), () => [])
-      .add(message);
+      .add(_decodeMessage(message));
+
+  /// [message] with any placeholder of this validator put back, also in
+  /// the form a display name gives it (`_` written as spaces): the one
+  /// place every message passes, so a message a `Rule` class of the
+  /// application writes from the encoded attribute comes out clean too.
+  String _decodeMessage(String message) =>
+      _hasPlaceholders && message.contains(_hash)
+      ? message
+            .replaceAll(_dot, ".")
+            .replaceAll(_asterisk, "*")
+            .replaceAll(_dot.replaceAll("_", " "), ".")
+            .replaceAll(_asterisk.replaceAll("_", " "), "*")
+      : message;
 
   /// Laravel's `Validator::$placeholderHash`: a `.` or `*` in a key of the
   /// data stands for itself, not for a level or a wildcard, so it is
@@ -138,11 +152,18 @@ final class Validator {
   Object? _decode(Object? value) =>
       _hasPlaceholders ? _rekey(value, _decodeKey) : value;
 
+  /// The map entries [_rekey] has visited in this isolate: a test counts
+  /// the work of a run with it, which does not vary with the machine as a
+  /// time does.
+  @visibleForTesting
+  static int rekeyedEntries = 0;
+
   static Object? _rekey(Object? value, String Function(String) key) {
     switch (value) {
       case final Map<Object?, Object?> map:
         var changed = false;
         final copy = <String, Object?>{};
+        rekeyedEntries += map.length;
         for (final MapEntry(key: k, value: v) in map.entries) {
           final name = k is String ? key(k) : '$k';
           final child = _rekey(v, key);
@@ -427,10 +448,11 @@ final class Validator {
         continue;
       }
       final context = ValidationContext(
-        // A closure sees the attribute as sent (Laravel's
-        // `$originalAttribute` for custom rules, :917); the rules of the
-        // framework keep the form they look the data up with.
-        attribute: rule is ClosureRule ? _decodeKey(attribute) : attribute,
+        // Every rule sees the attribute as sent (Laravel's
+        // `$originalAttribute` for rule objects, :917); `dataPath` keeps
+        // the form the data is looked up with.
+        attribute: _decodeKey(attribute),
+        dataPath: attribute,
         pattern: pattern,
         value: value,
         present: present,
@@ -441,6 +463,8 @@ final class Validator {
         booleans: _booleans,
         attributeNames: attributes,
         memo: _memos[_errors!] ??= {},
+        keyAsSent: _hasPlaceholders ? _decodeKey : null,
+        valueAsSent: _hasPlaceholders ? _decode : null,
       );
       final failure = await rule.passes(context);
       if (failure != null && ExcludeRule.names.contains(rule.name)) {
@@ -506,7 +530,7 @@ final class Validator {
           child = map[segment];
           index = null;
         case final List<Object?> list:
-          final at = _listIndex(segment, list.length);
+          final at = ValidationContext.listIndex(segment, list.length);
           if (at == null) {
             return;
           }
@@ -543,15 +567,6 @@ final class Validator {
     }
   }
 
-  /// [segment] as an index of a list of [length]: only the canonical form
-  /// of an index that exists (`'1'`, not `'01'` or `'-1'`), else null.
-  static int? _listIndex(String segment, int length) {
-    final index = int.tryParse(segment);
-    return index != null && index >= 0 && index < length && '$index' == segment
-        ? index
-        : null;
-  }
-
   /// Expands a wildcard [pattern] against [data] into concrete attributes.
   /// Patterns without `*` are returned unchanged.
   static List<String> expandPattern(Object? data, String pattern) {
@@ -560,13 +575,17 @@ final class Validator {
     }
     final segments = pattern.split('.');
     final results = <String>[];
-    void walk(Object? current, int index, String prefix) {
+    // [prefix] is null before the first segment: an empty key is a key
+    // (`{"": {"role": …}}` against `*.role` is `.role`, as Laravel's
+    // `Arr::dot` writes it, `Arr.php` 12.x :184-206), not the absence of a
+    // prefix.
+    void walk(Object? current, int index, String? prefix) {
       if (index == segments.length) {
-        results.add(prefix);
+        results.add(prefix ?? '');
         return;
       }
       final segment = segments[index];
-      final next = prefix.isEmpty ? '' : '$prefix.';
+      final next = prefix == null ? '' : '$prefix.';
       if (segment == '*') {
         if (current is List<Object?>) {
           for (var i = 0; i < current.length; i++) {
@@ -581,16 +600,19 @@ final class Validator {
       }
       final child = switch (current) {
         Map<Object?, Object?>() => current[segment],
-        List<Object?>()
-            when int.tryParse(segment) != null &&
-                int.parse(segment) < current.length =>
-          current[int.parse(segment)],
+        List<Object?>() => switch (ValidationContext.listIndex(
+          segment,
+          current.length,
+        )) {
+          final int at => current[at],
+          null => null,
+        },
         _ => null,
       };
       walk(child, index + 1, '$next$segment');
     }
 
-    walk(data, 0, '');
+    walk(data, 0, null);
     return results;
   }
 }

@@ -1730,7 +1730,7 @@ final class DistinctRule extends Rule {
     // item took time quadratic in their number.
     final (:keys, :index) = _valuesOf(c);
     final value = c.value;
-    final self = keys.contains(c.attribute);
+    final self = keys.contains(c.dataPath);
     final int others;
     if (ignoreCase && value is String && _wellFormed(value)) {
       others = index.caseInsensitive(value) - (self ? 1 : 0);
@@ -1824,16 +1824,12 @@ final class ConfirmedRule extends Rule {
   @override
   String? passes(ValidationContext c) {
     // 13.x validateConfirmed calls validateSame: `===`.
-    final other = field ?? '${c.attribute}_confirmation';
+    final other = field ?? '${c.dataPath}_confirmation';
     return _phpIdentical(c.value, c.root(other)) ? null : 'confirmed';
   }
 }
 
 /// `same` and `different`: see [Rules.same].
-///
-/// Two objects compared whole whose keys hold a `.` or `*` are not the
-/// same here: the value under the rule is read as sent, the other field as
-/// the validator holds it while the rules run (those keys replaced).
 final class SameRule extends Rule {
   /// Equal to [other], or different when [negate].
   const SameRule(this.other, {this.negate = false}) : others = const [];

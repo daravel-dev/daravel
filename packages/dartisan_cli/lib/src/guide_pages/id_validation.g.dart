@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/validation.md`.
 const String pageIdValidation =
-    r'''<!-- source: validation.md sha256:20db24cf45a3 -->
+    r'''<!-- source: validation.md sha256:f9df0a9089a8 -->
 # Validasi
 
 Validasi request secara inline dengan string rule Laravel, atau dengan objek
@@ -72,8 +72,9 @@ sebuah middleware).
 - `validated()` mempertahankan bentuk tiap tingkat seperti yang dikirim:
   objek JSON tetap map dengan key-nya (juga bila key-nya angka), list
   tetap list. Di bawah rule `array`, `list()` membaca map dengan key
-  `"0"`, `"1"`, ... berurutan sebagai list; rule `list` hanya menerima
-  list.
+  `"0"`, `"1"`, ... berurutan sebagai list; map lain membuat `list()`
+  melempar galat (`500`), jadi beri field itu rule `list`, yang hanya
+  menerima list, agar jawabannya `422`.
 
 ## Aturan lainnya
 

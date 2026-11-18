@@ -63,7 +63,8 @@ upstream file). Indonesian ships as the second locale: set
 - `validated()` keeps each level as it was sent: a JSON object stays a map
   with its keys (also when they are numbers), a list stays a list. Under an
   `array` rule, `list()` reads a map keyed `"0"`, `"1"`, ... in order as a
-  list; the `list` rule takes only a list.
+  list; any other map makes `list()` throw (a `500`), so give the field
+  the `list` rule, which takes only a list, to answer `422`.
 
 ## More rules
 

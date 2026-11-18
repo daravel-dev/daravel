@@ -21,4 +21,15 @@ void main() {
     final errors = await validator.run();
     expect(errors.keys, [LaravelContract.dottedKeyErrorKey]);
   });
+
+  test('a top-level wildcard matches an empty data key', () async {
+    final validator = Validator(
+      {
+        '': {'role': 'admin'},
+      },
+      {'*.role': 'in:member'},
+    );
+    final errors = await validator.run();
+    expect(errors.keys, [LaravelContract.emptyKeyErrorKey]);
+  });
 }

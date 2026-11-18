@@ -568,9 +568,11 @@ void main() {
     }
   });
 
-  test('forEach over n elements costs linear time, also with a dotted key '
+  test('forEach over n elements does linear work, also with a dotted key '
       'in the input (2 000 against 8 000)', () async {
-    Future<int> run(int n, {required bool dotted}) async {
+    // The work is counted (the map entries the validator re-keys), not
+    // timed: a count does not vary with a shared CI machine.
+    Future<int> entries(int n, {required bool dotted}) async {
       final data = <String, Object?>{
         'items': [
           for (var i = 0; i < n; i++) {'name': 'v$i'},
@@ -583,28 +585,21 @@ void main() {
         ],
         'items.*.name': 'string',
       };
-      var best = 1 << 62;
-      for (var round = 0; round < 3; round++) {
-        final watch = Stopwatch()..start();
-        await Validator(data, rules).validate();
-        watch.stop();
-        if (watch.elapsedMicroseconds < best) {
-          best = watch.elapsedMicroseconds;
-        }
-      }
-      return best;
+      final before = Validator.rekeyedEntries;
+      await Validator(data, rules).validate();
+      return Validator.rekeyedEntries - before;
     }
 
     for (final dotted in [false, true]) {
-      final small = await run(2000, dotted: dotted);
-      final large = await run(8000, dotted: dotted);
+      final small = await entries(2000, dotted: dotted);
+      final large = await entries(8000, dotted: dotted);
       final ratio = large / small;
       print(
-        'forEach ${dotted ? 'with' : 'without'} a dotted key: 2000 in '
-        '$small us, 8000 in $large us, ratio ${ratio.toStringAsFixed(2)}',
+        'forEach ${dotted ? 'with' : 'without'} a dotted key: 2000 re-key '
+        '$small entries, 8000 re-key $large, ratio ${ratio.toStringAsFixed(2)}',
       );
-      // Linear is about 4; a quadratic walk of the parent is about 16.
-      expect(ratio, lessThan(8), reason: dotted ? 'dotted' : 'plain');
+      // Linear is 4; decoding the parent once per element is about 16.
+      expect(ratio, lessThan(4.1), reason: dotted ? 'dotted' : 'plain');
     }
-  }, timeout: const Timeout(Duration(minutes: 2)));
+  });
 }
