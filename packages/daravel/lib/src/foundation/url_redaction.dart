@@ -6,43 +6,57 @@ import 'dart:convert';
 /// It does not need a valid URL, so it also works on the URL a parser has
 /// just rejected. The authority starts after `scheme://` (a letter, then
 /// letters, digits, `+`, `-`, `.`), after a leading `//`, or else at the
-/// start of the text, and runs to the first `/`, `?` or `#`. Then:
+/// start of the text, and runs to the first `/`, `?` or `#`. In a text of
+/// several URLs ([redactUrl], [redactUrlInText]) each URL ends where the
+/// next `scheme://` starts, and nothing is read or masked past that end;
+/// the one exception is a `scheme://` that starts exactly where this URL's
+/// authority starts (`redis://se://PASS@h`), which is this URL's user info.
 ///
-/// | The authority | What is masked | Example |
-/// | --- | --- | --- |
-/// | holds an `@` | from its first `:` to its last `@` | `pgsql://u:p@ss@h/db` → `pgsql://u:***@h/db` |
-/// | no `@`, a `:` followed by something other than a port | from that `:` to the last `@` of the text (a password holding `/`, `?` or `#`) | `pgsql://u:pa/ss@h/db` → `pgsql://u:***@h/db` |
-/// | no `@`, a port, then a `/` and one path segment holding an `@` that does not start it | from the `:` to that `@` (a password of digits and one `/`) | `redis://my:1234/secret@h/0` → `redis://my:***@h/0` |
-/// | no `@`, a port, otherwise | nothing | `https://h:8080/p?email=a@b` and `https://h:443/@user` stay |
-/// | no `:` | the segment before the last `@`, after the `/` before it, when it holds a `:` and no `?`, `#`, `&` or `=` | `postgres//app:secret@host` → `postgres//app:***@host` |
+/// **The `@` that ends the user info** is the last `@` before the first
+/// `/`, `?` or `#` after the first `@` the row admits; the masked span runs
+/// from the first `:` the row names to it.
 ///
-/// Masking more than the password (`mailto:***@b`) is accepted; less is
-/// not. A URL without user info, or with a user and no `:`, is returned as
-/// it is.
+/// | Row | The URL | What is masked | Example |
+/// | --- | --- | --- | --- |
+/// | 1 | the authority holds an `@` | from its first `:` to its last `@` | `pgsql://u:p@ss@h/db` → `pgsql://u:***@h/db` |
+/// | 2 | no `@` in the authority; a `:` followed by something other than a port (a password holding `/`, `?` or `#`) | from that `:`, admitting the first `@` of the URL | `pgsql://u:pa/ss@h/db` → `pgsql://u:***@h/db` |
+/// | 3 | no `@`; a port, then `/` and one segment with an `@` after its first character and no `&`, `=` or `;` (a password of digits and one `/`) | from the `:`, admitting that `@` | `redis://my:1234/a@s@h/0` → `redis://my:***@h/0` |
+/// | 4 | no `@`; a port, otherwise | nothing | `https://h:8080/p?email=a@b`, `https://h:8080/files/a@2x.png`, `https://h:443/@user` stay |
+/// | 5 | no `:` in the authority | admitting the first `@` of the path (before any `?` or `#`) whose segment holds a `:` and no `&`, `=` or `;`, from that segment's first `:` | `x://h/app:s@h1/p?email=a@b` → `x://h/app:***@h1/p?email=a@b`; `postgres//app:s@host` → `postgres//app:***@host` |
+///
+/// Promised whole: a URL without user info, with a user and no `:`, or
+/// with an `@` only in its query or fragment (`?email=a@b`), in a path
+/// segment without a `:` (`/files/a@2x.png`), or in a parameter
+/// (`;contact=ops@example.com`). Masking more than the password
+/// (`mailto:***@b`) is accepted; less is not.
 ///
 /// With [loneUserIsPassword], user info without a `:` is masked whole,
 /// for schemes such as `redis://secret@host` where it is the password.
 ///
-/// The first authority `:` starts the masked password. Scheme-like text
-/// inside that password is therefore included in the masked span.
-///
-/// Known limit: a password that starts with digits and holds a `?`, a `#`
-/// or a second `/` before its `@` (`redis://my:1234/a/b@h`,
-/// `pgsql://u:1234?b@h`) is not masked. RFC 3986 allows none of `/`, `?`,
-/// `#` and `@` raw in user info (§3.2.1: `userinfo = *( unreserved /
-/// pct-encoded / sub-delims / ":" )`) and ends the authority at the first
-/// `/`, `?` or `#` (§3.2), so such a URL is a host and a port with an `@`
-/// in its path, query or fragment, the same text as
-/// `https://h:8080/files/a@2x.png` or `https://h:8080/p?email=a@b`, which
-/// stay as they are. Percent-encode such a password (`1234%2Fa%2Fb`), as
-/// the RFC requires.
+/// Known limits:
+/// - A password that starts with digits and holds a `?`, a `#` or a second
+///   `/` before its `@` (`redis://my:1234/a/b@h`, `pgsql://u:1234?b@h`) is
+///   not masked. RFC 3986 allows none of `/`, `?`, `#` and `@` raw in user
+///   info (§3.2.1: `userinfo = *( unreserved / pct-encoded / sub-delims /
+///   ":" )`) and ends the authority at the first `/`, `?` or `#` (§3.2), so
+///   such a URL is a host and a port with an `@` in its path, query or
+///   fragment, the same text as `https://h:8080/files/a@2x.png`, which
+///   stays. Percent-encode such a password (`1234%2Fa%2Fb`), as the RFC
+///   requires.
+/// - A host and port with no path, then `;name=value@…`
+///   (`https://h:8080;contact=ops@example.com`): the authority runs to the
+///   first `/`, `?` or `#`, so this is user info `h` with the password
+///   `8080;contact=ops`, and it is masked.
+/// - A password holding `scheme://` anywhere but at its start
+///   (`redis://u:a/https://b@h`): the URL ends where that `scheme://`
+///   starts, so the password is cut there and not masked past it.
 String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   final separator = url.indexOf('://');
   final start = separator > 0 && _isScheme(url, separator)
       ? separator + 3
       : (url.startsWith('//') ? 2 : 0);
   final span = _passwordSpan(
-    _Text(url),
+    url,
     start,
     url.length,
     loneUserIsPassword: loneUserIsPassword,
@@ -52,71 +66,46 @@ String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
       : '${url.substring(0, span.$1)}***${url.substring(span.$2)}';
 }
 
-/// A text with its last `@`, read once for every URL in it.
-final class _Text {
-  _Text(this.value) : lastAt = value.lastIndexOf('@');
+/// Whether [c] is `/`, `?` or `#`, which end an authority (RFC 3986 §3.2).
+bool _endsAuthority(int c) => c == 0x2f || c == 0x3f || c == 0x23;
 
-  final String value;
+/// Whether [c] makes a path segment a parameter rather than user info:
+/// `&`, `=` or `;` (`;contact=ops@example.com`, `?email=a@b`).
+bool _isParameterCharacter(int c) => c == 0x26 || c == 0x3d || c == 0x3b;
 
-  /// The last `@` of [value], or -1.
-  final int lastAt;
-
-  (int, int)? _segment;
-  var _segmentRead = false;
-
-  /// The span masked in the segment before [lastAt], after the `/` before
-  /// it, when it holds a `:` and no `?`, `#`, `&` or `=`: from that `:` to
-  /// [lastAt]. The same for every URL of the text, so computed once.
-  (int, int)? get segment {
-    if (!_segmentRead) {
-      _segmentRead = true;
-      _segment = _segmentSpan(value, 0, lastAt);
-    }
-    return _segment;
-  }
-}
-
-/// The span masked in the segment of `url[from, at)` before the `@` at
-/// [at], after the last `/` before it: from its first `:` to [at], when it
-/// holds a `:` and no `?`, `#`, `&` or `=`; else null.
-(int, int)? _segmentSpan(String url, int from, int at) {
-  final slash = _lastIn(url, 0x2f, from, at);
-  var inner = -1;
-  for (var i = slash < 0 ? from : slash + 1; i < at; i++) {
+/// Where the user info whose first `@` is at [at] ends: the last `@`
+/// before the first `/`, `?` or `#` after [at], within `url[at, limit)`.
+int _userInfoEnd(String url, int at, int limit) {
+  var last = at;
+  for (var i = at + 1; i < limit; i++) {
     final c = url.codeUnitAt(i);
-    if (c == 0x3f || c == 0x23 || c == 0x26 || c == 0x3d) {
-      return null;
+    if (_endsAuthority(c)) {
+      break;
     }
-    if (c == 0x3a && inner < 0) {
-      inner = i;
+    if (c == 0x40) {
+      last = i;
     }
   }
-  return inner >= 0 ? (inner + 1, at) : null;
+  return last;
 }
 
-/// The span of `text.value` that [redactUrlPassword] masks for the URL
-/// whose authority starts at [start], or null. Its path is read up to
-/// [limit] (where the next URL of a text starts). Every scan is bounded by
-/// this URL's authority or path, so the URLs of one text are read in one
-/// pass.
+/// The span of [url] that [redactUrlPassword] masks for the URL whose
+/// authority starts at [start] and which ends at [limit] (where the next
+/// URL of a text starts), or null; the rows of [redactUrlPassword]'s
+/// table. No scan and no span runs past [limit], so the URLs of one text
+/// are read in one pass, and one URL's span never takes text of another.
 (int, int)? _passwordSpan(
-  _Text text,
+  String url,
   int start,
   int limit, {
   bool loneUserIsPassword = false,
 }) {
-  final url = text.value;
-  final n = url.length;
   // The authority runs to the first `/`, `?` or `#` (RFC 3986 §3.2).
   var end = start;
-  while (end < n) {
-    final c = url.codeUnitAt(end);
-    if (c == 0x2f || c == 0x3f || c == 0x23) {
-      break;
-    }
+  while (end < limit && !_endsAuthority(url.codeUnitAt(end))) {
     end++;
   }
-  // An `@` inside the authority.
+  // Row 1: user info in the authority, up to its last `@`.
   final at = _lastIn(url, 0x40, start, end);
   if (at >= 0) {
     final colon = _firstIn(url, 0x3a, start, at);
@@ -125,33 +114,28 @@ final class _Text {
     }
     return loneUserIsPassword && at > start ? (start, at) : null;
   }
-  final last = text.lastAt;
-  if (last < end) {
-    return null;
-  }
-  // A password holding `/`, `?` or `#`: a `:` in the authority that is not
-  // a port's.
   final colon = _authorityColon(url, start, end);
   if (colon >= 0) {
     if (!_isPort(url, colon + 1, end)) {
-      return (colon + 1, last);
+      // Row 2: a `:` that is not a port's, a password holding `/`, `?` or
+      // `#`: up to the first `@` of this URL.
+      final first = _firstIn(url, 0x40, end, limit);
+      return first < 0 ? null : (colon + 1, _userInfoEnd(url, first, limit));
     }
-    // When a port-shaped authority continues into user info, mask through
-    // that user info. Keep an ordinary `/@user` path and query `@` intact.
+    // Row 3: a port, then one path segment that holds an `@` after its
+    // first character and no `&`, `=` or `;`.
     if (end < limit && url.codeUnitAt(end) == 0x2f) {
-      var segmentEnd = end + 1;
-      while (segmentEnd < limit) {
-        final c = url.codeUnitAt(segmentEnd);
-        if (c == 0x2f || c == 0x3f || c == 0x23) {
+      for (var i = end + 1; i < limit; i++) {
+        final c = url.codeUnitAt(i);
+        if (_endsAuthority(c) || _isParameterCharacter(c)) {
           break;
         }
-        segmentEnd++;
-      }
-      final pathAt = _firstIn(url, 0x40, end + 1, segmentEnd);
-      if (pathAt > end + 1) {
-        return (colon + 1, pathAt);
+        if (c == 0x40) {
+          return i > end + 1 ? (colon + 1, _userInfoEnd(url, i, limit)) : null;
+        }
       }
     }
+    // Row 4: a port otherwise.
     return null;
   }
   if (start < end && url.codeUnitAt(start) == 0x5b) {
@@ -159,13 +143,35 @@ final class _Text {
     return null;
   }
   if (loneUserIsPassword) {
-    return (start, last);
+    final first = _firstIn(url, 0x40, end, limit);
+    return first < 0 ? null : (start, _userInfoEnd(url, first, limit));
   }
-  // No `:` in the authority (`postgres//app:secret@host`): the segment
-  // before the last `@` of this URL (up to [limit]), after the `/` before
-  // it; when this URL holds no `@`, before the last `@` of the text.
-  final own = _lastIn(url, 0x40, end, limit);
-  return own >= 0 ? _segmentSpan(url, end, own) : text.segment;
+  // Row 5: no `:` in the authority. The first `@` of the path (before any
+  // `?` or `#`) whose segment holds a `:` and no `&`, `=` or `;`: from
+  // that `:`. One pass over the path.
+  var colonInSegment = -1;
+  var parameter = false;
+  for (var i = end; i < limit; i++) {
+    final c = url.codeUnitAt(i);
+    if (c == 0x3f || c == 0x23) {
+      return null;
+    }
+    if (c == 0x2f) {
+      colonInSegment = -1;
+      parameter = false;
+    } else if (c == 0x40) {
+      if (colonInSegment >= 0 && !parameter) {
+        return (colonInSegment + 1, _userInfoEnd(url, i, limit));
+      }
+    } else if (c == 0x3a) {
+      if (colonInSegment < 0) {
+        colonInSegment = i;
+      }
+    } else if (_isParameterCharacter(c)) {
+      parameter = true;
+    }
+  }
+  return null;
 }
 
 /// The first [c] in `url[from, to)`, or -1.
@@ -347,38 +353,42 @@ List<(int, int)> _urlStarts(String text) {
 
 /// [text] with the password masked of the URL whose authority starts at
 /// [start] and of every URL in [starts] after it, each read up to the
-/// next one; overlapping spans (a password running into the next URL) are
-/// merged. [loneUserIsPassword] applies to the URL at [start] only. One
-/// pass over [text].
+/// next one. A `scheme://` that starts exactly where a URL's authority
+/// starts (`redis://se://PASS@h`) is that URL's user info, not a URL of
+/// its own: the URL is read on past it. [loneUserIsPassword] applies to
+/// the URL at [start] only. One pass over [text].
 String _maskPasswords(
   String text,
   int start,
   List<(int, int)> starts, {
   bool loneUserIsPassword = false,
 }) {
-  final scan = _Text(text);
-  final later = [
-    for (final s in starts)
-      if (s.$2 > start) s,
-  ];
+  // The URLs: where each authority starts; each is read up to the scheme
+  // of the next one that does not start at its own authority.
+  final authorities = <int>[start];
+  final limits = <int>[];
+  for (final (schemeStart, authority) in starts) {
+    if (authority <= start) {
+      continue;
+    }
+    if (schemeStart == authorities.last) {
+      continue; // user info of the URL before
+    }
+    limits.add(schemeStart);
+    authorities.add(authority);
+  }
+  limits.add(text.length);
   final spans = <(int, int)>[];
-  void add((int, int)? span) {
+  for (var i = 0; i < authorities.length; i++) {
+    final span = _passwordSpan(
+      text,
+      authorities[i],
+      limits[i],
+      loneUserIsPassword: i == 0 && loneUserIsPassword,
+    );
     if (span != null) {
       spans.add(span);
     }
-  }
-
-  add(
-    _passwordSpan(
-      scan,
-      start,
-      later.isEmpty ? text.length : later.first.$1,
-      loneUserIsPassword: loneUserIsPassword,
-    ),
-  );
-  for (var i = 0; i < later.length; i++) {
-    final limit = i + 1 < later.length ? later[i + 1].$1 : text.length;
-    add(_passwordSpan(scan, later[i].$2, limit));
   }
   if (spans.isEmpty) {
     return text;
@@ -438,11 +448,11 @@ String _maskPairs(String masked, List<String> names) {
 /// The text is cut into tokens at whitespace, quotes, parentheses, braces
 /// and angle brackets. In a token, every `scheme://` starts a URL whatever
 /// comes before it (`a=pgsql://…;b=redis://…`, `…|…`, a URL nested in a
-/// query): its password is masked as [redactUrlPassword] does, up to its
-/// `@` even past the next URL. Then the pairs of the token after its first
-/// `?` or `#` are masked as in [redactUrl]. Text before the first URL
-/// stays. A password that runs on to an `@` of a later URL masks the text
-/// between them as well: more, never less. One pass per token.
+/// query): its password is masked as [redactUrlPassword] does, within that
+/// URL, which ends where the next `scheme://` starts. Then the pairs of the
+/// token after its first `?` or `#` are masked as in [redactUrl]. Text
+/// before the first URL stays, and so does every URL without credentials.
+/// One pass per token.
 /// Percent-encoded nested URLs, matrix parameters before a query, and text
 /// without a scheme remain outside the redactor's contract.
 String redactUrlInText(String text, {List<String> names = sensitiveKeyNames}) {
@@ -511,7 +521,7 @@ String _maskPair(String pair, List<String> names) {
     return '$raw=***';
   }
   final value = pair.substring(equals + 1);
-  return value.contains('://') ? '$raw=${redactUrlPassword(value)}' : pair;
+  return value.contains('://') ? '$raw=${_maskAllPasswords(value)}' : pair;
 }
 
 bool _isSensitiveUrlName(String name, List<String> names) {
@@ -568,3 +578,13 @@ bool _isNameCharacter(int c) =>
 
 bool _isHex(int c) =>
     (c >= 0x30 && c <= 0x39) || ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x66);
+
+/// [value] with the password of every URL in it masked, each read up to
+/// the next ([_maskPasswords]): a pair value may hold several URLs.
+String _maskAllPasswords(String value) {
+  final separator = value.indexOf('://');
+  final start = separator > 0 && _isScheme(value, separator)
+      ? separator + 3
+      : (value.startsWith('//') ? 2 : 0);
+  return _maskPasswords(value, start, _urlStarts(value));
+}
