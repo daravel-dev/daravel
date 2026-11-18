@@ -539,8 +539,33 @@ Uint8List convertImageSync(
           },
         );
     }
+    // Every step but the encoding (which returned) made the image its plan
+    // says: the next step is priced for that shape and those pixels.
+    _checkShape(image, step);
   }
   throw StateError('A conversion plan ends with its encoding.');
+}
+
+/// Refuses to go on when [image] is not the shape [step] planned: its
+/// size, frames and pixel kind ([kindOfImage]). A step that changed the
+/// pixels in a way the plan does not know would leave the work of the next
+/// one unpriced.
+void _checkShape(img.Image image, ConversionStep step) {
+  final planned = step.shape;
+  final frames = math.max(1, image.numFrames);
+  final kind = kindOfImage(image);
+  if (image.width != planned.width ||
+      image.height != planned.height ||
+      frames != math.max(1, planned.frames) ||
+      kind != planned.kind) {
+    throw ImageConversionException(
+      'A step of this conversion made a ${image.width} x ${image.height} '
+      'image of $frames frame(s) and ${kind?.name ?? 'unknown'} pixels where '
+      'its plan says ${planned.width} x ${planned.height}, '
+      '${planned.frames} frame(s), ${planned.kind.name}; it is not converted '
+      'in this version.',
+    );
+  }
 }
 
 /// The steps of a conversion of an image of [shape] from [container],
