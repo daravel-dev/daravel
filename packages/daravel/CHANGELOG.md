@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.27.6
+
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Refused WebSocket upgrades are answered through the ordinary response lifecycle: the request body is handled and `terminate` runs.
+- Form method overrides read a body only on paths with a matching PUT, PATCH or DELETE route, within the longest timeout of those routes.
+- `SharedResult<T>` shares the result of one computation across callers and zones (used by `daravel_payments`).
+
 ## 1.27.5
 
 A security patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
