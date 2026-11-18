@@ -9,9 +9,12 @@ import 'package:test/test.dart';
 
 /// `DatabaseFailedJobProvider.find` and `forget` by a UUID that starts with
 /// digits (`123abc00-…`) while a row with the integer id `123` exists: each
-/// finds and deletes only the row with that UUID. Runs against MySQL or MariaDB
-/// when `DARAVEL_TEST_MYSQL` is set, e.g.
+/// finds and deletes only the row with that UUID. A row id is looked up
+/// only when written as one (`'123'`, never `'0123'`, `'+123'`, `' 123'` or
+/// a value past 64 bits). On MySQL or MariaDB when `DARAVEL_TEST_MYSQL` is
+/// set, e.g.
 /// `DARAVEL_TEST_MYSQL=mysql://daravel:secret@127.0.0.1:3306/daravel_test`.
+/// The same cases as `packages/daravel/test/queue/` (SQLite, PostgreSQL).
 void main() {
   final url = Platform.environment['DARAVEL_TEST_MYSQL'];
   if (url == null || url.isEmpty) {
@@ -22,31 +25,37 @@ void main() {
     );
     return;
   }
-
-  // A table of its own, so it never meets another test's `failed_jobs`.
-  const table = 'failed_jobs_uuid_lookup';
   final uri = Uri.parse(url);
   final userInfo = uri.userInfo.split(':');
+  failedJobLookup(
+    () => ConnectionConfig(
+      driver: 'mysql',
+      database: uri.path.replaceFirst('/', ''),
+      host: uri.host,
+      port: uri.hasPort ? uri.port : 3306,
+      username: userInfo.first,
+      password: userInfo.length > 1 ? Uri.decodeComponent(userInfo[1]) : null,
+      options: const {'pool': 2},
+    ),
+  );
+}
+
+/// The cases, on the connection [connection] builds.
+void failedJobLookup(ConnectionConfig Function() connection) {
+  // A table of its own, so it never meets another test's `failed_jobs`.
+  const table = 'failed_jobs_uuid_lookup';
+  const decoyId = 123;
+  const decoyUuid = '00000000-0000-4000-8000-000000000123';
+  const targetId = 124;
+  const targetUuid = '123abc00-0000-4000-8000-000000000124';
   late DatabaseManager db;
   late DatabaseFailedJobProvider provider;
 
   setUp(() async {
     db = DatabaseManager(
       DatabaseConfig(
-        defaultConnection: 'mysql',
-        connections: {
-          'mysql': ConnectionConfig(
-            driver: 'mysql',
-            database: uri.path.replaceFirst('/', ''),
-            host: uri.host,
-            port: uri.hasPort ? uri.port : 3306,
-            username: userInfo.first,
-            password: userInfo.length > 1
-                ? Uri.decodeComponent(userInfo[1])
-                : null,
-            options: const {'pool': 2},
-          ),
-        },
+        defaultConnection: 'main',
+        connections: {'main': connection()},
       ),
       drivers: const {'mysql': MySqlDriver.fromConfig},
     );
@@ -63,23 +72,8 @@ void main() {
       t.timestamp('failed_at').useCurrent();
     });
     provider = DatabaseFailedJobProvider(db, table: table);
-  });
-
-  tearDown(() async {
-    await SchemaBuilder(await db.executor()).dropIfExists(table);
-    await db.closeAll();
-  });
-
-  test('find and forget by a digit-led UUID touch only the row with that '
-      'UUID, never the row whose id is its leading digits', () async {
-    const decoyId = 123;
-    const decoyUuid = '00000000-0000-4000-8000-000000000123';
-    const targetId = 124;
-    const targetUuid = '123abc00-0000-4000-8000-000000000124';
-    const missingUuid = '123abc00-0000-4000-8000-000000000999';
-
     final now = DateTime.utc(2026, 11, 18, 12);
-    for (final (id, uuid, name) in [
+    for (final (id, uuid, job) in [
       (decoyId, decoyUuid, 'DecoyJob'),
       (targetId, targetUuid, 'TargetJob'),
     ]) {
@@ -88,27 +82,64 @@ void main() {
         'uuid': uuid,
         'connection': 'database',
         'queue': 'default',
-        'payload': '{"uuid":"$uuid","displayName":"$name"}',
-        'exception': 'StateError: $name',
+        'payload': '{"uuid":"$uuid","displayName":"$job"}',
+        'exception': 'StateError: $job',
         'failed_at': now,
       });
     }
+  });
 
-    // A UUID that matches no row: nothing found, nothing deleted.
-    expect(await provider.find(missingUuid), isNull);
-    expect(await provider.forget(missingUuid), isFalse);
-    expect(await db.table(table).count(), 2);
+  tearDown(() async {
+    await SchemaBuilder(await db.executor()).dropIfExists(table);
+    await db.closeAll();
+  });
 
-    // The UUID of a row: that row, and only it is deleted.
+  Future<List<Object?>> ids() async => [
+    for (final row in await db.table(table).orderBy('id').get()) row['id'],
+  ];
+
+  test(
+    'a digit-led UUID that matches no row finds and deletes nothing',
+    () async {
+      const missing = '123abc00-0000-4000-8000-000000000999';
+      expect(await provider.find(missing), isNull);
+      expect(await provider.forget(missing), isFalse);
+      expect(await ids(), [decoyId, targetId]);
+    },
+  );
+
+  test('a digit-led UUID finds and deletes only its own row, never the row '
+      'whose id is its leading digits', () async {
     final found = await provider.find(targetUuid);
-    expect(found, isNotNull);
-    expect(found!.id, targetId);
-    expect(found.uuid, targetUuid);
+    expect(found?.id, targetId);
+    expect(found?.uuid, targetUuid);
     expect(await provider.forget(targetUuid), isTrue);
+    expect(await ids(), [decoyId]);
+  });
 
-    final remaining = await db.table(table).get();
-    expect(remaining, hasLength(1));
-    expect(remaining.single['id'], decoyId);
-    expect(remaining.single['uuid'], decoyUuid);
+  test(
+    'a value that is not written as a row id is never read as one',
+    () async {
+      for (final value in [
+        '0123',
+        '+123',
+        ' 123',
+        '123 ',
+        '-123',
+        '123.0',
+        '9223372036854775808',
+      ]) {
+        expect(await provider.find(value), isNull, reason: value);
+        expect(await provider.forget(value), isFalse, reason: value);
+      }
+      expect(await ids(), [decoyId, targetId]);
+    },
+  );
+
+  test('a row id, as an int or as its text, still finds its row', () async {
+    expect((await provider.find(decoyId))?.uuid, decoyUuid);
+    expect((await provider.find('$targetId'))?.uuid, targetUuid);
+    expect(await provider.forget('$decoyId'), isTrue);
+    expect(await ids(), [targetId]);
   });
 }
