@@ -628,12 +628,11 @@ ImageContainer? _containerOf(img.DecodeInfo info, img.Decoder decoder) =>
       (img.JpegInfo(), img.JpegDecoder()) => ImageContainer.jpeg,
       (img.PngInfo(), img.PngDecoder()) => ImageContainer.png,
       (img.GifInfo(), img.GifDecoder()) => ImageContainer.gif,
-      (img.WebPInfo(:final format), img.WebPDecoder()) =>
-        switch (format) {
-          img.WebPFormat.lossless => ImageContainer.webpLossless,
-          img.WebPFormat.lossy => ImageContainer.webpLossy,
-          _ => null,
-        },
+      (img.WebPInfo(:final format), img.WebPDecoder()) => switch (format) {
+        img.WebPFormat.lossless => ImageContainer.webpLossless,
+        img.WebPFormat.lossy => ImageContainer.webpLossy,
+        _ => null,
+      },
       (_, img.BmpDecoder()) => ImageContainer.bmp,
       _ => null,
     };

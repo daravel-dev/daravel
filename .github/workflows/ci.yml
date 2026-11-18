@@ -424,6 +424,28 @@ jobs:
       - name: Test against RustFS
         run: (cd packages/daravel_s3 && dart test --tags integration --reporter=expanded)
 
+  media-bench:
+    # TEMPORARY (draft branch only, removed before the pull request is
+    # ready): the conversion work model measured on the reference runner.
+    name: Media conversion bench (temporary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1
+
+      - name: Resolve workspace
+        run: dart pub get
+
+      - name: Measure (AOT, three runs per case)
+        run: |
+          cd packages/daravel_medialibrary
+          mkdir -p build
+          dart compile exe tool/conversion_bench.dart -o build/bench
+          nproc; free -m
+          build/bench all --repeat=3 --random=40
+
   mysql:
     # ADR-019: MySQL and MariaDB on every commit.
     name: ${{ matrix.server }} integration

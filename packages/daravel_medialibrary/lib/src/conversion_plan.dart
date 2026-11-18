@@ -445,56 +445,64 @@ double? conversionCost(
   List<ConversionStep> steps, {
   bool orient = false,
 }) {
-  double megapixels(ImageShape s) =>
-      s.width.toDouble() * s.height.toDouble() * math.max(1, s.frames) / 1e6;
-
-  double? row(String name, PixelKind kind) =>
-      _perMegapixel[name]![kind.costRow];
-
-  var total = 0.0;
-  bool add(double? perMegapixel, ImageShape s) {
-    if (perMegapixel == null) {
-      return false;
-    }
-    total += perMegapixel * megapixels(s);
-    return true;
-  }
-
-  final decoded = switch (container) {
-    ImageContainer.png => row('decodePng', input.kind),
-    ImageContainer.bmp => row('decodeBmp', input.kind),
-    _ => _decodePerMegapixel[container],
-  };
-  if (!add(decoded, input)) {
+  final decoded = decodeCost(container, input);
+  if (decoded == null) {
     return null;
   }
-  if (orient) {
-    add(_orient, input);
-  }
+  var total = decoded + (orient ? _orient * _megapixels(input) : 0);
   var before = input;
   for (final step in steps) {
-    final s = step.shape;
-    final ok = switch (step) {
-      ToEightBit() => add(row('toEightBit', before.kind), before),
-      Resize() => add(row('resize', s.kind), s),
-      Crop() => add(row('crop', s.kind), s),
-      Canvas(:final source) => add(_canvasFill, s) && add(_canvasPut, source),
-      Greyscale() => add(row('greyscale', before.kind), before),
-      Blur(:final radius) => () {
-        final base = row('blurBase', s.kind);
-        final perRadius = row('blurPerRadius', s.kind);
-        return base != null &&
-            perRadius != null &&
-            add(base + perRadius * radius, s);
-      }(),
-      Encode(:final format) => add(row(format.name, s.kind), s),
-    };
-    if (!ok) {
+    final cost = stepCost(step, before);
+    if (cost == null) {
       return null;
     }
-    before = s;
+    total += cost;
+    before = step.shape;
   }
   return total * costMargin;
+}
+
+double _megapixels(ImageShape s) =>
+    s.width.toDouble() * s.height.toDouble() * math.max(1, s.frames) / 1e6;
+
+double? _row(String name, PixelKind kind) => _perMegapixel[name]![kind.costRow];
+
+/// The units of decoding [input] from [container], without [costMargin];
+/// null without a measured cost.
+double? decodeCost(ImageContainer container, ImageShape input) {
+  final perMegapixel = switch (container) {
+    ImageContainer.png => _row('decodePng', input.kind),
+    ImageContainer.bmp => _row('decodeBmp', input.kind),
+    _ => _decodePerMegapixel[container],
+  };
+  return perMegapixel == null ? null : perMegapixel * _megapixels(input);
+}
+
+/// The units of [step] run on an image of [before], without
+/// [costMargin]; null when the step has no measured cost for its pixels.
+double? stepCost(ConversionStep step, ImageShape before) {
+  final s = step.shape;
+  double? times(double? perMegapixel, ImageShape shape) =>
+      perMegapixel == null ? null : perMegapixel * _megapixels(shape);
+  return switch (step) {
+    ToEightBit() => times(_row('toEightBit', before.kind), before),
+    Resize() => times(_row('resize', s.kind), s),
+    Crop() => times(_row('crop', s.kind), s),
+    Canvas(:final source) =>
+      _canvasFill * _megapixels(s) + _canvasPut * _megapixels(source),
+    Greyscale() => times(_row('greyscale', before.kind), before),
+    Blur(:final radius) => switch ((
+      _row('blurBase', s.kind),
+      _row('blurPerRadius', s.kind),
+    )) {
+      (final double base, final double perRadius) => times(
+        base + perRadius * radius,
+        s,
+      ),
+      _ => null,
+    },
+    Encode(:final format) => times(_row(format.name, s.kind), s),
+  };
 }
 
 /// The kind of [image]'s pixels, or null for one without measured costs.
