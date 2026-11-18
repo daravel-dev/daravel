@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io' show Directory, Platform, Socket;
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
 import 'package:daravel/src/http/multipart.dart'
@@ -39,13 +41,25 @@ void main() {
   test(
     'rejects the 1001st query pair, including duplicates and malformed pairs',
     () {
-      expect(parseQueryString(List.filled(1000, 'x=1').join('&&'))['x'], '1');
       expect(
-        () => parseQueryString(List.filled(1001, 'x=1').join('&')),
+        parseQueryString(
+          List.filled(1000, 'x=1').join('&&'),
+          maxInputVars: 1000,
+        )['x'],
+        '1',
+      );
+      expect(
+        () => parseQueryString(
+          List.filled(1001, 'x=1').join('&'),
+          maxInputVars: 1000,
+        ),
         throwsA(isA<BadRequestHttpException>()),
       );
       expect(
-        () => parseQueryString(List.filled(1001, '%zz=1').join('&')),
+        () => parseQueryString(
+          List.filled(1001, '%zz=1').join('&'),
+          maxInputVars: 1000,
+        ),
         throwsA(isA<BadRequestHttpException>()),
       );
       expect(
@@ -54,6 +68,92 @@ void main() {
       );
     },
   );
+
+  test('parseQueryString itself has no limit unless asked: a query string '
+      'an application builds or parses is not refused', () {
+    final many = List.generate(5000, (i) => 'k$i=1').join('&');
+    expect(parseQueryString(many), hasLength(5000));
+    // DaravelUri's query reads through it.
+    expect(DaravelUri.of('https://example.test/?$many').query, hasLength(5000));
+  });
+
+  test('a form body over the limit is refused on its count before it is '
+      'decoded: one that is not UTF-8 is a 400 for its count', () async {
+    final dir = Directory.systemTemp.createTempSync('input-vars-bytes-');
+    final app = Application.configure(basePath: dir.path)
+        .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+        .withRouting(
+          apiPrefix: '',
+          api: (router) =>
+              router.post('/read', (request) async => await request.body()),
+        )
+        .create();
+    await app.boot();
+    final engine = ServerEngine(
+      app,
+      const ServeOptions(host: '127.0.0.1', port: 0, handleSignals: false),
+      kernel: app.kernel,
+      logger: Logger(handlers: [MemoryHandler()]),
+    );
+    await engine.start();
+    try {
+      // 1 001 pairs, each with a byte that is not UTF-8 (0xff).
+      final body = <int>[
+        for (var i = 0; i < 1001; i++) ...[
+          if (i > 0) 0x26,
+          ...'k$i='.codeUnits,
+          0xff,
+        ],
+      ];
+      final socket = await Socket.connect('127.0.0.1', engine.port!);
+      final answer = BytesBuilder();
+      final closed = Completer<void>();
+      socket.listen(
+        answer.add,
+        onDone: closed.complete,
+        onError: (Object _) => closed.complete(),
+      );
+      socket
+        ..add(
+          latin1.encode(
+            'POST /read HTTP/1.1\r\nHost: localhost\r\n'
+            'Content-Type: application/x-www-form-urlencoded\r\n'
+            'Accept: application/json\r\nConnection: close\r\n'
+            'Content-Length: ${body.length}\r\n\r\n',
+          ),
+        )
+        ..add(body);
+      await socket.flush();
+      await closed.future.timeout(const Duration(seconds: 5));
+      final text = latin1.decode(answer.takeBytes());
+      expect(text, startsWith('HTTP/1.1 400'));
+      expect(text, contains('limit of 1000 variables'));
+      socket.destroy();
+    } finally {
+      await engine.stop();
+      await app.shutdown();
+      dir.deleteSync(recursive: true);
+    }
+  });
+
+  test('the query is counted once per request: every read after throws the '
+      'same error', () {
+    final request = Request.fake(path: '/?x=1&x=2&x=3')..maxInputVars = 2;
+    Object? first;
+    try {
+      request.query;
+    } on BadRequestHttpException catch (error) {
+      first = error;
+    }
+    expect(first, isNotNull);
+    for (final read in <Object? Function()>[
+      () => request.query,
+      () => request.queryMulti,
+      () => request.queryInput,
+    ]) {
+      expect(read, throwsA(same(first)));
+    }
+  });
 
   test('over-limit form fails again on a second read', () async {
     final request = Request.fake(
@@ -71,8 +171,12 @@ void main() {
     expect(() => request.queryMulti, throwsA(isA<BadRequestHttpException>()));
     expect(() => request.queryInput, throwsA(isA<BadRequestHttpException>()));
     expect(() => request.queryInput, throwsA(isA<BadRequestHttpException>()));
-    request.maxInputVars = 3;
-    expect(request.queryInput['x'], '3');
+    // The limit is the request's when it is first read (the kernel sets it
+    // before): one of 3 takes three pairs.
+    final roomy = Request.fake(path: '/?x=1&x=2&x=3')..maxInputVars = 3;
+    expect(roomy.queryInput['x'], '3');
+    final unlimited = Request.fake(path: '/?x=1&x=2&x=3')..maxInputVars = null;
+    expect(unlimited.queryInput['x'], '3');
   });
 
   test('reviewer form and query shapes are rejected', () async {
@@ -210,7 +314,20 @@ void main() {
       } finally {
         await app.shutdown();
       }
-      final invalid = make('0');
+      // 0 turns the limit off, as HTTP_JSON_MAX_DEPTH and the body limits
+      // do; a negative value is an error at boot, as theirs is.
+      final off = make('0');
+      try {
+        await off.boot();
+        final many = List.generate(1500, (i) => 'k$i=1').join('&');
+        expect(
+          (await off.handle(Request.fake(path: '/read?$many'))).status,
+          200,
+        );
+      } finally {
+        await off.shutdown();
+      }
+      final invalid = make('-1');
       await expectLater(invalid.boot(), throwsArgumentError);
       dir.deleteSync(recursive: true);
     },

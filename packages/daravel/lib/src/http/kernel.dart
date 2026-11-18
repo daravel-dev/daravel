@@ -67,8 +67,10 @@ final class HttpKernel {
   /// same for a served request and one from the test client.
   final MultipartLimits multipartLimits;
 
-  /// Maximum number of query or URL-encoded form pairs per request.
-  final int maxInputVars;
+  /// The most query or URL-encoded form pairs per request
+  /// ([Request.maxInputVars]): the application's `HTTP_MAX_INPUT_VARS`;
+  /// `null` for no limit.
+  final int? maxInputVars;
 
   /// Given to every request before the middleware runs
   /// ([Request.jsonMaxDepth]): the application's `HTTP_JSON_MAX_DEPTH`,
