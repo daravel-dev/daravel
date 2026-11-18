@@ -19,6 +19,8 @@ match Laravel more closely.
 
 ### Fixed
 
+- A database connection that failed to open while several requests waited for it reached only the request that opened it: the others, waiting on the same open from their own request, never got the error and hung until their request timeout. Every request waiting for that connection now gets the error.
+
 ## 1.27.6
 
 A patch: fixes only, with the API two of them need. Upgrade every
