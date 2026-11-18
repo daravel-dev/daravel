@@ -72,6 +72,93 @@ Object? _parseRange(String? header, int size) {
 
 const Object _unsatisfiable = Object();
 
+/// Whether an `If-None-Match` [value] (its header lines joined with `, `,
+/// as RFC 9110 §5.3 combines a field sent more than once) matches the
+/// entity tag [etag], by the weak comparison RFC 9110 §13.1.2 asks for.
+///
+/// RFC 9110 §13.1.2: `If-None-Match = "*" / #entity-tag`, so `*` matches
+/// only as the whole value. §8.8.3: `entity-tag = [ weak ] opaque-tag`,
+/// `weak = %s"W/"` (case-sensitive), `opaque-tag = DQUOTE *etagc DQUOTE`,
+/// `etagc = %x21 / %x23-7E / obs-text`: a comma or a `*` inside the quotes
+/// is part of the tag. §5.6.1: the list's members are separated by commas
+/// with optional whitespace, and empty members are skipped. §8.8.3.2:
+/// weakly, two tags match when their opaque tags are the same, whether
+/// either is weak. A value that does not read this way matches nothing.
+bool matchesIfNoneMatch(String value, String etag) {
+  if (_trimOws(value) == '*') {
+    return true;
+  }
+  final tags = _entityTags(value);
+  if (tags == null) {
+    return false;
+  }
+  final current = etag.startsWith('W/') ? etag.substring(2) : etag;
+  return tags.contains(current);
+}
+
+String _trimOws(String value) {
+  var start = 0;
+  var end = value.length;
+  while (start < end && _isOws(value.codeUnitAt(start))) {
+    start++;
+  }
+  while (end > start && _isOws(value.codeUnitAt(end - 1))) {
+    end--;
+  }
+  return value.substring(start, end);
+}
+
+bool _isOws(int unit) => unit == 0x20 || unit == 0x09;
+
+/// The opaque tags (with their quotes, without `W/`) of a `#entity-tag`
+/// list, or null when [value] is not one. One pass.
+List<String>? _entityTags(String value) {
+  final tags = <String>[];
+  var i = 0;
+  final length = value.length;
+  while (true) {
+    // Whitespace and empty members (commas) before the next tag.
+    while (i < length) {
+      final unit = value.codeUnitAt(i);
+      if (!_isOws(unit) && unit != 0x2C) {
+        break;
+      }
+      i++;
+    }
+    if (i == length) {
+      return tags;
+    }
+    if (value.startsWith('W/', i)) {
+      i += 2;
+    }
+    if (i == length || value.codeUnitAt(i) != 0x22) {
+      return null;
+    }
+    final open = i;
+    i++;
+    while (i < length && value.codeUnitAt(i) != 0x22) {
+      final unit = value.codeUnitAt(i);
+      if (!(unit == 0x21 ||
+          (unit >= 0x23 && unit <= 0x7E) ||
+          (unit >= 0x80 && unit <= 0xFF))) {
+        return null;
+      }
+      i++;
+    }
+    if (i == length) {
+      return null; // Unterminated.
+    }
+    i++;
+    tags.add(value.substring(open, i));
+    while (i < length && _isOws(value.codeUnitAt(i))) {
+      i++;
+    }
+    if (i < length && value.codeUnitAt(i) != 0x2C) {
+      return null;
+    }
+  }
+}
+
 /// What every file response shares: `Last-Modified`, an `ETag`, conditional
 /// requests and ranges. [open] gives the bytes from `start` up to `end`.
 Response _serve({
@@ -98,7 +185,14 @@ Response _serve({
     ...?headers,
   };
   final readable = request?.method == 'GET' || request?.method == 'HEAD';
-  if (readable && request!.headers.first('if-none-match') == etag) {
+  // Every line of the field, joined (RFC 9110 §5.3).
+  final ifNoneMatchLines = request?.headers.all('if-none-match') ?? const [];
+  final ifNoneMatch = ifNoneMatchLines.isEmpty
+      ? null
+      : ifNoneMatchLines.join(', ');
+  if (readable &&
+      ifNoneMatch != null &&
+      matchesIfNoneMatch(ifNoneMatch, etag)) {
     return Response(status: 304, headers: Headers(common));
   }
   final ifRange = request?.headers.first('if-range');

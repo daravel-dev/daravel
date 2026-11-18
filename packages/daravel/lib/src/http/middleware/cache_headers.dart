@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../file_response.dart';
 import '../headers.dart';
 import '../middleware.dart';
 import '../request.dart';
@@ -171,19 +172,14 @@ final class CacheHeadersMiddleware implements Middleware {
   /// Symfony's `isNotModified` (RFC 7232: `If-Modified-Since` only without
   /// `If-None-Match`).
   static bool _notModified(Request request, Headers headers) {
-    final ifNoneMatch = request.header('if-none-match');
+    // Every line of the field, joined (RFC 9110 §5.3).
+    final ifNoneMatch = request.headers.all('if-none-match').join(', ');
     final etag = headers.first('etag');
-    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+    if (ifNoneMatch.isNotEmpty) {
       if (etag == null) {
         return false;
       }
-      String weakless(String tag) =>
-          tag.startsWith('W/') ? tag.substring(2) : tag;
-      final current = weakless(etag);
-      return ifNoneMatch
-          .split(',')
-          .map((tag) => weakless(tag.trim()))
-          .any((tag) => tag == '*' || tag == current);
+      return matchesIfNoneMatch(ifNoneMatch, etag);
     }
     final since = request.header('if-modified-since');
     final modified = headers.first('last-modified');

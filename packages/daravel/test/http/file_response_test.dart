@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/http/file_response.dart' show matchesIfNoneMatch;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -11,6 +13,101 @@ Future<String> text(Response response) async {
 }
 
 void main() {
+  // RFC 9110 §8.8.3: etagc = %x21 / %x23-7E / obs-text (%x80-FF).
+  String etagc(Random random) {
+    final pick = random.nextInt(10);
+    if (pick == 0) {
+      return ',';
+    }
+    if (pick == 1) {
+      return '*';
+    }
+    if (pick == 2) {
+      return String.fromCharCode(0x80 + random.nextInt(0x80));
+    }
+    final unit = 0x21 + random.nextInt(0x7E - 0x21 + 1);
+    return String.fromCharCode(unit == 0x22 ? 0x21 : unit);
+  }
+
+  String opaque(Random random) =>
+      '"${List.generate(random.nextInt(12), (_) => etagc(random)).join()}"';
+
+  String ows(Random random) =>
+      [' ', '\t', '', ''][random.nextInt(4)] * random.nextInt(3);
+
+  test('500 seeded If-None-Match values read by RFC 9110: a tag matches '
+      'itself in any list, and nothing but a lone * matches a tag it does '
+      'not hold', () {
+    for (var seed = 0; seed < 500; seed++) {
+      final random = Random(seed);
+      final current = opaque(random);
+      final etag = random.nextBool() ? current : 'W/$current';
+      final members = <String>[];
+      var holds = false;
+      for (var i = random.nextInt(6); i >= 0; i--) {
+        final tag = random.nextInt(4) == 0 ? current : opaque(random);
+        holds |= tag == current;
+        members.add('${random.nextBool() ? 'W/' : ''}$tag');
+        if (random.nextInt(5) == 0) {
+          members.add(''); // An empty member, which is skipped.
+        }
+      }
+      final value = members
+          .map((m) => '${ows(random)}$m${ows(random)}')
+          .join(',');
+      final reason = 'seed $seed: $value against $etag';
+      // (P1) and (P2): it matches exactly when the list holds the tag.
+      expect(matchesIfNoneMatch(value, etag), holds, reason: reason);
+      // Garbage around it never matches: an unquoted member, a stray
+      // quote, or a * in a list.
+      for (final broken in [
+        '$value, x',
+        '$value, "',
+        '$value, *',
+        '*, $value',
+        '$value, W/*',
+      ]) {
+        expect(
+          matchesIfNoneMatch(broken, etag),
+          isFalse,
+          reason: '$reason / $broken',
+        );
+      }
+    }
+    expect(matchesIfNoneMatch(' * ', '"x"'), isTrue);
+  });
+
+  test('the five shapes found in review', () {
+    // A comma inside the quotes is part of the tag.
+    expect(matchesIfNoneMatch('"a,b"', '"a,b"'), isTrue);
+    // A * inside a list does not match anything.
+    expect(matchesIfNoneMatch('"foo,*,bar"', '"current"'), isFalse);
+    expect(matchesIfNoneMatch('"foo", *, "bar"', '"current"'), isFalse);
+    // W/* is no entity tag.
+    expect(matchesIfNoneMatch('W/*', '"current"'), isFalse);
+    // W/ is case-sensitive.
+    expect(matchesIfNoneMatch('w/"current"', '"current"'), isFalse);
+    // A value that does not read as one matches nothing.
+    expect(matchesIfNoneMatch('current', 'current'), isFalse);
+  });
+
+  test('CI reports entity tag matching costs', () {
+    final cases = <String, String>{
+      'long-value': '"${'a' * (1024 * 1024)}"',
+      'distinct-values': List.generate(10000, (i) => '"tag$i"').join(','),
+      'many-items': List.filled(10000, '"other"').join(','),
+    };
+    for (final entry in cases.entries) {
+      final timer = Stopwatch()..start();
+      for (var i = 0; i < 20; i++) {
+        expect(matchesIfNoneMatch(entry.value, '"current"'), isFalse);
+      }
+      timer.stop();
+      print(
+        'etag ${entry.key}: ${entry.value.length} bytes, 20 runs, ${timer.elapsedMicroseconds} us',
+      );
+    }
+  }, skip: Platform.environment['CI'] != 'true' ? 'CI timing only' : false);
   late Directory dir;
   late File file;
 
@@ -82,6 +179,23 @@ void main() {
       expect(await text(response), '0123456789');
     });
 
+    test('If-None-Match sent on two lines is read as one list (RFC 9110 '
+        '§5.3)', () async {
+      final etag = (await Response.file(
+        file.path,
+        request: get(),
+      )).headers.first('etag')!;
+      final request = get()
+        ..headers.add('if-none-match', '"other"')
+        ..headers.add('if-none-match', etag);
+      expect((await Response.file(file.path, request: request)).status, 304);
+      // A * on a line of its own beside a tag is no lone *: not matched.
+      final mixed = get()
+        ..headers.add('if-none-match', '"other"')
+        ..headers.add('if-none-match', '*');
+      expect((await Response.file(file.path, request: mixed)).status, 200);
+    });
+
     test('a missing file is a 404', () {
       expect(
         Response.file(p.join(dir.path, 'nope')),
@@ -147,6 +261,28 @@ void main() {
         request: get({'if-none-match': etag}),
       );
       expect(second.status, 304);
+    });
+
+    test('If-None-Match accepts weak tags, lists and wildcard', () async {
+      final first = await Response.file(file, request: get());
+      final etag = first.headers.first('etag')!;
+      for (final value in ['W/$etag', '"other", $etag', '*']) {
+        expect(
+          (await Response.file(
+            file,
+            request: get({'if-none-match': value}),
+          )).status,
+          304,
+          reason: value,
+        );
+      }
+      expect(
+        (await Response.file(
+          file,
+          request: get({'if-none-match': '"other"'}),
+        )).status,
+        200,
+      );
     });
 
     test('a stale If-Range gives the whole file', () async {
