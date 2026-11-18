@@ -6,7 +6,8 @@ import 'messages.dart';
 import 'object_rules.dart';
 import 'rule.dart';
 import 'rule_parser.dart';
-import 'rules.dart' show BooleanRule, ExcludeRule, IntegerRule, NumericRule;
+import 'rules.dart'
+    show BooleanRule, ClosureRule, ExcludeRule, IntegerRule, NumericRule;
 import 'validated_data.dart';
 import 'validation_exception.dart';
 
@@ -289,12 +290,13 @@ final class Validator {
     }
     _checkNesting(depth, pattern);
     final dot = attribute.lastIndexOf('.');
+    // The callback sees the data as sent: keys with a `.` or `*` decoded.
     final ForEachItem item = (
-      value: ValidationContext.dig(_input, attribute),
-      attribute: attribute,
+      value: _decode(ValidationContext.dig(_input, attribute)),
+      attribute: _decodeKey(attribute),
       parent: dot == -1
           ? null
-          : ValidationContext.dig(_input, attribute.substring(0, dot)),
+          : _decode(ValidationContext.dig(_input, attribute.substring(0, dot))),
       input: data,
     );
     final own = <Rule>[];
@@ -360,7 +362,13 @@ final class Validator {
     List<Rule> ruleList,
   ) async {
     final present = ValidationContext.exists(_input, attribute);
-    final value = present ? ValidationContext.dig(_input, attribute) : null;
+    // Every rule sees the value as sent (Laravel decodes it for custom
+    // rules, `validateUsingCustomRule`, Validator.php 12.x :926): a rule
+    // that compares keys (`required_array_keys`, `array:a,b`) compares the
+    // keys the client sent with the ones written in the rule.
+    final value = present
+        ? _decode(ValidationContext.dig(_input, attribute))
+        : null;
     final nullable = ruleList.any((r) => r is NullableRule);
     final sometimes = ruleList.any((r) => r is SometimesRule);
     final bail = ruleList.any((r) => r is BailRule);
@@ -388,11 +396,14 @@ final class Validator {
       // Laravel's hasNotFailedPreviousRuleIfPresenceRule: no query for an
       // attribute that already failed another rule.
       if ((rule.name == 'unique' || rule.name == 'exists') &&
-          (_errors?[attribute]?.isNotEmpty ?? false)) {
+          (_errors?[_decodeKey(attribute)]?.isNotEmpty ?? false)) {
         continue;
       }
       final context = ValidationContext(
-        attribute: attribute,
+        // A closure sees the attribute as sent (Laravel's
+        // `$originalAttribute` for custom rules, :917); the rules of the
+        // framework keep the form they look the data up with.
+        attribute: rule is ClosureRule ? _decodeKey(attribute) : attribute,
         pattern: pattern,
         value: value,
         present: present,

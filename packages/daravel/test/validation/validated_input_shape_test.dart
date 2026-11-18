@@ -422,4 +422,122 @@ void main() {
       }
     },
   );
+
+  group('rules see the data as sent', () {
+    test('rules that compare keys compare the keys as sent', () async {
+      final data = <String, Object?>{
+        'meta': {'a.b': 1, 'c*': 2},
+      };
+      final out = await validated(data, {
+        'meta': ['required_array_keys:a.b,c*', 'array:a.b,c*'],
+      });
+      expect(out.toMap(), data);
+    });
+
+    test('a closure rule sees the attribute and the value as sent', () async {
+      final seen = <String>[];
+      await validated(
+        {
+          'items': {
+            'a.b': {'k.1': 'x'},
+          },
+        },
+        {
+          'items.*': [
+            Rules.custom((c) {
+              seen
+                ..add(c.attribute)
+                ..addAll((c.value! as Map).keys.cast<String>());
+              return null;
+            }),
+          ],
+        },
+      );
+      expect(seen, ['items.a.b', 'k.1']);
+    });
+
+    test(
+      'a forEach callback sees the value and the attribute as sent',
+      () async {
+        final seen = <String>[];
+        await validated(
+          {
+            'items': {
+              'a.b': {'k*': 'x'},
+            },
+          },
+          {
+            'items.*': [
+              Rules.forEach((item) {
+                seen
+                  ..add(item.attribute)
+                  ..addAll((item.value! as Map).keys.cast<String>());
+                return const <Rule>[];
+              }),
+            ],
+          },
+        );
+        expect(seen, ['items.a.b', 'k*']);
+      },
+    );
+  });
+
+  test('500 seeded 422 answers never hold a placeholder, in keys, messages '
+      'or parameters', () async {
+    final app = Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+        .withLogLevel(LogLevel.critical)
+        .withRouting(
+          apiPrefix: '',
+          api: (router) => router.post(
+            '/check',
+            (request) async => (await request.validate({
+              'items.*': 'array',
+              'items.*.role': 'required|in:member,owner',
+              'items.*.code': 'same:items.*.role',
+              'items.*.size': 'integer|min:3',
+              'items.*.*': 'string|max:2',
+            })).toMap(),
+          ),
+        )
+        .create();
+    await app.boot();
+    try {
+      const odd = ['a.b', '*', 'x*y', '.', 'k.1.2', 'n', '0', '1e9'];
+      for (var seed = 0; seed < 500; seed++) {
+        final random = Random(seed);
+        final items = <String, Object?>{
+          for (var i = random.nextInt(4) + 1; i > 0; i--)
+            odd[random.nextInt(odd.length)]: {
+              for (var j = random.nextInt(4); j > 0; j--)
+                ['role', 'code', 'size', odd[random.nextInt(odd.length)]][random
+                    .nextInt(4)]: [
+                  'admin',
+                  'member',
+                  7,
+                  'toolong',
+                ][random.nextInt(4)],
+            },
+        };
+        final response = await app.handle(
+          Request.fake(
+            method: 'POST',
+            path: '/check',
+            json: {'items': items},
+            headers: {'accept': 'application/json'},
+          ),
+        );
+        final body = await response.bodyText();
+        expect(response.status, anyOf(200, 422), reason: 'seed $seed');
+        expect(body, isNot(contains('__dot__')), reason: 'seed $seed: $body');
+        expect(
+          body,
+          isNot(contains('__asterisk__')),
+          reason: 'seed $seed: $body',
+        );
+      }
+    } finally {
+      await app.shutdown();
+    }
+  });
 }

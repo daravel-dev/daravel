@@ -69,6 +69,12 @@ final class ValidationContext {
   final bool numeric;
 
   /// Concrete attribute path (`items.2.id`).
+  ///
+  /// A key of the data that holds a `.` or a `*` stands for itself: while
+  /// the rules run it is replaced with a placeholder, so a path never
+  /// reads it as a level. A closure rule (`Rules.custom`) and [value] get
+  /// it as sent; a `Rule` class of the application sees the placeholder
+  /// form here (`a__dot__…b`), the form [data] is looked up with.
   final String attribute;
 
   /// Rule key as written (`items.*.id`).
