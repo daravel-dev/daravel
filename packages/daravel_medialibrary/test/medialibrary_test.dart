@@ -219,6 +219,47 @@ void main() {
     });
   });
 
+  test('a conversion that cannot be made fails its job once, not three '
+      'times', () async {
+    final app = await migrated({'QUEUE_CONNECTION': 'database'});
+    await app.run(() async {
+      final post = await Post.definition.query().create({'title': 'R'});
+      final media = await post
+          .addMediaFromBytes(jpeg(600, 400), fileName: 'r.jpg')
+          .toMediaCollection();
+      expect(await DB.table('jobs').count(), 1);
+      // The stored original is no image any more when the queued
+      // conversion runs.
+      stored('${media.id}/r.jpg').writeAsStringSync('not an image');
+      await QueueWorker(Queue.manager)
+          .run(const WorkerOptions(stopWhenEmpty: true));
+      expect(await DB.table('jobs').count(), 0, reason: 'not released again');
+      expect(await DB.table('failed_jobs').count(), 1);
+    });
+  });
+
+  test('booted with MEDIA_MAX_CONVERSION_WORK, the conversions get that '
+      'budget', () async {
+    final app = await migrated({'MEDIA_MAX_CONVERSION_WORK': '1'});
+    await app.run(() async {
+      final config = App.make<ConfigRepository>().section<MediaLibraryConfig>();
+      expect(config.maxConversionWork, 1);
+      final png = img.encodePng(img.Image(width: 200, height: 200));
+      await expectLater(
+        convertImage(
+          png,
+          {
+            'width': [100],
+          },
+          maxPixels: config.maxImagePixels,
+          maxFrames: config.maxImageFrames,
+          maxWork: config.maxConversionWork,
+        ),
+        throwsA(isA<ImageTooLargeException>()),
+      );
+    });
+  });
+
   test('single file collections, accepted types, file names, size', () async {
     final app = await migrated({'MEDIA_MAX_FILE_SIZE': '200000'});
     await app.run(() async {

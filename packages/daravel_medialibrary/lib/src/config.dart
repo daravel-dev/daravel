@@ -12,11 +12,29 @@ final class MediaLibraryConfig implements ConfigSection {
     this.prefix = '',
     this.versionUrls = false,
     this.disallowedExtensions = defaultDisallowedExtensions,
+    this.maxImagePixels = defaultMaxImagePixels,
+    this.maxImageFrames = defaultMaxImageFrames,
+    this.maxConversionWork = defaultMaxConversionWork,
   });
 
   /// The settings in `MEDIA_*`.
+  ///
+  /// `MEDIA_MAX_IMAGE_PIXELS`, `MEDIA_MAX_IMAGE_FRAMES` or
+  /// `MEDIA_MAX_CONVERSION_WORK` below 1 stops the
+  /// boot with a [ConfigException] instead of refusing every image; one
+  /// that is not a number does already ([EnvException]).
   factory MediaLibraryConfig.fromEnv(Env env) {
     final queue = env.maybeString('MEDIA_QUEUE');
+    for (final key in [
+      'MEDIA_MAX_IMAGE_PIXELS',
+      'MEDIA_MAX_IMAGE_FRAMES',
+      'MEDIA_MAX_CONVERSION_WORK',
+    ]) {
+      final value = env.integer(key, 1);
+      if (value < 1) {
+        throw ConfigException('$key is at least 1, not $value.');
+      }
+    }
     return MediaLibraryConfig(
       diskName: env.string('MEDIA_DISK', 'public'),
       maxFileSize: env.integer('MEDIA_MAX_FILE_SIZE', 10 * 1024 * 1024),
@@ -27,6 +45,18 @@ final class MediaLibraryConfig implements ConfigSection {
       ),
       prefix: env.string('MEDIA_PREFIX', ''),
       versionUrls: env.boolean('MEDIA_VERSION_URLS', false),
+      maxImagePixels: env.integer(
+        'MEDIA_MAX_IMAGE_PIXELS',
+        defaultMaxImagePixels,
+      ),
+      maxImageFrames: env.integer(
+        'MEDIA_MAX_IMAGE_FRAMES',
+        defaultMaxImageFrames,
+      ),
+      maxConversionWork: env.integer(
+        'MEDIA_MAX_CONVERSION_WORK',
+        defaultMaxConversionWork,
+      ),
     );
   }
 
@@ -39,6 +69,46 @@ final class MediaLibraryConfig implements ConfigSection {
     'htaccess', 'htpasswd', //
     'cgi', 'pl', 'asp', 'aspx', 'jsp', 'jspx',
   ];
+
+  /// [maxImagePixels] by default: 40 million, a 7 300 x 5 500 photo (a
+  /// 24 MP camera fits with room). Converting an image at the limit takes
+  /// memory and time (measured in a compiled process, peak resident
+  /// memory): a baseline JPEG of 8 000 x 5 000 about 130 MiB and 2.5 s, a
+  /// progressive one about 415 MiB and 3 s, a PNG about 205 MiB and 1 s, a
+  /// WebP (which counts against half of it, as a 16-bit PNG does) up to
+  /// about 470 MiB, an animated GIF filling the budget about 140 MiB and
+  /// 1.2 s; plan about 500 MiB per conversion running at once, whatever the
+  /// size of the image. Lower it
+  /// where conversions share a process with requests.
+  static const int defaultMaxImagePixels = 40000000;
+
+  /// [maxImageFrames] by default.
+  static const int defaultMaxImageFrames = 1000;
+
+  /// The most pixels an image may decode to before its conversions run
+  /// (`MEDIA_MAX_IMAGE_PIXELS`): width x height x frames, read from the
+  /// file's header before anything is decoded. A larger image is not
+  /// converted (`ImageTooLargeException`); the original stays stored. A
+  /// small PNG can declare 16 000 x 16 000 pixels, 1 GiB once decoded.
+  final int maxImagePixels;
+
+  /// The most frames an image may hold before its conversions run
+  /// (`MEDIA_MAX_IMAGE_FRAMES`, 1 000), read from the header as well.
+  final int maxImageFrames;
+
+  /// The most work a conversion may take (`MEDIA_MAX_CONVERSION_WORK`),
+  /// estimated before it runs from the image's size, frames and pixels and
+  /// every step of the conversion. A unit is a relative measure of work,
+  /// at most about a millisecond of one core of the slowest CI runner
+  /// measured (a GitHub Actions `ubuntu-latest` runner with an AMD EPYC
+  /// 7763), not a promise of seconds on another:
+  /// a slower machine takes longer for the same units. A conversion past
+  /// it is not generated (`ImageTooLargeException`); the original stays
+  /// stored.
+  final int maxConversionWork;
+
+  /// [maxConversionWork] by default.
+  static const int defaultMaxConversionWork = 10000;
 
   /// The disk of files that choose none (`MEDIA_DISK`, `public`).
   final String diskName;
@@ -77,5 +147,8 @@ final class MediaLibraryConfig implements ConfigSection {
     'prefix': prefix,
     'version_urls': versionUrls,
     'disallowed_extensions': disallowedExtensions,
+    'max_image_pixels': maxImagePixels,
+    'max_image_frames': maxImageFrames,
+    'max_conversion_work': maxConversionWork,
   };
 }

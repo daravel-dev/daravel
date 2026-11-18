@@ -110,7 +110,7 @@ result of the one before, as in Spatie:
 | Method | Result |
 | :-- | :-- |
 | `width(w)`, `height(h)` | That width or height, the other side following the aspect ratio; `width(200).height(200)` therefore resizes twice |
-| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white |
+| `fit(Fit.contain, w, h)` | Within the box; `Fit.max` without upsizing; `Fit.fill` and `Fit.fillMax` then pad to the box in white (every frame of an animation) |
 | `fit(Fit.crop, w, h)` | Exactly the box, cut from the middle |
 | `fit(Fit.stretch, w, h)` | Exactly the box, aspect ratio ignored |
 | `crop(w, h, CropPosition.top)` | A cut-out at a position |
@@ -118,13 +118,97 @@ result of the one before, as in Spatie:
 | `format(ImageFormat.png)`, `keepOriginalImageFormat()` | PNG, GIF, BMP or TIFF instead of JPEG |
 | `greyscale()`, `blur(10)` | Filters |
 
-JPEG, PNG, GIF, WebP, BMP and TIFF files are converted, after their EXIF
-rotation is applied. WebP and AVIF cannot be written: `package:image` has
-no encoder for them.
+JPEG, PNG, GIF (animated too), WebP and BMP files are converted, after
+their EXIF rotation is applied; the format is told from the content, not
+the name. TIFF and animated PNG or WebP are not converted in this version:
+such a file keeps its original and gets no conversions. WebP and AVIF
+cannot be written: `package:image` has no encoder for them.
 
-Conversions run on the queue (`PerformConversionsJob`, on `MEDIA_QUEUE`)
-unless they say `nonQueued()` or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on
-the `sync` queue they run at once. The image work itself runs in a separate
+The size of an image is read from its header before it is decoded: one
+that would decode to more than `MEDIA_MAX_IMAGE_PIXELS` pixels (40 million,
+width x height x frames) or hold more than `MEDIA_MAX_IMAGE_FRAMES` frames
+(1 000) is not converted (`ImageTooLargeException`), and the original stays
+stored. A file of a megabyte can declare 16 000 x 16 000 pixels, which
+takes gigabytes to decode. A 16-bit PNG counts twice (two bytes per
+sample), and a JPEG must have 1 or 3 color components. A conversion
+refused this way fails its job at once, without retries.
+
+Every image made by `width`, `height`, `fit`, or `crop` is also limited to a
+quarter of `MEDIA_MAX_IMAGE_PIXELS`, frames counted, even when it is
+smaller than its input. Dimensions must be greater than zero, no image read
+or made may have a side longer than 65 535 pixels, and a JPEG with more
+scans than its size allows is not converted. Manipulations keep the order
+in which the conversion defines them.
+
+The time a conversion takes is bounded by one work budget,
+`MEDIA_MAX_CONVERSION_WORK` (10 000 units). Before anything is decoded, the
+conversion is planned from the image's header: its size, frames and pixel
+format, and every step it will run (decoding, turning it upright, each
+manipulation, writing). Each step's work is counted for every frame, and a
+conversion whose total is past the budget is not generated
+(`ImageTooLargeException`; the original stays stored). A unit is a relative
+measure of work: at most about a millisecond of one core of the slowest
+CI runner we measured, a GitHub Actions `ubuntu-latest` runner with an
+AMD EPYC 7763 (4 cores, 16 GB, November 2026). A faster machine finishes
+the same units sooner, a slower one takes longer: it is not a promise of
+seconds on your machine. A combination of format,
+pixels and step without a measured cost is refused rather than guessed.
+
+Order matters to the budget: when a conversion resizes and blurs, put
+`width` or `height` before `blur` so the blur works on the smaller image.
+A 16-bit image that is manipulated is made 8-bit first, as GD (the driver
+laravel-medialibrary uses by default) does; one only written in another
+format keeps its 16 bits. A 1, 2 or 4-bit image is made 8-bit before
+greyscale or blur.
+
+| Conversion | Units | Slowest runner measured | Work budget (default) | Pixel limit (default) |
+|---|---|---|---|---|
+| JPEG 12 MP (4 000 x 3 000) to a width of 1 600 | 2 641 | 1.7 s | within | within |
+| JPEG 24 MP (6 000 x 4 000) to a width of 1 600 | 4 311 | 3.0 s | within | within |
+| JPEG 40 MP (8 000 x 5 000) to a width of 1 600 | 6 617 | 3.1 s | within | within |
+| JPEG 50 MP (8 160 x 6 120) to a width of 1 600 | 8 226 | 5.1 s | within | past it unless `MEDIA_MAX_IMAGE_PIXELS` is raised |
+| PNG 16-bit 24 MP (6 000 x 4 000) written as PNG | 11 565 | 6.7 s | past it | past it unless `MEDIA_MAX_IMAGE_PIXELS` is raised |
+| animated GIF, 800 x 600 in 30 frames, to a width of 400 as GIF | 907 | 0.3 s | within | within |
+| a small PNG enlarged to 10 million pixels, cropped, filled, blurred 30, written as GIF | 16 132 | 12.0 s | past it | within |
+
+Both limits apply, and raising one leaves the other in force: a 50 MP
+photo needs `MEDIA_MAX_IMAGE_PIXELS` raised, and its resize to a width of 1 600 then fits the
+budget (8 226 units); a 30 MP 16-bit PNG needs it raised too, and is then
+still refused by the budget (14 456 units) until
+`MEDIA_MAX_CONVERSION_WORK` is raised as well. Raise the budget to convert
+larger images or longer chains, and give the conversion job a timeout
+above what that many units take on your machine.
+
+The limits keep memory bounded, though not small. Converting an image at
+the default limit takes (measured peaks):
+
+| Image | Memory |
+|---|---|
+| baseline JPEG, 8 000 x 5 000 | about 130 MiB |
+| progressive JPEG, 8 000 x 5 000 (with or without orientation) | about 415 MiB |
+| PNG, 6 324 x 6 324 | about 205 MiB |
+| PNG, 16-bit, 4 472 x 4 472 | about 205 MiB |
+| WebP, 4 472 x 4 472 | about 170 to 175 MiB; up to about 470 MiB at worst, with orientation |
+| GIF, 1 000 frames of 200 x 200 | about 140 MiB |
+| JPEG at its scan limit (40, 20 or 5 MP) | up to about 430 MiB |
+| a manipulation making 10 million pixels | about 47 to 76 MiB |
+| a whole conversion at the limits | up to about 384 MiB |
+
+A WebP and a 16-bit PNG count against half of `MEDIA_MAX_IMAGE_PIXELS`.
+The limit bounds an image's size, not memory exactly: at the default
+limit, plan about 500 MiB of memory per conversion running at once,
+whatever the size of the image, and lower `MEDIA_MAX_IMAGE_PIXELS` where
+conversions share a process with requests.
+
+The budget is per conversion: nothing limits how many conversions run at
+once besides how they are run. Conversions run on the queue
+(`PerformConversionsJob`, on `MEDIA_QUEUE`) unless they say `nonQueued()`
+or `QUEUE_CONVERSIONS_BY_DEFAULT=false`; on the `sync` queue they run at
+once. On the queue, at most as many run at once as there are workers on
+that queue; `nonQueued()` conversions run as the request that adds the
+file, as many at once as requests in flight. Run conversions on the queue,
+with a bounded number of workers and a job timeout above the budget's
+time, not inside a request. The image work itself runs in a separate
 isolate, so a large photo does not hold up the requests beside it.
 
 ## Commands
@@ -140,6 +224,9 @@ isolate, so a large photo does not hold up the requests beside it.
 | :-- | :-- | :-- |
 | `MEDIA_DISK` | `public` | The disk of collections that choose none |
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
+| `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
+| `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
+| `MEDIA_MAX_CONVERSION_WORK` | `10000` | The most work a conversion may take, in units of about a millisecond of one core of the reference runner |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |
