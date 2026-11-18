@@ -8,9 +8,10 @@ import 'dart:convert';
 /// letters, digits, `+`, `-`, `.`), after a leading `//`, or else at the
 /// start of the text, and runs to the first `/`, `?` or `#`. In a text of
 /// several URLs ([redactUrl], [redactUrlInText]) each URL ends where the
-/// next `scheme://` starts, and nothing is read or masked past that end;
-/// the one exception is a `scheme://` that starts exactly where this URL's
-/// authority starts (`redis://se://PASS@h`), which is this URL's user info.
+/// next `scheme://` starts, and nothing is read or masked past that end,
+/// with two exceptions: a `scheme://` that starts exactly where this URL's
+/// authority starts (`redis://se://PASS@h`) is this URL's user info, and
+/// row 6 joins a URL to the next one.
 ///
 /// **The `@` that ends the user info** is the last `@` before the first
 /// `/`, `?` or `#` after the first `@` the row admits; the masked span runs
@@ -23,6 +24,7 @@ import 'dart:convert';
 /// | 3 | no `@`; a port, then `/` and one segment with an `@` after its first character and no `&`, `=` or `;` (a password of digits and one `/`) | from the `:`, admitting that `@` | `redis://my:1234/a@s@h/0` → `redis://my:***@h/0` |
 /// | 4 | no `@`; a port, otherwise | nothing | `https://h:8080/p?email=a@b`, `https://h:8080/files/a@2x.png`, `https://h:443/@user` stay |
 /// | 5 | no `:` in the authority | admitting the first `@` of the path (before any `?` or `#`) whose segment holds a `:` and no `&`, `=` or `;`, from that segment's first `:` | `x://h/app:s@h1/p?email=a@b` → `x://h/app:***@h1/p?email=a@b`; `postgres//app:s@host` → `postgres//app:***@host` |
+/// | 6 | a row 2 password with no `@` before the next `scheme://`, whose authority holds an `@`; not when the `:` is followed by digits and then only `,`, `;`, `=`, `\|`, `&` or spaces | from the `:` to the last `@` of the next authority: the two are one URL | `redis://u:a/https://b@h` → `redis://u:***@h`; `https://h:8080\|pgsql://u:s@db` → `https://h:8080\|pgsql://u:***@db` |
 ///
 /// Promised whole: a URL without user info, with a user and no `:`, or
 /// with an `@` only in its query or fragment (`?email=a@b`), in a path
@@ -42,14 +44,13 @@ import 'dart:convert';
 ///   such a URL is a host and a port with an `@` in its path, query or
 ///   fragment, the same text as `https://h:8080/files/a@2x.png`, which
 ///   stays. Percent-encode such a password (`1234%2Fa%2Fb`), as the RFC
-///   requires.
+///   requires. So is a password of digits followed by a separator and a
+///   `scheme://…@` (`redis://u:1234,https://x@h`): it reads as a host and a
+///   port beside another URL, and stays.
 /// - A host and port with no path, then `;name=value@…`
 ///   (`https://h:8080;contact=ops@example.com`): the authority runs to the
 ///   first `/`, `?` or `#`, so this is user info `h` with the password
 ///   `8080;contact=ops`, and it is masked.
-/// - A password holding `scheme://` anywhere but at its start
-///   (`redis://u:a/https://b@h`): the URL ends where that `scheme://`
-///   starts, so the password is cut there and not masked past it.
 String redactUrlPassword(String url, {bool loneUserIsPassword = false}) {
   final separator = url.indexOf('://');
   final start = separator > 0 && _isScheme(url, separator)
@@ -388,6 +389,26 @@ String _maskPasswords(
     );
     if (span != null) {
       spans.add(span);
+      continue;
+    }
+    // Row 6: this URL ends inside a row 2 password (a `:` that is not a
+    // port's, no `@` before its end) and the next URL's authority holds an
+    // `@`: the `scheme://` is inside the password (`redis://u:a/https://b@h`),
+    // so the two are one URL, masked to that `@`.
+    final colon = i + 1 < authorities.length
+        ? _openPassword(text, authorities[i], limits[i])
+        : -1;
+    if (colon >= 0) {
+      final next = authorities[i + 1];
+      var end = next;
+      while (end < limits[i + 1] && !_endsAuthority(text.codeUnitAt(end))) {
+        end++;
+      }
+      final at = _lastIn(text, 0x40, next, end);
+      if (at >= 0) {
+        spans.add((colon + 1, at));
+        i++; // the next URL is inside this password
+      }
     }
   }
   if (spans.isEmpty) {
@@ -588,3 +609,42 @@ String _maskAllPasswords(String value) {
       : (value.startsWith('//') ? 2 : 0);
   return _maskPasswords(value, start, _urlStarts(value));
 }
+
+/// The `:` of a row 2 password left open at [limit] for the URL whose
+/// authority starts at [start]: the authority holds no `@` and a `:` that
+/// is not a port's, and no `@` follows before [limit]; else -1.
+int _openPassword(String url, int start, int limit) {
+  var end = start;
+  while (end < limit && !_endsAuthority(url.codeUnitAt(end))) {
+    end++;
+  }
+  if (_firstIn(url, 0x40, start, limit) >= 0) {
+    return -1;
+  }
+  final colon = _authorityColon(url, start, end);
+  if (colon < 0 || _isPort(url, colon + 1, end)) {
+    return -1;
+  }
+  // A port and then only token separators to [limit]
+  // (`https://h:8080|pgsql://…`): a host and a port, not a password.
+  var i = colon + 1;
+  while (i < limit && _isDigit(url.codeUnitAt(i))) {
+    i++;
+  }
+  if (i > colon + 1) {
+    while (i < limit && _isTokenSeparator(url.codeUnitAt(i))) {
+      i++;
+    }
+    if (i == limit) {
+      return -1;
+    }
+  }
+  return colon;
+}
+
+bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
+
+/// Whether [c] separates URLs in one token or text: `,`, `;`, `=`, `|`,
+/// `&`, or a space or control character.
+bool _isTokenSeparator(int c) =>
+    c <= 0x20 || c == 0x2c || c == 0x3b || c == 0x3d || c == 0x7c || c == 0x26;

@@ -21,10 +21,10 @@ void main() {
   String secret() => 'Zq${secrets++}Xv';
 
   /// A URL carrying credentials, with the secret it hides.
-  (String, String) credential(Random r) {
+  (String, String) credential(Random r, [int? form]) {
     final s = secret();
     final scheme = ['pgsql', 'redis', 'https', 'amqp'][r.nextInt(4)];
-    final url = switch (r.nextInt(6)) {
+    final url = switch (form ?? r.nextInt(9)) {
       // A: user info in the authority.
       0 => '$scheme://app:$s@db.example.com/shop',
       // B: a password holding `/`, `?` or `#`, not starting with digits.
@@ -36,7 +36,12 @@ void main() {
       // D: a path segment `name:password@` after an authority without `:`.
       4 => '$scheme://gateway/app:$s@h1/p',
       // E: user info whose password holds an `@`.
-      _ => '$scheme://app:p@$s@db.example.com/shop',
+      5 => '$scheme://app:p@$s@db.example.com/shop',
+      // F: a password holding `scheme://` in its middle, after a `/`,
+      // without one, and with the secret before it.
+      6 => '$scheme://app:a/https://$s@db/shop',
+      7 => '$scheme://app:ab://$s@db/shop',
+      _ => '$scheme://app:$s/x://y@db/shop',
     };
     return (url, s);
   }
@@ -156,6 +161,7 @@ void main() {
       'many URLs side by side': (n) => 'x://u:p@h;' * (n ~/ 10),
       'many schemes at one authority': (n) => '${'a://' * (n ~/ 4)}u:p@h',
       'colons in a path': (n) => 'x://h/${':' * n}@',
+      'schemes inside a password': (n) => 'x://u:a/${'b://c/' * (n ~/ 6)}d@h',
     };
     for (final MapEntry(key: name, value: build) in shapes.entries) {
       final small = build(256 * kib);
@@ -181,8 +187,42 @@ void main() {
     }
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  test('P1 and P3, every pair: a host and port without a path, then each '
+      'join, then each credential form', () {
+    final failures = <String>[];
+    const benignHost = 'https://h.example.com:8080';
+    const joins = [' ', ',', ';', '|', '&', '=', '/r/', '?next='];
+    for (var form = 0; form < 9; form++) {
+      for (final joinWith in joins) {
+        final (url, s) = credential(Random(form), form);
+        final text = '$benignHost$joinWith$url';
+        for (final (name, out) in [
+          ('redactUrlInText', redactUrlInText(text)),
+          ('redactUrl', redactUrl(text)),
+        ]) {
+          if (out.contains(s)) {
+            failures.add('P1 $name form $form: $text -> $out');
+          }
+          if (!out.contains(benignHost)) {
+            failures.add('P3 $name form $form: $text -> $out');
+          }
+        }
+      }
+    }
+    expect(failures, isEmpty);
+  });
+
   group('fixed seeds: the shapes found by review', () {
     for (final (input, expected) in [
+      // A host and port, a separator, then credentials: not row 6.
+      ('https://h:8080|pgsql://u:s@db', 'https://h:8080|pgsql://u:***@db'),
+      // Known limit: a password of digits, a separator, then a URL.
+      ('redis://u:1234,https://x@h', 'redis://u:1234,https://x@h'),
+      // A password holding `scheme://` in its middle (row 6).
+      ('redis://u:a/https://b@h', 'redis://u:***@h'),
+      ('redis://u:ab://cd@h', 'redis://u:***@h'),
+      // Masked more than the password, as accepted.
+      ('a=x://h:abc/p,https://user@host', 'a=x://h:***@host'),
       // One segment after a port, with an `@` inside it.
       ('redis://my:1234/a@S@h/0', 'redis://my:***@h/0'),
       // An `@` in the path and one in the query of the same URL.
