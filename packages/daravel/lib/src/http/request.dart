@@ -594,14 +594,25 @@ final class Request {
 
   StreamSubscription<List<int>>? _refusedBody;
 
+  /// Takes [subscription] (the body source of a read just refused) away
+  /// from the read, which is closed: from now on everything it delivers is
+  /// dropped, its data counted (and paused past [refusedBodyDiscardBytes]),
+  /// and also an error or its end, which the read can no longer take (a
+  /// source cancelled midway reports an error, which went to the closed
+  /// read as an uncaught one). Its end does not clear [_refusedBody]: the
+  /// server still closes the connection, as it does for any body refused
+  /// while it was read.
   void _refuseRest(StreamSubscription<List<int>> subscription) {
     var discarded = 0;
-    subscription.onData((chunk) {
-      discarded += chunk.length;
-      if (discarded >= refusedBodyDiscardBytes && !subscription.isPaused) {
-        subscription.pause();
-      }
-    });
+    subscription
+      ..onData((chunk) {
+        discarded += chunk.length;
+        if (discarded >= refusedBodyDiscardBytes && !subscription.isPaused) {
+          subscription.pause();
+        }
+      })
+      ..onError((Object _) {})
+      ..onDone(() {});
     _refusedBody = subscription;
   }
 
