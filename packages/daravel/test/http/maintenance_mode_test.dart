@@ -127,9 +127,13 @@ void main() {
         random.nextInt(8),
         (_) => digits[random.nextInt(digits.length)],
       ).join();
-      final bad = random.nextBool()
-          ? '%z${digits[random.nextInt(digits.length)]}'
-          : '%';
+      final bad = switch (random.nextInt(5)) {
+        0 => '%z${digits[random.nextInt(digits.length)]}',
+        1 => '%',
+        2 => '%ff',
+        3 => '%c3',
+        _ => '%ed%a0%80',
+      };
       final request = Request.fake(
         headers: {'cookie': 'a=b; daravel_maintenance=$prefix$bad'},
       );
@@ -143,6 +147,59 @@ void main() {
       );
     }
   });
+
+  test('invalid cookie encodings do not hide a later valid bypass', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final valid = PreventRequestsDuringMaintenance.bypassCookie('preview-123')
+        .split(';')
+        .first;
+    for (final bad in ['%ff', '%c3', '%ed%a0%80', '%zz']) {
+      final invalid = 'daravel_maintenance=$bad';
+      for (final cookie in ['$invalid; $valid', '$valid; $invalid']) {
+        final response = await app.handle(
+          Request.fake(path: '/api/ping', headers: {'cookie': cookie}),
+        );
+        expect(response.status, 200, reason: cookie);
+      }
+      expect(
+        PreventRequestsDuringMaintenance.hasValidBypassCookie(
+          Request.fake(headers: {'cookie': invalid}),
+          'preview-123',
+        ),
+        isFalse,
+      );
+    }
+  });
+
+  test('malformed first cookie does not hide a valid bypass', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final valid = PreventRequestsDuringMaintenance.bypassCookie('preview-123')
+        .split(';')
+        .first;
+    final response = await app.handle(
+      Request.fake(
+        path: '/api/ping',
+        headers: {'cookie': 'daravel_maintenance=%zz; $valid'},
+      ),
+    );
+    expect(response.status, 200);
+  });
+
+  test(
+    'decoder distinguishes malformed percent encoding and malformed UTF-8',
+    () {
+      expect(() => Uri.decodeComponent('%zz'), throwsArgumentError);
+      for (final value in ['%ff', '%c3', '%ed%a0%80']) {
+        expect(
+          () => Uri.decodeComponent(value),
+          throwsFormatException,
+          reason: value,
+        );
+      }
+    },
+  );
 
   test('CI reports cookie parsing costs', () async {
     app = await boot();

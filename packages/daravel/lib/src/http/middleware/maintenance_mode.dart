@@ -212,7 +212,9 @@ final class PreventRequestsDuringMaintenance implements Middleware {
           try {
             return Uri.decodeComponent(part.substring(separator + 1).trim());
           } on ArgumentError {
-            return null;
+            continue;
+          } on FormatException {
+            continue;
           }
         }
       }
