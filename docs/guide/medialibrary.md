@@ -198,7 +198,7 @@ isolate, so a large photo does not hold up the requests beside it.
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | The largest file, in bytes |
 | `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | The most pixels an image is decoded to for its conversions |
 | `MEDIA_MAX_IMAGE_FRAMES` | `1000` | The most frames an image may hold for its conversions |
-| `MEDIA_MAX_GIF_PIXELS` | a tenth of `MEDIA_MAX_IMAGE_PIXELS` | The most pixels (width x height x frames) a conversion writes as a GIF; about 1.2 s per million |
+| `MEDIA_MAX_CONVERSION_WORK` | `10000` | The most work a conversion may take, in units of about a millisecond of one core of the reference runner |
 | `MEDIA_QUEUE` | the default queue | The queue of conversion jobs |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Queue conversions that do not say `nonQueued()` |
 | `MEDIA_PREFIX` | none | A directory in front of every media directory |

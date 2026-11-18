@@ -427,9 +427,13 @@ jobs:
   media-bench:
     # TEMPORARY (draft branch only, removed before the pull request is
     # ready): the conversion work model measured on the reference runner.
-    name: Media conversion bench (temporary)
+    name: Media conversion bench ${{ matrix.run }} (temporary)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -443,7 +447,8 @@ jobs:
           cd packages/daravel_medialibrary
           mkdir -p build
           dart compile exe tool/conversion_bench.dart -o build/bench
-          nproc; free -m
+          echo "CPU: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2) x $(nproc)"
+          free -m
           build/bench all --repeat=3 --random=40
 
   mysql:

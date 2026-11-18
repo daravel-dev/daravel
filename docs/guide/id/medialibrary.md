@@ -203,7 +203,7 @@ foto besar tidak menahan request lain.
 | `MEDIA_MAX_FILE_SIZE` | `10485760` | Ukuran file terbesar, dalam byte |
 | `MEDIA_MAX_IMAGE_PIXELS` | `40000000` | Jumlah piksel terbanyak hasil dekode gambar untuk konversinya |
 | `MEDIA_MAX_IMAGE_FRAMES` | `1000` | Jumlah frame terbanyak sebuah gambar untuk konversinya |
-| `MEDIA_MAX_GIF_PIXELS` | sepersepuluh `MEDIA_MAX_IMAGE_PIXELS` | Piksel terbanyak (lebar x tinggi x frame) yang ditulis konversi sebagai GIF; sekitar 1,2 dtk per juta |
+| `MEDIA_MAX_CONVERSION_WORK` | `10000` | Kerja terbanyak sebuah konversi, dalam unit kira-kira satu milidetik satu inti runner acuan |
 | `MEDIA_QUEUE` | queue default | Queue untuk job konversi |
 | `QUEUE_CONVERSIONS_BY_DEFAULT` | `true` | Konversi tanpa `nonQueued()` dijalankan di queue |
 | `MEDIA_PREFIX` | tidak ada | Direktori di depan setiap direktori media |
