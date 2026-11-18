@@ -927,6 +927,77 @@ void main() {
         await app.shutdown();
       }
     }, timeout: const Timeout(Duration(seconds: 60)));
+
+    // The handler cancels its subscription 300 ms in (`cancel`); the slow
+    // client never reads, so it is closed as one (`overflow`).
+    final violation = RawWsClient.frame(0x3, const []);
+    for (final (name, path, paused, prelude) in [
+      (
+        'a violation x sub.cancel()',
+        '/end?handler=reads&end=cancel',
+        false,
+        [violation],
+      ),
+      (
+        'closed as a slow client x a violation',
+        '/overflow-on-first',
+        true,
+        [RawWsClient.frame(0x1, utf8.encode('go')), violation],
+      ),
+      (
+        'closed as a slow client x sub.cancel()',
+        '/end?handler=reads&end=overflow+cancel',
+        true,
+        <Uint8List>[],
+      ),
+    ]) {
+      test('$name, the client sending on: what is read stays within the '
+          'bound and the socket ends within 11 s', () async {
+        final (app, engine) = await serve();
+        try {
+          final client = await RawWsClient.connect(engine.port!, path);
+          if (paused) {
+            client.pauseReading();
+          }
+          final before = readSinceDone();
+          final watch = Stopwatch()..start();
+          for (final frame in prelude) {
+            client.socket.add(frame);
+            await Future<void>.delayed(const Duration(milliseconds: 400));
+          }
+          final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+          while (watch.elapsed < const Duration(seconds: 20) &&
+              engine.openWebSockets > 0) {
+            try {
+              client.socket.add(payload);
+              await client.socket.flush().timeout(
+                const Duration(milliseconds: 500),
+              );
+            } on TimeoutException {
+              // Held back: the server stopped reading. Keep trying.
+            } on Object {
+              break; // The socket is gone.
+            }
+          }
+          final deadline = DateTime.now().add(const Duration(seconds: 20));
+          while (engine.openWebSockets > 0 &&
+              DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          expect(engine.openWebSockets, 0);
+          expect(await gracesWithin(const Duration(seconds: 13)), 0);
+          expect(
+            watch.elapsed,
+            lessThan(const Duration(seconds: 11) + const Duration(seconds: 2)),
+          );
+          expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+          client.socket.destroy();
+        } finally {
+          await engine.stop();
+          await app.shutdown();
+        }
+      }, timeout: const Timeout(Duration(seconds: 60)));
+    }
   });
 }
 
