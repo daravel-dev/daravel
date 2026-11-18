@@ -60,18 +60,29 @@ final class GracefulServerSocket extends StreamView<Socket>
   bool get accepting => _accepting;
 
   /// Stops accepting new connections; those accepted stay with the server
-  /// listening on this stream. Idempotent.
-  Future<void> stopAccepting() async {
-    if (!_accepting) {
-      return;
-    }
+  /// listening on this stream. Idempotent: every caller gets the same
+  /// future, which completes once the listening socket is closed.
+  Future<void> stopAccepting() {
     _accepting = false;
-    await _inner.close();
+    return _stopping ??= _inner.close().then<void>(
+      (_) {},
+      // Closing a listening socket that is gone already changes nothing:
+      // shared by every caller, this future never fails.
+      onError: (Object _) {},
+    );
   }
 
+  Future<void>? _stopping;
+
   /// Ends the stream of connections (after [stopAccepting]): the server
-  /// then closes its idle connections. Idempotent.
-  Future<void> finish() async {
+  /// then closes its idle connections. Idempotent: every caller, also one
+  /// that calls while another's [finish] is under way, gets the same
+  /// future, which completes once it is all done.
+  Future<void> finish() => _finishing ??= _finish();
+
+  Future<void>? _finishing;
+
+  Future<void> _finish() async {
     await stopAccepting();
     await _subscription?.cancel();
     _subscription = null;

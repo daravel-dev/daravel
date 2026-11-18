@@ -166,6 +166,11 @@ final class PreventRequestsDuringMaintenance implements Middleware {
 
   /// Whether [request] carries a bypass cookie made with [secret] that has
   /// not expired.
+  ///
+  /// The first cookie of that name that decodes is the one checked: a
+  /// later one is looked at only when an earlier one does not decode, so a
+  /// first cookie that decodes but is expired or wrongly signed ends the
+  /// search.
   static bool hasValidBypassCookie(Request request, String secret) {
     final raw = _cookie(request.headers, cookieName);
     if (raw == null) {

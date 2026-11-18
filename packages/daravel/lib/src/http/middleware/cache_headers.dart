@@ -172,9 +172,10 @@ final class CacheHeadersMiddleware implements Middleware {
   /// Symfony's `isNotModified` (RFC 7232: `If-Modified-Since` only without
   /// `If-None-Match`).
   static bool _notModified(Request request, Headers headers) {
-    final ifNoneMatch = request.header('if-none-match');
+    // Every line of the field, joined (RFC 9110 §5.3).
+    final ifNoneMatch = request.headers.all('if-none-match').join(', ');
     final etag = headers.first('etag');
-    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+    if (ifNoneMatch.isNotEmpty) {
       if (etag == null) {
         return false;
       }
