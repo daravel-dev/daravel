@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:path/path.dart' as p;
 
 import '../dartisan_cli.dart';
 import 'console/runner_console.dart' show consoleOf;
@@ -92,7 +93,9 @@ final class SecurityAuditCommand extends DaravelCommand {
     if (output == null) {
       stdout.write(report.endsWith('\n') ? report : '$report\n');
     } else {
-      File(output)
+      // Relative to the project, as openapi:generate's, whatever the
+      // working directory.
+      File(p.isAbsolute(output) ? output : p.join(app.basePath, output))
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(report);
       stdout.writeln('Wrote $output (${result.findings.length} finding(s)).');

@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:4bd4a8622ddf -->
+<!-- source: README.md sha256:eefc864daaf0 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_log_viewer
@@ -19,7 +19,7 @@ dart pub add daravel_log_viewer
 import 'package:daravel_log_viewer/daravel_log_viewer.dart';
 
 Application createApp() => Application.configure(basePath: '.')
-    .withLogViewer(middleware: ['auth', 'can:view-logs'])
+    .withLogViewer()
     // ...
     .create();
 // https://your-app/log-viewer
@@ -32,8 +32,12 @@ Application createApp() => Application.configure(basePath: '.')
   lanjut.
 - Menyembunyikan data rahasia (`password`, `token`, `authorization`, ...)
   di context dan teks; hanya membuka file `.log` di foldernya; halaman
-  dengan Content-Security-Policy berbasis nonce tanpa aset eksternal;
-  menjawab 403 di luar local sampai diberi middleware.
+  dengan Content-Security-Policy berbasis nonce tanpa aset eksternal.
+- Hanya terbuka di `APP_ENV=local`: di tempat lain (termasuk `testing` dan
+  staging), setiap route, termasuk unduh dan hapus, menjawab 403 kecuali
+  gate `viewLogViewer` atau `LogViewer.auth((request) => ...)`
+  mengizinkannya (panggil di dalam `createApp`). Middleware tidak pernah
+  membukanya.
 - Download dan hapus (opsional); API JSON untuk tool lain.
 
 Dokumentasi: <https://github.com/daravel-dev/daravel/blob/main/docs/guide/id/log-viewer.md>.

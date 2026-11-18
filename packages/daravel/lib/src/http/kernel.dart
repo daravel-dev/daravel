@@ -44,6 +44,7 @@ final class HttpKernel {
     required this.exceptions,
     this.logger,
     this.multipartLimits = const MultipartLimits(),
+    this.maxInputVars = Request.defaultMaxInputVars,
     this.jsonMaxDepth = Request.defaultJsonMaxDepth,
     this.jsonBodyLimit = BodyLimits.json,
     this.formBodyLimit = BodyLimits.form,
@@ -65,6 +66,11 @@ final class HttpKernel {
   /// ([Request.multipartLimits]): the application's `HTTP_MULTIPART_*`, the
   /// same for a served request and one from the test client.
   final MultipartLimits multipartLimits;
+
+  /// The most query or URL-encoded form pairs per request
+  /// ([Request.maxInputVars]): the application's `HTTP_MAX_INPUT_VARS`;
+  /// `null` for no limit.
+  final int? maxInputVars;
 
   /// Given to every request before the middleware runs
   /// ([Request.jsonMaxDepth]): the application's `HTTP_JSON_MAX_DEPTH`,
@@ -99,6 +105,7 @@ final class HttpKernel {
   Future<Response> handle(Request request) async {
     _bindLogContext(request);
     request.multipartLimits = multipartLimits;
+    request.maxInputVars = maxInputVars;
     request.jsonMaxDepth = jsonMaxDepth;
     // JSON and form bodies get their own limit (1 MiB by default), for a
     // served request and one from the test client alike; enforced when the
@@ -127,7 +134,15 @@ final class HttpKernel {
     }
     // Last, after every middleware (compression, cache headers) has seen the
     // body a GET would get: HEAD answers the same headers without it.
-    return request.method == 'HEAD' ? response.withoutBody() : response;
+    if (request.method == 'HEAD') {
+      if (response.webSocket != null) {
+        response = Response.json(const <String, Object?>{
+          'message': 'Upgrade Required',
+        }, status: 426).withHeader('upgrade', 'websocket');
+      }
+      return response.withoutBody();
+    }
+    return response;
   }
 
   /// Runs `terminate()` of every terminable middleware that applied to the

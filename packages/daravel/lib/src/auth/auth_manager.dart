@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../database/orm/keys.dart';
 import '../foundation/config.dart';
+import '../foundation/config_validator.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
@@ -34,6 +35,7 @@ final class AuthConfig implements ConfigSection {
     this.jwtKid,
     this.jwtSubjectClass,
     this.jwtIssuerClaim,
+    this.jwtRequiredClaims = const ['exp'],
   });
 
   /// The settings in `AUTH_*`, `JWT_*` and `SANCTUM_*`.
@@ -57,6 +59,10 @@ final class AuthConfig implements ConfigSection {
     // tymon requires an iss; without JWT_ISSUER_CLAIM the application URL.
     jwtIssuerClaim:
         env.maybeString('JWT_ISSUER_CLAIM') ?? env.maybeString('APP_URL'),
+    // Set but empty requires nothing; unset requires exp.
+    jwtRequiredClaims: env.has('JWT_REQUIRED_CLAIMS')
+        ? env.list('JWT_REQUIRED_CLAIMS')
+        : const ['exp'],
   );
 
   /// The guard used when none is named (`AUTH_GUARD`, `token`).
@@ -110,6 +116,58 @@ final class AuthConfig implements ConfigSection {
   /// to match on every token.
   final String? jwtIssuerClaim;
 
+  /// Claims every JWT must carry (`JWT_REQUIRED_CLAIMS`, comma-separated;
+  /// `exp` when unset, nothing when set empty): a token without one is
+  /// refused like any invalid token. tymon/jwt-auth's `required_claims`
+  /// also requires `exp` by default. The guard writes `exp`, `iat`, `sub`
+  /// and `jti` into its own tokens, and `nbf` and `iss` when required.
+  final List<String> jwtRequiredClaims;
+
+  /// Claims the JWT guard writes into the tokens it issues, given these
+  /// settings: a required claim outside them makes the guard's own tokens
+  /// fail unless the application passes it to `issue(claims:)`.
+  Set<String> get jwtIssuedClaims => {
+    'exp',
+    'iat',
+    'sub',
+    'jti',
+    'nbf',
+    'iss',
+    if (jwtAudience != null) 'aud',
+    if (jwtSubjectClass?.isNotEmpty ?? false) 'prv',
+  };
+
+  /// `JWT_REQUIRED_CLAIMS` problems: a name that is not a claim name
+  /// stops the boot; a claim the guard does not write is a warning, and so
+  /// is requiring nothing in production (a token without `exp` is then
+  /// valid for ever).
+  static Iterable<ConfigIssue> check(Env env, ConfigRepository config) {
+    final auth = config.section<AuthConfig>();
+    final name = RegExp(r'^[A-Za-z0-9_.:-]{1,64}$');
+    return [
+      if (auth.jwtRequiredClaims.isEmpty &&
+          config.section<AppConfig>().isProduction)
+        const ConfigIssue(
+          ConfigIssueLevel.warning,
+          'JWT_REQUIRED_CLAIMS is empty in production: a JWT without exp '
+          'never expires.',
+        ),
+      for (final claim in auth.jwtRequiredClaims)
+        if (!name.hasMatch(claim))
+          ConfigIssue(
+            ConfigIssueLevel.error,
+            'JWT_REQUIRED_CLAIMS: "$claim" is not a claim name '
+            '(letters, digits, _ . : -, at most 64).',
+          )
+        else if (!auth.jwtIssuedClaims.contains(claim))
+          ConfigIssue(
+            ConfigIssueLevel.warning,
+            'JWT_REQUIRED_CLAIMS: the JWT guard does not write "$claim" into '
+            'its tokens; pass it to issue(claims:) or they are refused.',
+          ),
+    ];
+  }
+
   @override
   String get key => 'auth';
 
@@ -130,6 +188,7 @@ final class AuthConfig implements ConfigSection {
       'kid': jwtKid,
       'subject_class': jwtSubjectClass,
       'issuer_claim': jwtIssuerClaim,
+      'required_claims': jwtRequiredClaims,
     },
   };
 }
@@ -272,6 +331,7 @@ final class AuthManager {
       leeway: config.jwtLeeway,
       issuer: config.jwtIssuer,
       audience: config.jwtAudience,
+      requiredClaims: config.jwtRequiredClaims,
     );
   }
 

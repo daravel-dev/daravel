@@ -415,6 +415,14 @@ final class DatabaseManager {
     return executor.execute(expanded, values);
   }
 
+  /// Runs [sql] unprepared, as Laravel's `DB::unprepared`: several
+  /// statements in one call (a SQL script), or one the server cannot
+  /// prepare. [select], [statement] and [insertGetId] run one statement
+  /// and refuse more on every built-in driver. Nothing is bound: never
+  /// build [sql] from input.
+  Future<void> unprepared(String sql, [String? connection]) async =>
+      UnpreparedExecutor.run(await executor(connection), sql);
+
   /// Runs a raw insert and returns the generated id.
   Future<Object?> insertGetId(
     String sql, [
@@ -1024,7 +1032,7 @@ final class _TransactionScope {
   }
 }
 
-final class _ScopedExecutor implements QueryExecutor {
+final class _ScopedExecutor implements QueryExecutor, UnpreparedExecutor {
   _ScopedExecutor(this._scope);
 
   final _TransactionScope _scope;
@@ -1057,6 +1065,12 @@ final class _ScopedExecutor implements QueryExecutor {
   ]) async {
     await _scope._ready(sql);
     return _scope.connection.insertGetId(sql, bindings);
+  }
+
+  @override
+  Future<void> unprepared(String sql) async {
+    await _scope._ready(sql);
+    return UnpreparedExecutor.run(_scope.connection, sql);
   }
 }
 

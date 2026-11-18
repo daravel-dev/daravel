@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/log-viewer.md`.
 const String pageIdLogViewer =
-    r'''<!-- source: log-viewer.md sha256:3e249b48169f -->
+    r'''<!-- source: log-viewer.md sha256:27a332bd0477 -->
 # Log viewer
 
 `daravel_log_viewer` menyajikan sebuah halaman, dari aplikasi Anda, yang
@@ -27,7 +27,7 @@ dan pengaturan `LOG_VIEWER_*` ke `.env.example`. Dengan
 import 'package:daravel_log_viewer/daravel_log_viewer.dart';
 
 Application createApp() => Application.configure(basePath: basePath)
-    .withLogViewer(middleware: ['auth', 'can:view-logs'])
+    .withLogViewer()
     // ...
     .create();
 ```
@@ -42,14 +42,23 @@ LOG_STACK=console,daily
 
 ## Siapa yang boleh melihat
 
-Log mengungkap banyak hal tentang sebuah aplikasi. Di luar
-`APP_ENV=local` dan `testing`, viewer menjawab 403 sampai `withLogViewer`
-diberi middleware, misalnya `auth` dan sebuah gate:
+Log mengungkap banyak hal tentang sebuah aplikasi. Viewer hanya terbuka di
+`APP_ENV=local`. Di tempat lain (termasuk `testing` dan staging), setiap
+route, termasuk unduh, hapus, dan tail langsung, menjawab 403 kecuali gate
+`viewLogViewer` mengizinkan user yang login:
 
 ```dart
 // bootstrap/policies.dart
-gate.define('view-logs', (user, args) => user is User && user.isAdmin);
+gate.define('viewLogViewer', (user, args) => user is User && user.isAdmin);
 ```
+
+Tanpa session, `LogViewer.auth` memutuskan per request (opcodesio/log-viewer
+punya `LogViewer::auth` yang sama); panggil di dalam `createApp` supaya
+setiap worker isolate memilikinya. Berbeda dengan opcodesio/log-viewer,
+environment selain local yang tidak punya keduanya tertutup, bukan
+terbuka. Middleware tidak pernah membukanya: `withLogViewer(middleware:
+[...])` hanya berjalan sebelum keputusan itu, dan bawaannya group `web` bila
+aplikasi punya session.
 
 `LOG_VIEWER_ENABLED=false` mematikannya (404) di mana pun.
 

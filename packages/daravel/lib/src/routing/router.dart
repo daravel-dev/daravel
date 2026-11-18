@@ -104,9 +104,10 @@ final class Router {
   /// runs first, then the connection is upgraded and [handler] gets the
   /// socket and the request (route parameters, `Auth.user()`) in the
   /// request's scope. A plain request gets `426 Upgrade Required`.
-  /// A WebSocket route; [compress] false turns permessage-deflate off, and
-  /// a client with more than [maxBufferedBytes] waiting to be sent is
-  /// closed with [slowClientCode] (see [Response.webSocket]). With
+  /// A WebSocket route; [compress] true agrees to permessage-deflate (off
+  /// by default: see [Response.webSocket] for its cost), and a client with
+  /// more than [maxBufferedBytes] waiting to be sent is closed with
+  /// [slowClientCode]. With
   /// [drainSpread] a shutting-down server closes these sockets at random
   /// moments within it instead of all at once. [maxPayloadBytes] limits a
   /// whole message (all its fragments), [assembleTimeout] how long one may
@@ -115,7 +116,7 @@ final class Router {
   RouteEntry ws(
     String path,
     WebSocketHandler handler, {
-    bool compress = true,
+    bool compress = false,
     int maxPayloadBytes = Response.defaultWebSocketMaxPayloadBytes,
     int maxBufferedBytes = Response.defaultWebSocketMaxBufferedBytes,
     int slowClientCode = 1008,

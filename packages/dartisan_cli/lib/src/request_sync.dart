@@ -44,7 +44,9 @@ final class RequestSource {
   }
 
   static final RegExp _field = RegExp(
-    r"static\s+const\s+(\w+)\s*=\s*Field<(.+?)>\(\s*'([^']+)'\s*\)",
+    // The key as written: a single-quoted literal on one line, escapes
+    // included (it is copied as it is, being Dart source already).
+    r"static\s+const\s+(\w+)\s*=\s*Field<(.+?)>\(\s*'((?:[^'\\\r\n]|\\.)+)'\s*\)",
   );
 
   /// The request class.
@@ -66,8 +68,9 @@ const String _inputEnd = '// </dartisan:input>';
 /// default `dart format` settings when null), so a synced file stays
 /// format-clean; written as generated when it cannot be formatted.
 String inputRegion(RequestSource request, {RegionFormatter? formatter}) {
-  String key(String k) =>
-      "'${k.replaceAll(r'\', r'\\').replaceAll(r'$', r'\$')}'";
+  // The key is the literal's source text from the same file: copied, not
+  // escaped again (that would change its value).
+  String key(String k) => "'$k'";
   final code = [
     _inputStart,
     '/// The validated input of [${request.className}], one getter per `Field`',

@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/database.md`.
 const String pageIdDatabase =
-    r'''<!-- source: database.md sha256:3a91a1c4248e -->
+    r"""<!-- source: database.md sha256:1a4fc6c4856b -->
 # Database
 
 `DB_CONNECTION` memilih SQLite (`sqlite`, default), PostgreSQL (`pgsql`),
@@ -666,6 +666,53 @@ SQLite menyimpan kolom ini sebagai teks dan melewati index-nya, jadi migrasi tet
 berjalan di test, tetapi query jarak melempar error di sana. Di MySQL, `vector` hanya
 menambah kolom: index dan query jarak tidak didukung.
 
+## Satu statement per panggilan, dan skrip
+
+`DB.select`, `DB.statement`, dan `DB.insertGetId` menjalankan tepat satu
+statement, dengan atau tanpa binding, di setiap driver. SQL yang memuat
+statement kedua (`SELECT 1; DROP TABLE users`) ditolak dengan
+`QueryException` dan tidak ada yang dijalankan, sehingga nilai yang
+terselip ke teks SQL tidak bisa menambahkan statement sendiri. `;` atau
+komentar di akhir tetap boleh.
+
+Skrip berisi beberapa statement, atau statement yang tidak bisa di-prepare
+server, dijalankan lewat `DB.unprepared`, seperti `DB::unprepared` di
+Laravel:
+
+```dart
+await DB.unprepared('''
+  CREATE TABLE audit (id integer primary key, note text);
+  CREATE INDEX audit_note ON audit (note);
+''');
+```
+
+Di `DB.unprepared` tidak ada yang di-bind, jadi jangan pernah memasukkan
+input ke SQL-nya; `dartisan lint` menandai interpolasi di sana seperti di
+tempat lain.
+
+Placeholder di SQL mentah yang memakai binding (`?`, `:name`) dicari dengan
+pemindaian yang mengenal tanda kutip, tetapi tidak mengenal escape backslash
+MySQL (`'it\'s'`) atau komentar: di SQL seperti itu, jangan menulis literal
+ber-`\'` atau `:name` di dalam komentar, dan kirim nilai sebagai binding.
+
+- MySQL dan MariaDB memeriksa setiap teks statement baru yang dikirim tanpa
+  binding dengan sebuah prepare yang langsung ditutup, lalu mengingat teks
+  yang sudah diperiksa sebuah koneksi (256 per koneksi, masing-masing
+  sampai 4 096 karakter). Teks yang berulang tidak menambah biaya; teks
+  yang pertama kali muncul di sebuah koneksi menambah satu perjalanan
+  pulang-pergi, jadi kirim nilai sebagai binding, bukan di dalam teks.
+  `SET`, `CALL`, atau `EXECUTE` (dan statement majemuk MariaDB di luar
+  routine: `BEGIN NOT ATOMIC`, `IF`, `CASE`, `WHILE`, `LOOP`, `REPEAT`,
+  `FOR`) membuat koneksi memeriksa teksnya lagi, karena `sql_mode` dan
+  character set mengubah cara teks dipecah; begitu juga statement yang
+  tidak diterima protokol prepared (1295), kecuali kontrol transaksi,
+  savepoint, penguncian tabel, dan sejenisnya. Trigger atau stored function yang
+  mengubah `sql_mode` tidak terdeteksi: jangan ubah mode di dalamnya.
+- PostgreSQL sudah menolak statement kedua (`42601`).
+- SQLite juga menolaknya. Laravel di SQLite menjalankan statement pertama
+  dari SQL seperti itu dan membuang sisanya tanpa error; Daravel
+  menolaknya.
+
 ## Error query
 
 Query yang ditolak database melempar `QueryException`, berisi `sql`,
@@ -870,4 +917,4 @@ Bagian lain dari Laravel yang ikut didukung, beserta API yang bisa dicari di pub
 | `$table->id() / string() / foreignId()->constrained()` | `table.id() / string() / foreignId().constrained()` | `Blueprint.foreignId` |  |
 | `$table->morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `table.morphs('taggable') / nullableMorphs / uuidMorphs / ulidMorphs` | `Blueprint.nullableMorphs` |  |
 | `$table->timestamps() / softDeletes() / rememberToken()` | `table.timestamps() / softDeletes() / rememberToken()` | `Blueprint.softDeletes` |  |
-''';
+""";

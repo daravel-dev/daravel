@@ -53,7 +53,7 @@ final class SseEvent {
       return '${lines.isEmpty ? ':\n' : lines}\n';
     }
     if (event case final String name) {
-      lines.write('event: $name\n');
+      lines.write('event: ${name.replaceAll(RegExp('[\r\n]'), '')}\n');
     }
     if (id case final String value) {
       lines.write('id: ${value.replaceAll(RegExp('[\r\n]'), '')}\n');
@@ -254,7 +254,21 @@ typedef WebSocketHandler = FutureOr<void> Function(
   Request request,
 );
 
-/// Whether [request] asks to switch to the WebSocket protocol.
-bool isWebSocketUpgrade(Request request) =>
-    (request.header('upgrade') ?? '').toLowerCase() == 'websocket' &&
-    (request.header('connection') ?? '').toLowerCase().contains('upgrade');
+/// Whether [request] asks to switch to the WebSocket protocol: GET over
+/// HTTP/1.1, one `Upgrade: websocket` value, and an `upgrade` token in any
+/// `Connection` line. Handshake keys and versions are checked separately.
+bool isWebSocketUpgrade(Request request) {
+  if (request.originalMethod != 'GET' || request.protocolVersion != '1.1') {
+    return false;
+  }
+  final upgrade = request.headers.all('upgrade');
+  return upgrade.length == 1 &&
+      upgrade.single.toLowerCase() == 'websocket' &&
+      request.headers
+          .all('connection')
+          .any(
+            (line) => line
+                .split(',')
+                .any((token) => token.trim().toLowerCase() == 'upgrade'),
+          );
+}

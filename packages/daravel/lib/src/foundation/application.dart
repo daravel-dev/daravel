@@ -356,7 +356,9 @@ final class Application {
     final appConfig = config.section<AppConfig>();
     exceptions.debug = appConfig.debug;
 
-    final validator = ConfigValidator(extraChecks: configChecks);
+    final validator = ConfigValidator(
+      extraChecks: [AuthConfig.check, ...configChecks],
+    );
     for (final issue in validator.validateOrThrow(env, config)) {
       logger.warning('Config: ${issue.message}');
     }
@@ -838,6 +840,7 @@ final class Application {
       exceptions: exceptions,
       logger: logger,
       multipartLimits: MultipartLimits.fromEnv(env),
+      maxInputVars: Request.maxInputVarsFromEnv(env),
       jsonMaxDepth: Request.jsonMaxDepthFromEnv(env),
       jsonBodyLimit: BodyLimits.jsonFromEnv(env),
       formBodyLimit: BodyLimits.formFromEnv(env),
@@ -1449,6 +1452,7 @@ final class Application {
     await boot();
     return container.runScoped<Response>('request', (scope) async {
       scope.put<Request>(request);
+      scope.onDispose(request.releaseRefusedBody);
       await prepare?.call();
       return kernel.handle(request);
     });

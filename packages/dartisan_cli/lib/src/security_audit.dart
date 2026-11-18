@@ -252,8 +252,8 @@ final class SecurityAudit {
     'DARAVEL-SEC-012',
     'ExposedLogViewer',
     'Log viewer open to anyone',
-    "Give it middleware: .withLogViewer(middleware: ['auth', "
-        "'can:view-logs']).",
+    'Upgrade daravel_log_viewer: outside APP_ENV=local it answers 403 '
+        "unless the viewLogViewer gate or LogViewer.auth allows the request.",
   );
 
   /// DARAVEL-SEC-013: served over plain HTTP.

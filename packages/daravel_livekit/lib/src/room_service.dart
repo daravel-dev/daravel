@@ -154,7 +154,10 @@ final class RoomServiceClient {
       throw LivekitException(
         '$method: ${details['msg'] ?? response.body}',
         status: response.status,
-        code: details['code'] as String?,
+        code: switch (details['code']) {
+          final String code => code,
+          _ => null,
+        },
       );
     }
     return response.body.trim().isEmpty ? const {} : response.jsonMap();
@@ -186,7 +189,7 @@ final class RoomServiceClient {
       if (names.isNotEmpty) 'names': names,
     }, const VideoGrant(roomList: true));
     return [
-      for (final room in field(reply, 'rooms') as List<Object?>? ?? const [])
+      for (final room in _list(reply, 'rooms'))
         if (room is Map<String, Object?>) LivekitRoom(room),
     ];
   }
@@ -213,17 +216,42 @@ final class RoomServiceClient {
       'room': room,
     }, VideoGrant(room: room, roomAdmin: true));
     return [
-      for (final p
-          in field(reply, 'participants') as List<Object?>? ?? const [])
-        if (p is Map<String, Object?>) LivekitParticipant(p),
+      for (final p in _list(reply, 'participants'))
+        if (p is Map<String, Object?>) _participant('ListParticipants', p),
     ];
   }
+
+  /// A participant of [method]'s answer, its fields checked now (as a
+  /// webhook's are): a [LivekitParticipant] read later must not throw.
+  LivekitParticipant _participant(String method, Map<String, Object?> json) {
+    final participant = LivekitParticipant(json);
+    try {
+      participant.tracks;
+    } on FormatException {
+      throw LivekitException(
+        '$method: the participant tracks field is not a list.',
+        status: 502,
+      );
+    }
+    return participant;
+  }
+
+  List<Object?> _list(Map<String, Object?> reply, String name) =>
+      switch (field(reply, name)) {
+        null => const [],
+        final List<Object?> values => values,
+        _ => throw LivekitException(
+          '$name: response field is not a list.',
+          status: 502,
+        ),
+      };
 
   /// One participant of a room.
   Future<LivekitParticipant> getParticipant(
     String room,
     String identity,
-  ) async => LivekitParticipant(
+  ) async => _participant(
+    'GetParticipant',
     await _call('GetParticipant', {
       'room': room,
       'identity': identity,
@@ -246,7 +274,8 @@ final class RoomServiceClient {
     String? name,
     Map<String, String>? attributes,
     ParticipantPermission? permission,
-  }) async => LivekitParticipant(
+  }) async => _participant(
+    'UpdateParticipant',
     await _call('UpdateParticipant', {
       'room': room,
       'identity': identity,

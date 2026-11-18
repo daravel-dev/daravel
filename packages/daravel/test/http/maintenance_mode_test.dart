@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -88,6 +89,145 @@ void main() {
     );
     expect(expired.status, 503, reason: 'the cookie lasts 12 hours');
   });
+
+  test('malformed bypass cookie behaves like no bypass cookie', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final logs = await app.run(() async => Log.spy());
+    final normal = await app.handle(Request.fake(path: '/api/ping'));
+    final normalLogs = [
+      for (final r in logs.records) (r.level, r.message, '${r.error}'),
+    ];
+    logs.clear();
+    final response = await app.handle(
+      Request.fake(
+        path: '/api/ping',
+        headers: {'cookie': 'daravel_maintenance=%zz'},
+      ),
+    );
+    expect(response.status, normal.status);
+    expect(response.status, 503);
+    expect(await response.bodyText(), await normal.bodyText());
+    expect(
+      response.headers.toSingleValueMap(),
+      normal.headers.toSingleValueMap(),
+    );
+    expect([
+      for (final r in logs.records) (r.level, r.message, '${r.error}'),
+    ], normalLogs);
+  });
+
+  test('malformed percent encodings never grant a bypass', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    for (var seed = 0; seed < 500; seed++) {
+      final random = Random(seed);
+      const digits = '0123456789abcdef';
+      final prefix = List.generate(
+        random.nextInt(8),
+        (_) => digits[random.nextInt(digits.length)],
+      ).join();
+      final bad = switch (random.nextInt(5)) {
+        0 => '%z${digits[random.nextInt(digits.length)]}',
+        1 => '%',
+        2 => '%ff',
+        3 => '%c3',
+        _ => '%ed%a0%80',
+      };
+      final request = Request.fake(
+        headers: {'cookie': 'a=b; daravel_maintenance=$prefix$bad'},
+      );
+      expect(
+        PreventRequestsDuringMaintenance.hasValidBypassCookie(
+          request,
+          'preview-123',
+        ),
+        isFalse,
+        reason: 'seed $seed',
+      );
+    }
+  });
+
+  test('invalid cookie encodings do not hide a later valid bypass', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final valid = PreventRequestsDuringMaintenance.bypassCookie('preview-123')
+        .split(';')
+        .first;
+    for (final bad in ['%ff', '%c3', '%ed%a0%80', '%zz']) {
+      final invalid = 'daravel_maintenance=$bad';
+      for (final cookie in ['$invalid; $valid', '$valid; $invalid']) {
+        final response = await app.handle(
+          Request.fake(path: '/api/ping', headers: {'cookie': cookie}),
+        );
+        expect(response.status, 200, reason: cookie);
+      }
+      expect(
+        PreventRequestsDuringMaintenance.hasValidBypassCookie(
+          Request.fake(headers: {'cookie': invalid}),
+          'preview-123',
+        ),
+        isFalse,
+      );
+    }
+  });
+
+  test('malformed first cookie does not hide a valid bypass', () async {
+    mode.activate(secret: 'preview-123');
+    app = await boot();
+    final valid = PreventRequestsDuringMaintenance.bypassCookie('preview-123')
+        .split(';')
+        .first;
+    final response = await app.handle(
+      Request.fake(
+        path: '/api/ping',
+        headers: {'cookie': 'daravel_maintenance=%zz; $valid'},
+      ),
+    );
+    expect(response.status, 200);
+  });
+
+  test(
+    'decoder distinguishes malformed percent encoding and malformed UTF-8',
+    () {
+      expect(() => Uri.decodeComponent('%zz'), throwsArgumentError);
+      for (final value in ['%ff', '%c3', '%ed%a0%80']) {
+        expect(
+          () => Uri.decodeComponent(value),
+          throwsFormatException,
+          reason: value,
+        );
+      }
+    },
+  );
+
+  test('CI reports cookie parsing costs', () async {
+    app = await boot();
+    final cases = <String, String>{
+      'long-value': 'daravel_maintenance=${'a' * (1024 * 1024)}%zz',
+      'distinct-values':
+          '${List.generate(10000, (i) => 'k$i=$i').join(';')}; daravel_maintenance=%zz',
+      'many-items':
+          '${List.filled(10000, 'a=b').join(';')}; daravel_maintenance=%zz',
+    };
+    for (final entry in cases.entries) {
+      final request = Request.fake(headers: {'cookie': entry.value});
+      final timer = Stopwatch()..start();
+      for (var i = 0; i < 20; i++) {
+        expect(
+          PreventRequestsDuringMaintenance.hasValidBypassCookie(
+            request,
+            'secret',
+          ),
+          isFalse,
+        );
+      }
+      timer.stop();
+      print(
+        'cookie ${entry.key}: ${entry.value.length} bytes, 20 runs, ${timer.elapsedMicroseconds} us',
+      );
+    }
+  }, skip: Platform.environment['CI'] != 'true' ? 'CI timing only' : false);
 
   test('up is noticed after the check interval', () async {
     app = await boot();

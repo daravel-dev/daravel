@@ -161,6 +161,15 @@ abstract final class DB {
     Object? bindings = const <Object?>[],
   ]) => manager.statement(sql, bindings);
 
+  /// Runs [sql] unprepared (`DB::unprepared`): a script of several
+  /// statements, or one the server cannot prepare; `true` when it ran.
+  /// [select], [statement] and [insertGetId] run one statement and refuse
+  /// more. Nothing is bound: never build [sql] from input.
+  static Future<bool> unprepared(String sql) async {
+    await manager.unprepared(sql);
+    return true;
+  }
+
   /// Runs an insert and returns the generated id.
   static Future<Object?> insertGetId(
     String sql, [

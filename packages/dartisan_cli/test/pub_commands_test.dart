@@ -275,10 +275,9 @@ dependency_overrides:
         contains('  daravel_reverb: ^$daravelVersion'),
       );
       final app = read('bootstrap/app.dart');
-      expect(
-        app,
-        contains(".withReverb(middleware: ['auth', 'can:viewReverb'])"),
-      );
+      // One form: the gate or ReverbDashboard.auth decides outside local.
+      expect(app, contains('.withReverb()'));
+      expect(app, isNot(contains('can:viewReverb')));
       expect(
         app,
         contains("import 'package:daravel_reverb/daravel_reverb.dart';"),
@@ -299,6 +298,9 @@ dependency_overrides:
       expect(output, contains('reverb:start'));
       expect(output, contains('withBroadcasting'));
       expect(output, contains("gate.define('viewReverb'"));
+      expect(output, contains('ReverbDashboard.auth((request) =>'));
+      expect(output, contains('constantTimeEquals('));
+      expect(output, isNot(contains('=> true')));
     });
 
     test('several packages, no secrets filled in, delegated drivers', () async {

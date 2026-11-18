@@ -1,4 +1,4 @@
-<!-- source: payments.md sha256:a68530a8c96e -->
+<!-- source: payments.md sha256:c5d64e24bd56 -->
 # Pembayaran
 
 `daravel_payments` menerima pembayaran lewat Midtrans, Xendit, atau Stripe
@@ -82,15 +82,80 @@ Atur URL notifikasi setiap gateway ke `https://<aplikasi Anda>/payments/webhook/
    Stripe: salah satu signature `v1` di `Stripe-Signature` harus sama
    dengan HMAC-SHA256 dari `<timestamp>.<body>` dengan endpoint secret,
    dan timestamp-nya paling jauh lima menit. Perbandingannya memakai waktu
-   konstan. Selain itu dijawab 401 dan tidak mengubah apa pun.
+   konstan. Selain itu dijawab 401 dan tidak mengubah apa pun. Setiap
+   notifikasi Midtrans yang terverifikasi memicu pencarian
+   [API status](https://docs.midtrans.com/reference/get-transaction-status)
+   berdasarkan `order_id` terautentikasi. Jawaban tidak ditemukan (kode
+   404 tanpa status transaksi) memicu satu pencarian lagi berdasarkan
+   `transaction_id` notifikasi, termasuk untuk DANA dan BI SNAP. Kedua
+   jalur tetap mensyaratkan jawaban tentang order terautentikasi, id dan
+   status transaksi berupa teks tak kosong, serta kode 2xx atau 407 dengan
+   `expire`. Id event, status, jumlah, mata uang, waktu, dan payload mentah
+   berasal dari API. Jawaban tidak sah, jawaban lunas tanpa `gross_amount`
+   yang terbaca, atau dua jawaban tidak ditemukan menghasilkan 5xx tanpa
+   menerapkan maupun mencatat event, sehingga Midtrans mengirim ulang
+   notifikasinya. Pemanggilan langsung `status(orderId, reference:)`
+   mencari order lewat `reference` bila Midtrans tidak mengenalnya lewat
+   id-nya, dan menghasilkan `pending` bila keduanya tidak ditemukan; jawaban
+   lunas tanpa jumlah yang terbaca juga melempar `PaymentGatewayException`
+   di sana, sehingga rekonsiliasi tidak pernah melunaskan tanpa
+   membandingkan jumlah. Notifikasi tanpa `transaction_id`, dengan
+   `transaction_id` lebih dari 255 karakter, dengan `.` atau `..` sebagai
+   id order atau transaksinya, atau dengan medan yang seharusnya teks
+   tetapi bukan teks, dijawab 400 sebelum pencarian apa pun.
+   Per order satu batch pencarian berjalan dan satu menunggu: notifikasi
+   yang tiba selama sebuah batch masuk ke batch yang menunggu. Sebuah batch
+   mencari order sekali dan, bila Midtrans tidak mengenalnya lewat id-nya,
+   tiap `transaction_id` berbeda di batch itu bergiliran, sehingga tiap
+   notifikasi menerima jawaban untuk transaksinya sendiri: paling banyak
+   1 + 4 panggilan keluar per batch. `transaction_id` berbeda kelima saat
+   batch yang menunggu penuh dijawab 429 dengan `Retry-After: 1`, yang
+   diulang Midtrans. Tiap notifikasi untuk order lain membuat panggilannya
+   sendiri; `HTTP_MAX_IN_FLIGHT` membatasi jumlah yang berjalan serentak.
+   Jawaban yang selesai tidak disimpan sebagai cache. Pengirim yang
+   memegang satu notifikasi bertanda tangan sah untuk sebuah order bisa
+   terus mengisi keempat tempat itu dengan transaction id palsu: terukur
+   dengan delapan pengirim, pengiriman sah berjarak 150 ms semuanya dijawab
+   429 selama banjir berlangsung dan diterapkan begitu banjir berhenti
+   (Midtrans mengulang 429). Atur pembatasan laju masuk melalui
+   `Payment.webhookRoutes(middleware: ...)` dan perhitungkan panggilan
+   status keluar serta ketersediaan gateway; bila `throttle` dipasang di
+   sana, jawaban 429 itu ikut memakan kuotanya seperti permintaan lain.
+   Izinkan HTTPS keluar ke `api.midtrans.com` pada produksi atau
+   `api.sandbox.midtrans.com` pada sandbox.
 2. **Diterapkan sekali.** Id-nya masuk ke `payment_webhook_logs` (unik per
-   gateway) dalam transaksi yang sama dengan perubahannya. Pengiriman ulang
-   dijawab `{"status": "duplicate"}` dan tidak melakukan apa pun.
-3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan jumlah lain
-   tidak mengubah apa pun dan mengirim event `PaymentAmountMismatch`.
+   gateway) dalam transaksi yang sama dengan perubahannya. Setelah sebuah
+   notifikasi menggerakkan pembayaran, pengiriman ulangnya dijawab
+   `{"status": "duplicate"}` dan tidak melakukan apa pun. Notifikasi yang
+   tidak menggerakkan apa pun (`unknownOrder`, `unchanged`, `ignored`,
+   `amountMismatch`) diperiksa lagi saat dikirim ulang, sehingga notifikasi
+   yang tiba sebelum order-nya tersimpan diterapkan pada pengiriman ulang
+   oleh gateway. Id Midtrans memuat order, transaksi, status, dan
+   `fraud_status`: `capture` kartu yang ditahan untuk ditinjau
+   (`challenge`) dan `capture` yang sama setelah diterima adalah dua
+   notifikasi, dan notifikasi satu order tidak pernah dianggap milik order
+   lain.
+3. **Diperiksa.** Baris pembayaran dikunci; notifikasi dengan mata uang
+   lain atau jumlah lain tidak mengubah apa pun dan mengirim event
+   `PaymentAmountMismatch`. Tanpa mata uang, hanya jumlahnya yang
+   dibandingkan.
 4. **Hanya bergerak maju.** `pending` → `paid`, `failed`, `expired`;
    `failed` atau `expired` → `paid` (pelunasan yang terlambat); `paid` →
    `refunded`. `pending` yang terlambat setelah `paid` diabaikan.
+
+Id order dan event dibatasi 255 karakter Unicode. Webhook yang melampaui
+batas dijawab 400; `Payment.checkout` dan `Payment.manager.apply` dari
+aplikasi melempar `ArgumentError` sebelum gateway atau basis data
+dihubungi. Id event Midtrans memuat id order, id transaksi, dan status,
+sehingga dengan Midtrans id order tetap jauh di bawah batas itu: Midtrans
+sendiri mengizinkan 50 karakter untuk id order Snap
+(`transaction_details.order_id`,
+https://docs.midtrans.com/reference/json-objects). Pada MySQL, id event
+yang hanya berbeda huruf besar-kecil dianggap satu event menurut kolasi
+bawaan, sedangkan PostgreSQL dan SQLite membedakannya. Payload JSON log disimpan utuh
+hingga 65.535 byte UTF-8; selebihnya hanya menyimpan
+`{"truncated":true,"bytes":N}`. Event untuk listener aplikasi tetap membawa
+payload mentahnya. Tidak diperlukan migrasi skema.
 
 Event dikirim setelah commit, sehingga listener melihat pembayaran yang
 sudah tersimpan:
@@ -103,14 +168,29 @@ events
   ..listen<PaymentAmountMismatch>((e) => Log.critical('Amount mismatch', {'order': e.payment.orderId}));
 ```
 
-Pada semua kasus lain jawabannya 200 (`applied`, `unchanged`, `ignored`,
-`unknownOrder`, `amountMismatch`), sehingga gateway berhenti mengirim ulang
-notifikasi yang memang tidak perlu ditindaklanjuti lagi.
+Notifikasi untuk order yang belum tersimpan (`unknownOrder`) dijawab 409:
+Stripe, Midtrans, dan Xendit hanya mengirim ulang notifikasi sesudah
+jawaban non-2xx, sehingga notifikasi itu diterapkan begitu order-nya ada.
+Pada akun gateway yang dipakai bersama sistem lain, notifikasi untuk
+order sistem itu lalu dikirim ulang sampai gateway menyerah dan tampil
+gagal di dasbornya; gunakan `withPayments(unknownOrderStatus: 200)` untuk
+menjawabnya 200 seperti sebelumnya. Pada semua kasus lain jawabannya 200
+(`applied`, `duplicate`, `unchanged`, `ignored`, `amountMismatch`).
+Notifikasi `amountMismatch` yang dikirim ulang diperiksa lagi dan mengirim
+`PaymentAmountMismatch` lagi, jadi listener-nya sebaiknya idempoten.
 
 ## Rekonsiliasi
 
 Notifikasi bisa saja hilang. `dartisan payment:check ORDER-42` menanyakan
 status pembayaran ke gateway lalu menerapkannya dengan cara yang sama.
+Dengan Midtrans, order dicari lewat id-nya dan, bila Midtrans tidak
+mengenalnya, lewat referensi yang tersimpan: untuk order Snap yang belum
+pernah menerima notifikasi, referensi itu adalah token Snap, yang berarti
+satu panggilan tambahan yang dijawab 404. Id event Midtrans hasil
+rekonsiliasi adalah `status:<order>:<transaction>:<status>[:<fraud_status>]`,
+paling banyak 255 karakter, sehingga id order boleh 238 karakter bila
+Midtrans tidak mengenal order-nya, 200 dengan id transaksi 36 karakter dan
+`settlement`, dan 193 bila diikuti status fraud.
 Tambahkan `...paymentCommands` dari `package:daravel_payments/commands.dart`
 ke `bootstrap/commands.dart`.
 
@@ -128,3 +208,8 @@ await Payment.manager.apply(fake.named('midtrans').event('ORDER-42', PaymentStat
 Tes paket ini sendiri memeriksa signature terhadap nilai yang dihitung
 dengan `sha512sum` dan `openssl`, dan berjalan terhadap sandbox Midtrans
 bila `MIDTRANS_SERVER_KEY` berisi key sandbox (`dart test --tags integration`).
+
+Tes yang mengirim bentuk webhook Midtrans harus menyediakan fake
+`api.sandbox.midtrans.com/v2/*/status` selain pembuatan checkout Snap.
+Fake tersebut mengembalikan order yang diminta, id transaksi, status,
+kode, dan jumlah. Gunakan `Payment.fake()` untuk menguji perilaku aplikasi saja.

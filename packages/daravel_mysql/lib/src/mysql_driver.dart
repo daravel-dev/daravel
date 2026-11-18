@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io' show SecurityContext, stderr;
 import 'dart:typed_data';
@@ -36,7 +37,8 @@ final class MySqlDriver
         SessionTerminatingDriver,
         RetryableErrors,
         QueryErrors,
-        DataExceptionErrors {
+        DataExceptionErrors,
+        UnpreparedExecutor {
   /// A pooled MySQL or MariaDB connection; usually made by
   /// [MySqlDriver.fromConfig] from the `DB_*` settings.
   MySqlDriver({
@@ -268,6 +270,23 @@ final class MySqlDriver
 
   /// Added to [queryTimeout] for the client backstop of server mode.
   static const Duration backstopGrace = Duration(seconds: 5);
+
+  /// SQL texts each connection remembers as checked to hold one statement
+  /// (a statement without bindings is prepared once per connection and
+  /// text, then runs as text).
+  static const int singleStatementCacheSize = 256;
+
+  /// The longest text (in UTF-16 code units) a connection remembers as
+  /// checked; a longer one is checked every time it runs, so a
+  /// connection holds at most [singleStatementCacheSize] times this
+  /// (1 Mi UTF-16 code units, at most 2 MiB).
+  static const int singleStatementMaxLength = 4096;
+
+  /// Whether [sql] may change how the server splits text (`SET`, `CALL`,
+  /// `EXECUTE`, MariaDB's `BEGIN NOT ATOMIC`, after blanks and comments),
+  /// so a connection checks its texts again after it.
+  static bool changesSplitting(String sql) =>
+      _MySqlExecutor.changesSplitting(sql);
 
   /// False once the server refused the session timeout variable.
   bool _serverTimeouts = true;
@@ -708,6 +727,11 @@ final class MySqlDriver
     bindings: bindings,
   );
 
+  /// Runs [sql] as text, several statements included (`DB.unprepared`).
+  @override
+  Future<void> unprepared(String sql) =>
+      _withConnection((c) => _executor(c).unprepared(sql), sql: sql);
+
   @override
   Future<T> transaction<T>(Future<T> Function(QueryExecutor tx) body) =>
       _withConnection(
@@ -729,7 +753,7 @@ final class MySqlDriver
 }
 
 /// Runs statements on one connection (a pooled one, or a transaction's).
-final class _MySqlExecutor implements QueryExecutor {
+final class _MySqlExecutor implements QueryExecutor, UnpreparedExecutor {
   _MySqlExecutor(
     this._connection,
     this._queryTimeout,
@@ -766,7 +790,360 @@ final class _MySqlExecutor implements QueryExecutor {
             },
         ];
 
-  Future<my.IResultSet> _run(String sql, List<Object?> bindings) async {
+  /// SQL texts of this connection a `prepare` accepted as one statement,
+  /// most recently used last. Kept per connection, since `sql_mode`
+  /// (`ANSI_QUOTES`, `NO_BACKSLASH_ESCAPES`) and the connection's character
+  /// set change how a text splits; the [Expando] drops an entry with the
+  /// connection the pool replaced.
+  static final Expando<_SingleStatements> _single = Expando<_SingleStatements>(
+    'single statements',
+  );
+
+  /// Whether [sql] may change how the server splits text, by its first
+  /// keyword after blanks and comments:
+  ///
+  /// - `SET` (`sql_mode`, `NAMES`, `character_set_client`; MariaDB's
+  ///   `SET STATEMENT … FOR` too), also inside a leading executable comment
+  ///   (`/*!40101 SET NAMES utf8mb4 */` as mysqldump writes it, MariaDB's
+  ///   `/*M!100616 SET … */` as mariadb-dump writes it);
+  /// - `CALL`: MySQL's manual says a routine runs with the `sql_mode` it was
+  ///   created with, but not that the caller's mode is restored when it
+  ///   returns;
+  /// - `EXECUTE` (a statement prepared with `PREPARE … FROM`, MariaDB's
+  ///   `EXECUTE IMMEDIATE`) and MariaDB's `BEGIN NOT ATOMIC` block, which
+  ///   may run a `SET` of their own;
+  /// - MariaDB's compound statements outside a routine: `IF`, `CASE`,
+  ///   `WHILE`, `LOOP`, `REPEAT`, `FOR`. Measured on MariaDB 11.8, they
+  ///   prepare (no 1295) and run as text; `sql_mode` comes back as it was
+  ///   once the block ends, but `SET NAMES` inside one stays. MySQL 8.4
+  ///   refuses them (1064);
+  /// - a statement starting with a label (`l: BEGIN NOT ATOMIC …`), which
+  ///   MariaDB 11.8 refuses outside a routine (1064) but which costs
+  ///   nothing to notice;
+  /// - any text with an executable comment (`/*!…`, `/*M!…`) before its
+  ///   first keyword or between the keywords read here, whatever the
+  ///   comment holds: MySQL skips every `/*M!…*/` and both servers skip a
+  ///   version above their own, so the keyword inside one may not be what
+  ///   runs (`/*M!100000 SELECT 1 */ SET …` on MySQL).
+  ///
+  /// A known limit: a trigger or stored function that sets `sql_mode`,
+  /// fired by an ordinary statement, is not noticed. The manual says they
+  /// run with the mode they were created with, not whether the caller's
+  /// is restored.
+  ///
+  /// One pass over the text, without a regular expression: a pattern
+  /// skipping repeated comments backtracked exponentially (26 empty
+  /// comments took 14 s).
+  static bool changesSplitting(String sql) {
+    final start = _skipIgnored(sql, 0);
+    // A conditional comment before the first keyword, or between the
+    // keywords read below, may be one the server ignores (`/*M!…*/` on
+    // MySQL, `/*!999999 …*/` on an older server): what it holds is not
+    // what runs. Its content is not interpreted; the text is taken as one
+    // that may change splitting.
+    if (_hasConditional(sql, 0, start)) {
+      return true;
+    }
+    final first = _word(sql, start);
+    switch (first.word) {
+      case 'set' || 'call' || 'execute':
+      case 'if' || 'case' || 'while' || 'loop' || 'repeat' || 'for':
+        return true;
+      case 'begin':
+        final secondAt = _skipIgnored(sql, first.end);
+        if (_hasConditional(sql, first.end, secondAt)) {
+          return true;
+        }
+        final second = _word(sql, secondAt);
+        if (second.word != 'not') {
+          return false;
+        }
+        final thirdAt = _skipIgnored(sql, second.end);
+        return _hasConditional(sql, second.end, thirdAt) ||
+            _word(sql, thirdAt).word == 'atomic';
+      default:
+        // A label: an identifier, then `:` (not `:=`).
+        final end = _identifierEnd(sql, start);
+        if (end == start) {
+          return false;
+        }
+        // A word that cannot be a label starts no label, whatever follows
+        // it (a hint such as `SELECT /*!40001 SQL_NO_CACHE */ …` keeps the
+        // texts checked).
+        if (end == first.end && _notLabels.contains(first.word)) {
+          return false;
+        }
+        final colon = _skipIgnored(sql, end);
+        if (_hasConditional(sql, end, colon)) {
+          return true;
+        }
+        return colon < sql.length &&
+            sql.codeUnitAt(colon) == 0x3a &&
+            (colon + 1 == sql.length || sql.codeUnitAt(colon + 1) != 0x3d);
+    }
+  }
+
+  /// Words that cannot be a label, unquoted: the common statements, where
+  /// a hint after the first word is usual. Each was refused as one
+  /// (`CREATE PROCEDURE p() w: BEGIN END w`, 1064) by MySQL 8.0.46 and
+  /// 8.4.13 and MariaDB 10.6.28, 11.8.9 and 12.3.3, all of which took
+  /// `lbl`. Keywords that differ between servers (MySQL takes `binlog` and
+  /// `backup` as labels) are left out, as is any word not verified on
+  /// each of those versions: a word that can be a label somewhere would
+  /// hide a label there.
+  static const Set<String> _notLabels = {
+    'select', 'insert', 'update', 'delete', 'replace', 'with', 'create', //
+    'drop', 'alter', 'show', 'use',
+  };
+
+  /// Whether `sql[from, to)` holds the opening of a conditional comment
+  /// (`/*!` or MariaDB's `/*M!`). A lowercase `/*m!` is a plain comment on
+  /// both (measured on MySQL 8.4 and MariaDB 11.8: `SELECT 1 /*m!100000 ,
+  /// 2 */` answers one column).
+  static bool _hasConditional(String sql, int from, int to) {
+    for (var i = from; i + 2 < to; i++) {
+      if (sql.codeUnitAt(i) == 0x2f &&
+          sql.codeUnitAt(i + 1) == 0x2a &&
+          (sql.codeUnitAt(i + 2) == 0x21 ||
+              (sql.codeUnitAt(i + 2) == 0x4d &&
+                  i + 3 < to &&
+                  sql.codeUnitAt(i + 3) == 0x21))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Whether [sql], refused by a prepare with 1295, is a kind of statement
+  /// that cannot change how text splits, by its first keyword: savepoints
+  /// and transaction control, table locks, XA, `HANDLER`, `CHECK TABLE`
+  /// and `HELP`. MySQL 8.4 answers 1295 for `SAVEPOINT`, `RELEASE
+  /// SAVEPOINT`, `ROLLBACK TO` and `START TRANSACTION`: such a text is
+  /// remembered as checked rather than emptying the cache, or every nested
+  /// transaction would empty it and pay its checks again. A 1295 text is one
+  /// statement: the server refuses a stack it starts as a syntax error
+  /// (1064) before it gets that far. `BEGIN NOT ATOMIC` is caught by
+  /// [changesSplitting] before the text is checked. A conditional comment
+  /// before the first keyword makes it unknown what runs: not kept.
+  static bool _keepsSplitting(String sql) {
+    final start = _skipIgnored(sql, 0);
+    if (_hasConditional(sql, 0, start)) {
+      return false;
+    }
+    return switch (_word(sql, start).word) {
+      'savepoint' || 'release' || 'rollback' || 'start' || 'begin' => true,
+      'commit' || 'lock' || 'unlock' || 'xa' || 'handler' => true,
+      'check' || 'help' => true,
+      _ => false,
+    };
+  }
+
+  /// Where the identifier at [start] ends: letters, digits, `_` and `$`,
+  /// or a backquoted name, where a doubled backquote is one inside the name
+  /// (an unterminated one ends the text).
+  static int _identifierEnd(String sql, int start) {
+    final n = sql.length;
+    if (start < n && sql.codeUnitAt(start) == 0x60) {
+      var i = start + 1;
+      while (i < n) {
+        if (sql.codeUnitAt(i) == 0x60) {
+          if (i + 1 < n && sql.codeUnitAt(i + 1) == 0x60) {
+            i += 2;
+            continue;
+          }
+          return i + 1;
+        }
+        i++;
+      }
+      return n;
+    }
+    var i = start;
+    while (i < n) {
+      final c = sql.codeUnitAt(i);
+      final lower = c | 0x20;
+      if ((lower >= 0x61 && lower <= 0x7a) ||
+          _isDigit(c) ||
+          c == 0x5f ||
+          c == 0x24) {
+        i++;
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
+  /// The index of the first code unit at or after [start] that is not a
+  /// blank or part of a comment: `/* */`, `#` and `-- ` (MySQL wants a
+  /// blank after the dashes) to the end of the line. An executable
+  /// comment's opening (`/*!`, MariaDB's `/*M!`, each with an optional
+  /// version) and its closing `*/` are skipped and its content read, since
+  /// the server runs it: `/*!40101*/ SET` is a `SET`. An unterminated
+  /// comment ends the text.
+  static int _skipIgnored(String sql, int start) {
+    final n = sql.length;
+    var i = start;
+    while (i < n) {
+      final c = sql.codeUnitAt(i);
+      if (_isBlank(c)) {
+        i++;
+      } else if (c == 0x2a && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2f) {
+        // The `*/` of an executable comment read into.
+        i += 2;
+      } else if (c == 0x2f && i + 1 < n && sql.codeUnitAt(i + 1) == 0x2a) {
+        final executable = i + 2 < n && sql.codeUnitAt(i + 2) == 0x21
+            ? 3
+            : i + 3 < n &&
+                  sql.codeUnitAt(i + 2) == 0x4d &&
+                  sql.codeUnitAt(i + 3) == 0x21
+            ? 4
+            : 0;
+        if (executable > 0) {
+          i += executable;
+          while (i < n && _isDigit(sql.codeUnitAt(i))) {
+            i++;
+          }
+        } else {
+          final end = sql.indexOf('*/', i + 2);
+          if (end < 0) {
+            return n;
+          }
+          i = end + 2;
+        }
+      } else if (c == 0x23 ||
+          (c == 0x2d &&
+              i + 1 < n &&
+              sql.codeUnitAt(i + 1) == 0x2d &&
+              (i + 2 == n || _isBlank(sql.codeUnitAt(i + 2))))) {
+        final end = sql.indexOf('\n', i);
+        if (end < 0) {
+          return n;
+        }
+        i = end + 1;
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
+  static bool _isDigit(int c) => c >= 0x30 && c <= 0x39;
+
+  static bool _isBlank(int c) => c == 0x20 || (c >= 0x09 && c <= 0x0d);
+
+  /// The ASCII letters at [start] in lower case, and where they end.
+  static ({String word, int end}) _word(String sql, int start) {
+    var end = start;
+    while (end < sql.length) {
+      final c = sql.codeUnitAt(end) | 0x20;
+      if (c < 0x61 || c > 0x7a) {
+        break;
+      }
+      end++;
+    }
+    return (word: sql.substring(start, end).toLowerCase(), end: end);
+  }
+
+  /// Forgets the texts checked on this connection when [sql] may change
+  /// how the server splits text ([changesSplitting]); [always] for a
+  /// script.
+  void _forgetChecked(String sql, {bool always = false}) {
+    if (always || changesSplitting(sql)) {
+      _single[_connection]?.clear();
+    }
+  }
+
+  /// Refuses [sql] holding several statements, as a server-side prepare
+  /// does: `mysql_dart` sends a statement without bindings as text, and
+  /// the client announces multi-statement support, so `SELECT 1; DROP
+  /// TABLE t` used to run both (Laravel prepares it, with
+  /// `ATTR_EMULATE_PREPARES => false`, and only `DB::unprepared` runs
+  /// several). The first time a connection sees a text it prepares it
+  /// and closes the statement at once, so no prepared statement stays on
+  /// the server; the text then runs as before. A statement the prepared
+  /// protocol does not support (1295) runs as text, as `pdo_mysql` falls
+  /// back to emulation for it.
+  Future<void> _ensureSingle(String sql) async {
+    final seen = _single[_connection] ??= _SingleStatements();
+    if (seen.touch(sql)) {
+      return;
+    }
+    try {
+      final statement = await _bounded(_connection.prepare(sql));
+      await statement.deallocate();
+    } on MySQLServerException catch (error) {
+      // Several statements fail here with 1064 (a syntax error), which
+      // reaches the caller as a QueryException like any refused query.
+      if (error.errorCode != 1295) {
+        rethrow;
+      }
+      // A 1295 text is one statement (a stack it starts is refused with
+      // 1064 first). Of a kind that cannot change how text splits
+      // ([_keepsSplitting]: a savepoint, transaction control, a lock), it
+      // is remembered like a prepared one, so a nested transaction pays
+      // its SAVEPOINT check once per connection. Any other may change the
+      // session: not remembered, asked about every time it runs, and the
+      // texts checked so far are checked again.
+      if (!_keepsSplitting(sql)) {
+        seen.clear();
+        return;
+      }
+    }
+    if (sql.length <= MySqlDriver.singleStatementMaxLength) {
+      seen.add(sql, MySqlDriver.singleStatementCacheSize);
+    }
+  }
+
+  /// [running] bounded by the client backstop outside a transaction, as
+  /// statements are in server mode.
+  Future<T> _bounded<T>(Future<T> running) {
+    final timeout = _queryTimeout;
+    if (timeout == null || inTransaction) {
+      return running;
+    }
+    final limit = timeout + MySqlDriver.backstopGrace;
+    return running.timeout(
+      limit,
+      onTimeout: () {
+        _connection.getSocket().destroy();
+        throw StatementTimeoutException(
+          'Statement still running $limit after it started; the '
+          'connection was closed.',
+          timeout: timeout,
+        );
+      },
+    );
+  }
+
+  /// Runs [sql] as text, several statements included (`DB.unprepared`).
+  /// A script may change the session anywhere, so the texts checked on
+  /// this connection are forgotten.
+  @override
+  Future<void> unprepared(String sql) async {
+    _forgetChecked(sql, always: true);
+    await _run(sql, const [], checked: false);
+  }
+
+  Future<my.IResultSet> _run(
+    String sql,
+    List<Object?> bindings, {
+    bool checked = true,
+  }) async {
+    // The server reads a NUL as the end of the text: SELECT 1 followed by
+    // a NUL and junk answered as SELECT 1, and two INSERTs split by a NUL
+    // passed the prepare check, ran the first and then failed. Refused
+    // before anything is sent, on every path.
+    if (sql.contains(String.fromCharCode(0))) {
+      throw const NulInSqlException(
+        'MySQL refused SQL holding a NUL character.',
+      );
+    }
+    // Before it runs: a SET that fails half-way may still have changed
+    // the session.
+    _forgetChecked(sql);
+    if (checked && bindings.isEmpty) {
+      await _ensureSingle(sql);
+    }
     final timeout = _queryTimeout;
     if (!serverSide || timeout == null) {
       return _connection.execute(sql, _normalize(bindings), false, timeout);
@@ -976,4 +1353,33 @@ final class StatementTimeoutException implements Exception {
   @override
   String toString() =>
       'StatementTimeoutException${code == null ? '' : ' [$code]'}: $message';
+}
+
+/// The texts one connection checked as a single statement, most recently
+/// used last ([_MySqlExecutor._ensureSingle]).
+final class _SingleStatements {
+  final LinkedHashSet<String> _texts = LinkedHashSet<String>();
+
+  /// Whether [sql] was checked; it becomes the most recently used.
+  bool touch(String sql) {
+    if (!_texts.remove(sql)) {
+      return false;
+    }
+    _texts.add(sql);
+    return true;
+  }
+
+  /// Remembers [sql], dropping the least recently used past [capacity].
+  void add(String sql, int capacity) {
+    _texts.add(sql);
+    if (_texts.length > capacity) {
+      _texts.remove(_texts.first);
+    }
+  }
+
+  /// Forgets every text.
+  void clear() => _texts.clear();
+
+  /// How many texts are remembered.
+  int get length => _texts.length;
 }
