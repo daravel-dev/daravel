@@ -19,6 +19,7 @@ match Laravel more closely.
 
 - Query strings and URL-encoded forms with more than 1,000 nonempty pairs now return `400` when read instead of accepting all input. Set `HTTP_MAX_INPUT_VARS` to a limit appropriate for the application, or `0` for none (a negative value is an error at boot); PHP instead warns and truncates excess input. Multipart keeps its own part limit.
 - New public names: `Request.maxInputVars` (`int?`, `null` for no limit), `Request.defaultMaxInputVars`, `Request.maxInputVarsFromEnv`, `HttpKernel.maxInputVars`, and an optional `maxInputVars` on `parseQueryString`, which sets no limit unless given (a query string an application builds or parses itself is not limited).
+- On 1.27.x a query string is bounded only by its number of pairs and by the HTTP server's own request-line limit: one pair with a very long value is still parsed in time proportional to its length.
 
 ### Fixed
 
