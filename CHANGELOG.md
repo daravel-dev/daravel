@@ -19,11 +19,12 @@ match Laravel more closely.
 
 - Without `APP_DEBUG`, a failing check of `/up/ready` no longer puts its error text in the body (only its name, `ok` and time); the error is logged as a warning, at most once a second per worker. A monitor that read the error from the body reads the log instead.
 - Log redaction matches more keys by default (`passwd`, `pwd`, `bearer`, `apikey`, `jwt`, `session_id`, `private_key`, `credentials`, `dsn`) and matches keys whatever their case and `-`/`_` (`X-Api-Key` matches `api_key`), so more context values are written as `[REDACTED]`.
+- New public name: `Loggable` (in `package:daravel` and `package:daravel/foundation.dart`), the interface `Headers` now implements so that the logger redacts it. An application class or import of that name gives an ambiguous-import error; `hide` it or rename yours.
 
 ### Fixed
 
 - Security: `/up/ready` answered anyone with a failing check's error text, also without `APP_DEBUG` (a connection URL with its password, a host); the body now leaves it out unless `APP_DEBUG` is on.
-- Security: log redaction looked only into maps with `String` keys and lists, and matched keys by lower case only: a secret under `X-API-Key`, in a map of another key type or in a set was written as it was. Every map and iterable is redacted now, keys matched whatever their case and `-`/`_`. Redaction never throws and always ends: past 32 levels it writes `[DEPTH]`, past 10 000 values per record `[TRUNCATED]` (an endless iterable, a structure that holds itself), and a value whose iteration or key fails `[UNLOGGABLE: <type>]`.
+- Security: log redaction looked only into maps with `String` keys and lists, and matched keys by lower case only: a secret under `X-API-Key`, in a map of another key type, in a set or in a `Headers` object (`authorization`, `cookie`) was written as it was. Every map, iterable and `Loggable` (`Headers` is one) is redacted now, keys matched whatever their case and `-`/`_`. Redaction never throws and always ends: past 32 levels it writes `[DEPTH]`, past 10 000 values per record `[TRUNCATED]` (an endless iterable, a structure that holds itself), and a value whose iteration or key fails `[UNLOGGABLE: <type>]`.
 
 ## 1.27.6
 

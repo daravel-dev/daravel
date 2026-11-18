@@ -89,6 +89,39 @@ void main() {
       expect(text, contains('"1":"one"'));
     });
 
+    test('a Headers object in the context: authorization and cookie are '
+        'redacted', () {
+      final text = jsonEncode(
+        logger.redact({
+          'headers': Headers({
+            'authorization': 'Bearer s13',
+            'cookie': 'laravel_session=s14',
+            'accept': 'text/html',
+          }),
+          'nested': {
+            'request': Headers({'x-api-key': 's15'}),
+          },
+        }),
+        toEncodable: (o) => '$o',
+      );
+      for (final secret in ['s13', 's14', 's15']) {
+        expect(text, isNot(contains(secret)), reason: secret);
+      }
+      expect(text, contains('"accept":"text/html"'));
+    });
+
+    test('a Loggable whose toLogValue throws is marked, the record kept', () {
+      final memory = MemoryHandler();
+      final logger = Logger(handlers: [memory]);
+      expect(
+        () => logger.info('ctx', {'loggable': _ThrowingLoggable(), 'ok': 1}),
+        returnsNormally,
+      );
+      final context = memory.records.single.context;
+      expect(context['loggable'], '[UNLOGGABLE: _ThrowingLoggable]');
+      expect(context['ok'], 1);
+    });
+
     test('property: random structures never let a sensitive value out', () {
       final random = Random(41);
       const sensitive = [
@@ -186,4 +219,9 @@ void main() {
 final class _ThrowingKey {
   @override
   String toString() => throw StateError('no');
+}
+
+final class _ThrowingLoggable implements Loggable {
+  @override
+  Object? toLogValue() => throw StateError('no');
 }

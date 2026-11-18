@@ -11,6 +11,7 @@ import 'context.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/loggable.dart';
 
 /// RFC 5424 levels (ordered by severity).
 enum LogLevel {
@@ -879,15 +880,17 @@ final class Logger {
   }
 
   /// Replaces values of sensitive keys (recursively) with `[REDACTED]`:
-  /// in every map whatever its key type (keys written with `toString`), and
-  /// in every list, set and other iterable. Keys match whatever their case
-  /// and `-` or `_` (`X-Api-Key` matches `api_key`).
+  /// in every map whatever its key type (keys written with `toString`), in
+  /// every list, set and other iterable, and in a [Loggable] such as
+  /// `Headers`. Keys match whatever their case and `-` or `_` (`X-Api-Key`
+  /// matches `api_key`).
   ///
   /// It never throws and always ends, since logging must not fail the code
   /// that logs: nesting past 32 levels is written as `[DEPTH]`; past 10 000
   /// values per call (an endless `sync*` iterable, a structure that holds
-  /// itself twice) the rest is `[TRUNCATED]`; and a value whose iteration
-  /// or key `toString()` throws is written as `[UNLOGGABLE: <type>]`.
+  /// itself twice) the rest is `[TRUNCATED]`; and a value whose iteration,
+  /// `toLogValue()` or key `toString()` throws is written as
+  /// `[UNLOGGABLE: <type>]`.
   Map<String, Object?> redact(Map<String, Object?> context) =>
       _redactMap(context, 0, _RedactBudget());
 
@@ -925,6 +928,7 @@ final class Logger {
     }
     try {
       return switch (value) {
+        Loggable() => _redactValue(value.toLogValue(), depth + 1, budget),
         Map<Object?, Object?>() => _redactMap(value, depth, budget),
         // Bytes stay as they are (not a structure that holds keys).
         Uint8List() => value,
