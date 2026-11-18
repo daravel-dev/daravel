@@ -442,8 +442,11 @@ arrives from then on; after the client closed, it gets just the end.
 
 While nothing listens, the server goes on reading the client and holds
 what it sends, in order, for the listener to come: up to 64 KiB (or the
-route's `maxPayloadBytes`, if smaller) plus one message, after which TCP
-holds the client back. So a handler that waits on `socket.done` without
+route's `maxPayloadBytes`, if smaller) plus one message or 64 KiB of
+frames, after which it stops parsing. The rest of what it last read from
+the connection waits unparsed (one read, which can be as large as the
+system's receive buffer lets it be), and TCP holds the client back. So a
+handler that waits on `socket.done` without
 listening, or writes in a loop while `socket.readyState ==
 WebSocket.open`, still learns that the client closed or went away: 5 s
 after it did, the session ends, `socket.closeCode` is the client's code
@@ -452,8 +455,9 @@ what is held is full and nothing has listened for 5 s, the server ends
 the session itself with `1008` and logs a warning with the path: a
 handler that never reads cannot keep a session, whatever the client
 sends. Which code it ends with depends on where the client's close was
-when the server held TCP back: within what it had read, the client's
-code; after it, still waiting in TCP, `1008`. A `listen` after that gets
+when the server stopped: within what it had parsed, the client's code;
+after it (in the rest of the read or still in TCP), `1008`. A PING there
+is answered only once what comes before it is read. A `listen` after that gets
 just the end. Listen when you can, with
 `socket.listen((_) {})` when the messages do not matter.
 
@@ -466,7 +470,10 @@ a close reason that is not UTF-8 with `1007`.
 Once something listens, nothing is dropped: a listener that pauses (an
 `await for` that takes its time over each message) gets every message
 and then the close when it reads on, however long it took; one that never
-reads on keeps its session, as a stalled reader always did. A fragmented
+reads on keeps its session, as a stalled reader always did, and what is
+held for it (the bound above, one read included) until it reads on or
+cancels: while the server holds the client back it does not see the
+client go away. A fragmented
 message that is still arriving while the server holds the client back
 (more than the bound above waiting) keeps its `assembleTimeout` running.
 After a handler cancels its subscription and keeps the socket, what the
@@ -474,6 +481,17 @@ client sends is read and dropped (its frames still checked): what the
 handler sends goes out as before, and the client's close or its going
 away ends the session at once. A client's close is answered with its code
 before the connection ends, also when its end of stream comes with it.
+
+When the server closes the socket (`close()`), messages the handler has
+not read yet are dropped, even if it resumes after, and `closeCode` stays
+null unless the client's own close was read before; the connection ending
+afterwards does not make it `1006`. Once a session has ended (its `done`
+completed), however it ended, nothing it held stays held, and its
+connection is destroyed at the latest one second after. From the moment the
+server starts closing (`close()`, a slow client, a shutdown) a client is
+read for at most 4 MiB more, about what can be in flight. Past that the
+server stops reading it: what waits to be sent and the close frame still
+go out, and the connection ends at most 11 seconds after the close.
 
 What waits to be sent on a WebSocket is counted. A client that reads more
 slowly than the server writes made `dart:io` queue every frame in memory;

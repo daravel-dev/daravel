@@ -9,3 +9,8 @@ tags:
   # Analyzer checks that misspelt or mistyped uses of the typed API (wave 9)
   # do not compile (test/typed_api/).
   typed-api:
+  # Heavy load on the machine (hundreds of connections, tens of MB through
+  # loopback): skipped in the normal run, where it would slow the tests
+  # beside it, and run alone in a CI step of its own.
+  memory:
+    skip: "run alone: dart test --tags memory --run-skipped --concurrency=1"

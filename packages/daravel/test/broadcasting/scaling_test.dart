@@ -7,6 +7,7 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import '../database/support/test_databases.dart';
+import '../http/support/websocket_counts.dart';
 
 const appId = 'app1';
 const appKey = 'key1';
@@ -17,6 +18,9 @@ const appSecret = 'secret1';
 /// on one sees what happens on the other. On SQLite (one file) the servers
 /// poll; on PostgreSQL (`DARAVEL_TEST_PG`) `NOTIFY` wakes them.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   group('sqlite file', scalingTests);
   final url = Platform.environment['DARAVEL_TEST_PG'];
   if (url != null && url.isNotEmpty) {

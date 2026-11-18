@@ -6,7 +6,12 @@ import 'dart:isolate';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import '../http/support/websocket_counts.dart';
+
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   group('Broadcaster in one isolate', () {
     late Coordinator coordinator;
     late Broadcaster broadcaster;

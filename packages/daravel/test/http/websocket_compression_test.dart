@@ -7,10 +7,14 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/websocket_counts.dart';
 
 /// permessage-deflate is off unless a route asks for it: a client that
 /// offers it on a default route gets an uncompressed connection.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
 

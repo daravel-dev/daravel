@@ -9,6 +9,8 @@ import 'package:daravel/daravel.dart' hide HttpException;
 import 'package:daravel/src/http/graceful_server_socket.dart';
 import 'package:test/test.dart';
 
+import 'support/websocket_counts.dart';
+
 /// Opens a connection, waits for [send], then sends one request and
 /// returns the whole response, or `closed` / the error.
 Future<String> requestWhen(
@@ -121,6 +123,9 @@ Application drainApp() =>
         .create();
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   group('dart:io: what the drain relies on (each OS in CI)', () {
     test('HttpServer.close closes a connection accepted before it whose '
         'request had not arrived (why the engine needs the wrapper)', () async {

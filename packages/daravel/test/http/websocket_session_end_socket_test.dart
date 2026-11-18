@@ -5,6 +5,7 @@ import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
+import 'support/websocket_counts.dart';
 
 /// A WebSocket session ends when its client closes or goes away, also when
 /// its handler never wrote nor closed, and when its handler returned
@@ -12,6 +13,9 @@ import 'support/raw_ws_client.dart';
 /// in the server's list until the server stopped. Nothing of it is logged
 /// as an error.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
   late MemoryHandler log;

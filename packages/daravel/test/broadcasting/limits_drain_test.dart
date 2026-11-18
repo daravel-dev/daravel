@@ -5,9 +5,14 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import '../http/support/websocket_counts.dart';
+
 const String appKey = 'daravel-key';
 
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   Application? app;
   ServerEngine? engine;
 

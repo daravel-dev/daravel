@@ -3,11 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
+// The guard's counts, for tests; not part of the public library.
+import 'package:daravel/src/http/websocket_stats.dart';
 
 /// A server for websocket_guard_memory_test.dart, in a process of its own
-/// so its memory (`GET /rss`) is not mixed with the other test files that
-/// run at the same time. Prints `PORT <port>` once listening, and its
-/// warnings (a guard closing a connection) as `LOG <message>`.
+/// so its memory (`GET /rss`) and the guard's counts (`GET /guard-stats`)
+/// are not mixed with the other test files that run at the same time.
+/// Prints `PORT <port>` once listening, and its warnings (a guard closing
+/// a connection) as `LOG <message>`.
 Future<void> main() async {
   Future<void> echo(WebSocket socket, Request _) {
     final done = Completer<void>();
@@ -37,9 +40,13 @@ Future<void> main() async {
         web: (router) {
           router
             ..get('/rss', (_) => '${ProcessInfo.currentRss}')
-            // The highest resident memory so far: memory handed back to the
-            // system does not lower it.
-            ..get('/maxrss', (_) => '${ProcessInfo.maxRss}')
+            // What the guards of this server (one isolate) hold, and the
+            // most they held since the last reset.
+            ..get('/guard-stats', (_) => WebSocketGuardStats.toJson())
+            ..get('/guard-stats/reset', (_) {
+              WebSocketGuardStats.reset();
+              return WebSocketGuardStats.toJson();
+            })
             ..get('/open', (_) => '${engine.openWebSockets}')
             ..get('/firehose-ended', (_) => '$firehoseEnded')
             ..ws(
@@ -49,9 +56,70 @@ Future<void> main() async {
               maxBufferedBytes: 8 << 20,
             )
             ..ws('/echo', echo, compress: false, maxPayloadBytes: 65536)
+            // The same without its limit (64 MiB): what the counts show
+            // when nothing bounds an attack.
+            ..ws(
+              '/echo-unlimited',
+              echo,
+              compress: false,
+              maxPayloadBytes: 64 << 20,
+            )
+            // Reads and counts; says DONE once `bytes` bytes of messages
+            // came (a throughput measurement).
+            ..ws(
+              '/sink',
+              (socket, request) async {
+                final bytes = int.parse(request.uri.queryParameters['bytes']!);
+                var received = 0;
+                await for (final message in socket) {
+                  received += (message as List<int>).length;
+                  if (received >= bytes) {
+                    socket.add('DONE');
+                    received = 0;
+                  }
+                }
+              },
+              compress: false,
+              maxPayloadBytes: 2 << 20,
+            )
             ..ws(
               '/silent',
               (socket, _) => socket.done,
+              compress: false,
+              maxPayloadBytes: 65536,
+            )
+            // Reads `n` messages (which lets the connection's TCP window
+            // grow), then stops reading and says READY; with `lag`, this
+            // isolate is then busy for that many ms, as a loaded server.
+            // After `hold` ms it cancels its subscription: a paused reader
+            // keeps what is held, and the end of the client is seen only
+            // once nothing is held back.
+            ..ws(
+              '/warm',
+              (socket, request) async {
+                final query = request.uri.queryParameters;
+                final n = int.parse(query['n']!);
+                final lag = int.parse(query['lag'] ?? '0');
+                final hold = int.parse(query['hold'] ?? '0');
+                var read = 0;
+                late final StreamSubscription<dynamic> reading;
+                reading = socket.listen((_) {
+                  if (++read == n) {
+                    reading.pause();
+                    socket.add('READY');
+                    if (lag > 0) {
+                      Timer(const Duration(milliseconds: 30), () {
+                        sleep(Duration(milliseconds: lag));
+                      });
+                    }
+                    if (hold > 0) {
+                      Timer(Duration(milliseconds: hold), reading.cancel);
+                    }
+                  }
+                });
+                await socket.done;
+                await reading.cancel();
+              },
               compress: false,
               maxPayloadBytes: 65536,
             )

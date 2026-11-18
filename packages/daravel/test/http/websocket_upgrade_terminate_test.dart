@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import 'support/websocket_counts.dart';
+
 /// Counts what the kernel does with each request: handled once, and
 /// terminated once with the response sent, its deferred work run.
 final class _Counting implements TerminableMiddleware {
@@ -29,6 +31,8 @@ final class _Counting implements TerminableMiddleware {
 /// after it took the connection over) is terminated once, like any other
 /// request: its terminable middleware and deferred work run.
 void main() {
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
   late _Counting counting;

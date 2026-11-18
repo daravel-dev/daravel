@@ -3,6 +3,8 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'websocket_stats.dart';
+
 /// The WebSocket a `router.ws` handler gets: `dart:io`'s, with a bound on
 /// what waits to be sent.
 ///
@@ -49,7 +51,13 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   static const Duration closeGrace = Duration(seconds: 5);
 
   final ListQueue<Object> _queue = ListQueue<Object>();
-  int _bufferedBytes = 0;
+  int __bufferedBytes = 0;
+  int get _bufferedBytes => __bufferedBytes;
+  set _bufferedBytes(int value) {
+    WebSocketGuardStats.queuedBy(value - __bufferedBytes);
+    __bufferedBytes = value;
+  }
+
   _Feed? _feed;
   Future<void>? _binding;
   bool _closing = false;
@@ -76,6 +84,11 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// Told when something starts reading ([isRead]): for the server, which
   /// then hands on what it held.
   void Function()? onReader;
+
+  /// Told once when this side starts closing (the application's close, a
+  /// slow client's, the server's): for the server, which from then on
+  /// bounds what it reads from the client.
+  void Function()? onClosing;
 
   /// The server's subscription of [drainUnlistened], which a later [listen]
   /// takes over.
@@ -189,14 +202,22 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   ///    the connection was destroyed afterwards;
   /// 2. the code the server closed with after a violation (also through
   ///    [peerClosed], when the client sent no valid close of its own);
-  /// 3. the socket's own, once it closed.
+  /// 3. the socket's own, once it closed; as it was when the server
+  ///    destroyed the connection ([abandon]), whose end does not make it
+  ///    1006 afterwards.
   @override
-  int? get closeCode => _peerCloseCode ?? _inner.closeCode;
+  int? get closeCode =>
+      _peerCloseCode ?? (_abandoned ? _abandonedCode : _inner.closeCode);
 
   /// The reason that goes with [closeCode], from the same source.
   @override
-  String? get closeReason =>
-      _peerCloseCode != null ? _peerCloseReason : _inner.closeReason;
+  String? get closeReason => _peerCloseCode != null
+      ? _peerCloseReason
+      : (_abandoned ? _abandonedReason : _inner.closeReason);
+
+  bool _abandoned = false;
+  int? _abandonedCode;
+  String? _abandonedReason;
 
   int? _peerCloseCode;
   String? _peerCloseReason;
@@ -214,6 +235,11 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
   /// nothing queued can be sent, and [done] completes now instead of after
   /// a close grace.
   void abandon() {
+    if (!_abandoned) {
+      _abandoned = true;
+      _abandonedCode = _inner.closeCode;
+      _abandonedReason = _inner.closeReason;
+    }
     _closing = true;
     _queue.clear();
     _bufferedBytes = 0;
@@ -280,6 +306,14 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     }
   }
 
+  /// Closes the session from this side with [code] and [reason], once what
+  /// is queued is sent.
+  ///
+  /// The session ends with it: messages the client sent that the
+  /// application has not read yet (held while it paused) are dropped, and
+  /// nothing more is handed on, even when it resumes. [closeCode] stays
+  /// null unless the client's own close was read before: the client's
+  /// answer to this close is read and dropped with the rest.
   @override
   Future<dynamic> close([int? code, String? reason]) =>
       _closed ??= _close(code, reason, drop: false);
@@ -312,6 +346,7 @@ final class BufferedWebSocket extends Stream<dynamic> implements WebSocket {
     Duration grace = closeGrace,
   }) async {
     _closing = true;
+    onClosing?.call();
     if (!_listened && _drain == null) {
       // Closed with nobody reading: a listen from now on gets the end
       // only.

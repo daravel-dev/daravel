@@ -5,10 +5,15 @@ import 'dart:io';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import 'support/websocket_counts.dart';
+
 /// `HTTP_MAX_IN_FLIGHT`: a worker refuses the request above its limit with
 /// `503` before routing, keeps answering the health probes, and frees the
 /// slot once the response (and terminate phase) is done.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late Application app;
   late ServerEngine engine;
   late MemoryHandler log;

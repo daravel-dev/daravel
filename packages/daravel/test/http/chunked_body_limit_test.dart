@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:daravel/daravel.dart';
@@ -55,16 +56,17 @@ void main() {
     return engine;
   }
 
-  /// What came back for [body] sent chunked to [path], read until the
-  /// server closes (or goes quiet for 3 s), with whether it closed.
-  Future<(String, bool)> sendChunked(
-    ServerEngine engine,
+  /// What came back for [body] sent chunked to [path] on the server at
+  /// [port], read until the server closes (or goes quiet for 3 s), with
+  /// whether it closed.
+  Future<(String, bool)> sendChunkedTo(
+    int port,
     String path,
     String type,
     List<int> body, {
     bool keepSending = false,
   }) async {
-    final socket = await Socket.connect('127.0.0.1', engine.port!);
+    final socket = await Socket.connect('127.0.0.1', port);
     final received = BytesBuilder();
     final closed = Completer<bool>();
     socket
@@ -128,6 +130,15 @@ void main() {
     socket.destroy();
     return (utf8.decode(received.takeBytes(), allowMalformed: true), byServer);
   }
+
+  /// [sendChunkedTo] the server of [engine].
+  Future<(String, bool)> sendChunked(
+    ServerEngine engine,
+    String path,
+    String type,
+    List<int> body, {
+    bool keepSending = false,
+  }) => sendChunkedTo(engine.port!, path, type, body, keepSending: keepSending);
 
   void expect413(String reply, String reason) {
     expect(reply, startsWith('HTTP/1.1 413'), reason: reason);
@@ -230,15 +241,44 @@ void main() {
 
   test('a client that keeps sending after the 413 is cut off, and the '
       'server goes on serving without growing', () async {
-    final engine = await serve(env: {'HTTP_MAX_BODY': '${64 * kib}'});
-    final before = ProcessInfo.currentRss;
+    // A server of its own (support/body_limit_server.dart), whose memory
+    // only this test moves: the test process's own counts every test file
+    // the runner runs beside this one.
+    final lib = await Isolate.resolvePackageUri(
+      Uri.parse('package:daravel/daravel.dart'),
+    );
+    final server = await Process.start(Platform.resolvedExecutable, [
+      File.fromUri(lib!.resolve('../test/http/support/body_limit_server.dart'))
+          .path,
+    ]);
+    addTearDown(server.kill);
+    server.stderr.drain<void>().ignore();
+    final port = await server.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .firstWhere((line) => line.startsWith('PORT '))
+        .then((line) => int.parse(line.substring(5)))
+        .timeout(const Duration(seconds: 60));
+    Future<int> rss() async {
+      final client = HttpClient();
+      try {
+        final request = await client.get('127.0.0.1', port, '/rss');
+        return int.parse(await utf8.decodeStream(await request.close()));
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    // One request first, so the code the path needs is loaded.
+    await sendChunkedTo(port, '/echo', 'application/octet-stream', [1]);
+    final before = await rss();
     final watch = Stopwatch()..start();
     for (var i = 0; i < 4; i++) {
       // Whether such a client still reads the 413 depends on when it reads:
       // the server stops reading after its linger and resets the
       // connection, as Go and nginx do. Not asserted here.
-      final (_, closed) = await sendChunked(
-        engine,
+      final (_, closed) = await sendChunkedTo(
+        port,
         '/echo',
         'application/octet-stream',
         Uint8List(64 * kib + 1),
@@ -249,11 +289,15 @@ void main() {
     // Each connection lasts the server's linger (1 s) at most, not as long
     // as the client keeps sending.
     expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
-    final grown = ProcessInfo.currentRss - before;
+    // What the clients sent after the 413 (as fast as loopback takes it,
+    // for up to 1 s each) is thrown away, not kept.
+    final grown = await rss() - before;
+    // Printed always, for the distance to the bound on every system.
+    print('after the 413: the server grew ${grown >> 20} MiB');
     expect(grown, lessThan(64 << 20), reason: 'RSS grew $grown bytes');
     // The isolate is free: a normal request is answered at once.
-    final (ok, _) = await sendChunked(
-      engine,
+    final (ok, _) = await sendChunkedTo(
+      port,
       '/echo',
       'application/octet-stream',
       Uint8List(10),

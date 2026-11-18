@@ -1,3 +1,7 @@
 ### Fixed
 
 - A WebSocket handshake that reached a server while it stopped (accepted just before it stopped accepting, as during a rolling restart of `serve` or `reverb:start`) got `426 Upgrade Required`, which tells a client asking for an upgrade that it must upgrade; Pusher clients took it as a failure. It is now upgraded and closed `goingAway` (1001) like the WebSockets already open, once its handler has greeted the client (or after `ServerEngine.drainGreeting`, 100 ms) and within its route's drain spread, so the client reconnects to another worker. Its 101 response no longer carries `Connection: close`. A plain request to a WebSocket route still gets 426.
+
+### Upgrade notes
+
+- During a drain a WebSocket handshake now gets `101` and then a close with `1001` (`goingAway`), where 1.27.6 still answers it `426`: a client sees an ordinary close and reconnects.

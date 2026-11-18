@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
+import 'support/websocket_counts.dart';
+
 /// Request header limits (`HTTP_MAX_HEADER_BYTES`,
 /// `HTTP_MAX_HEADER_LINE_BYTES`, `HTTP_MAX_HEADERS`): above any of them
 /// the engine answers 431 before routing, for a WebSocket handshake too.
@@ -13,6 +15,9 @@ import 'package:test/test.dart';
 /// `dart:io` hands the engine the method, the target and each header's
 /// name (lower case) and value.
 void main() {
+  // First, so it runs last: after every tear-down of the tests.
+  tearDown(expectWebSocketCountsReleased);
+
   late bool reached;
 
   Future<ServerEngine> serve(ServeOptions options) async {
