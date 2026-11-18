@@ -840,6 +840,7 @@ final class Application {
       exceptions: exceptions,
       logger: logger,
       multipartLimits: MultipartLimits.fromEnv(env),
+      maxInputVars: Request.maxInputVarsFromEnv(env),
       jsonMaxDepth: Request.jsonMaxDepthFromEnv(env),
       jsonBodyLimit: BodyLimits.jsonFromEnv(env),
       formBodyLimit: BodyLimits.formFromEnv(env),
