@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'exceptions.dart';
+import 'url_redaction.dart';
 
 /// Decrypts the contents of an encrypted environment file with [key]
 /// (`EnvironmentEncrypter.decrypt` in the application).
@@ -377,8 +378,10 @@ final class Env {
     }
     final parsed = Uri.tryParse(raw.trim());
     if (parsed == null || !parsed.hasScheme || !parsed.hasAuthority) {
+      // The value may carry a password or a token: quoted redacted.
       throw EnvException(
-        'Environment variable [$key] must be an absolute URL, got "$raw".',
+        'Environment variable [$key] must be an absolute URL, got '
+        '"${redactUrl(raw)}".',
       );
     }
     return parsed;

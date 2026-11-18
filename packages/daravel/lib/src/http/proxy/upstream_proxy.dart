@@ -68,7 +68,7 @@ final class UpstreamProxy {
              ..maxConnectionsPerHost = maxConnectionsPerHost) {
     if (!upstream.hasScheme || upstream.host.isEmpty) {
       throw ArgumentError.value(
-        redactUrlPassword('$upstream'),
+        redactUrl('$upstream'),
         'upstream',
         'needs http(s)://host',
       );

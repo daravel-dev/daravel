@@ -1,4 +1,5 @@
 // #164: retry backoff, jitter, ready-made predicates and Retry-After.
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -53,6 +54,54 @@ void main() {
   List<(int, Map<String, String>)> statuses(List<int> codes) => [
     for (final code in codes) (code, const <String, String>{}),
   ];
+
+  Future<int> interruptedExchange(
+    String method,
+    bool Function(ClientResponse?, Object?) predicate, {
+    bool partialResponse = false,
+  }) async {
+    final raw = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    var rawHits = 0;
+    raw.listen((socket) {
+      rawHits++;
+      final bytes = <int>[];
+      var answered = false;
+      socket.listen((chunk) async {
+        if (answered) return;
+        bytes.addAll(chunk);
+        final text = latin1.decode(bytes, allowInvalid: true);
+        final headerEnd = text.indexOf('\r\n\r\n');
+        if (headerEnd < 0) return;
+        final length =
+            RegExp(
+              r'content-length:\s*(\d+)',
+              caseSensitive: false,
+            ).firstMatch(text.substring(0, headerEnd))?.group(1) ??
+            '0';
+        if (bytes.length < headerEnd + 4 + int.parse(length)) return;
+        answered = true;
+        if (partialResponse) {
+          socket.add(
+            ascii.encode('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc'),
+          );
+          await socket.flush();
+        }
+        socket.destroy();
+      });
+    });
+    final request = factory().request().retry(
+      3,
+      delay: Duration.zero,
+      when: predicate,
+    );
+    final future = method == 'POST'
+        ? request.post('http://127.0.0.1:${raw.port}/charge', body: 'amount=1')
+        : request.get('http://127.0.0.1:${raw.port}/charge');
+    await expectLater(future, throwsA(isA<ConnectionException>()));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await raw.close();
+    return rawHits;
+  }
 
   test('exponential backoff waits 100, 200, 400 ms, capped at max', () async {
     script = statuses([500, 500, 500, 500]);
@@ -137,6 +186,51 @@ void main() {
     expect(Http.retryOnConnectionOnly(ClientResponse(500, ''), null), isFalse);
     expect(Http.retryOnConnectionOr5xx(ClientResponse(422, ''), null), isFalse);
   });
+
+  test('a request is repeated only when its connection failed first', () async {
+    for (final predicate in [
+      Http.retryOnConnectionOr5xx,
+      Http.retryOnConnectionOnly,
+    ]) {
+      expect(await interruptedExchange('POST', predicate), 1);
+      expect(await interruptedExchange('GET', predicate), 3);
+      expect(
+        await interruptedExchange('POST', predicate, partialResponse: true),
+        1,
+      );
+
+      final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = unused.port;
+      await unused.close();
+      waits.clear();
+      await expectLater(
+        factory()
+            .request()
+            .retry(3, delay: const Duration(milliseconds: 1), when: predicate)
+            .post('http://127.0.0.1:$port/charge', body: 'amount=1'),
+        throwsA(
+          isA<ConnectionException>().having(
+            (e) => e.mayHaveBeenSent,
+            'mayHaveBeenSent',
+            isFalse,
+          ),
+        ),
+      );
+      expect(waits, hasLength(2));
+    }
+  });
+
+  test(
+    'retryOnConnectionOr5xx also retries a POST answered with 5xx',
+    () async {
+      script = statuses([500, 503]);
+      final response = await factory()
+          .request()
+          .retry(3, delay: Duration.zero, when: Http.retryOnConnectionOr5xx)
+          .post(url(), body: 'charge');
+      expect((response.status, hits), (200, 3));
+    },
+  );
 
   test('Retry-After is honored on 429/503 when asked, at most '
       'maxRetryAfter', () async {

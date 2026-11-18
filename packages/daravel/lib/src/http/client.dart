@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import '../foundation/container.dart';
 import '../foundation/exceptions.dart';
 import '../foundation/glob.dart';
+import '../foundation/url_redaction.dart';
 import 'headers.dart';
 
 /// Outgoing HTTP requests, like Laravel's `Http` facade:
@@ -103,13 +104,35 @@ abstract final class Http {
 
   /// A `when:` that retries a connection error, `429` and `5xx`, and not
   /// the other client errors, which another try does not change.
+  ///
+  /// A connection failure after the request may have been sent is retried
+  /// only for an idempotent method ([isIdempotent]); sending a `POST` or
+  /// `PATCH` again could act twice. A `429` or `5xx` is a response, not a
+  /// connection failure, so this predicate retries it for every method:
+  /// choosing this predicate opts into retrying a `POST` answered with 5xx.
   static bool retryOnConnectionOr5xx(ClientResponse? response, Object? error) =>
-      error != null ||
+      (error != null && _mayRetry(error)) ||
       (response != null && (response.status == 429 || response.status >= 500));
 
-  /// A `when:` that retries only when the connection failed.
+  /// A `when:` that retries only when the connection failed. A failure after
+  /// the request may have been sent is retried only for an idempotent method,
+  /// as in [retryOnConnectionOr5xx].
   static bool retryOnConnectionOnly(ClientResponse? response, Object? error) =>
-      error != null;
+      error != null && _mayRetry(error);
+
+  static bool _mayRetry(Object error) =>
+      error is! ConnectionException ||
+      !error.mayHaveBeenSent ||
+      isIdempotent(error.method);
+
+  /// Whether [method] is idempotent (RFC 9110 §9.2.2: `GET`, `HEAD`,
+  /// `OPTIONS`, `TRACE`, `PUT`, `DELETE`), so a request that may have
+  /// reached the server can be sent again; `POST`, `PATCH`, an unknown
+  /// method and `null` are not.
+  static bool isIdempotent(String? method) => switch (method?.toUpperCase()) {
+    'GET' || 'HEAD' || 'OPTIONS' || 'TRACE' || 'PUT' || 'DELETE' => true,
+    _ => false,
+  };
 
   /// Sends `GET` [url] with the [query] parameters.
   static Future<ClientResponse> get(
@@ -317,24 +340,35 @@ final class HttpClientFactory {
       // more of the body is read into memory.
       outgoing?.abort();
       throw ConnectionException(
-        'Request to ${request.url} timed out after ${timeout.inSeconds}s.',
+        'Request to ${_shown(request.url)} timed out after '
+        '${_duration(timeout)}.',
         isTimeout: true,
+        mayHaveBeenSent: outgoing != null,
+        method: request.method,
       );
     } on io.SocketException catch (error) {
       outgoing?.abort();
       throw ConnectionException(
-        'Could not reach ${request.url}: ${error.message}',
+        'Could not reach ${_shown(request.url)}: ${error.message}',
+        mayHaveBeenSent: outgoing != null,
+        method: request.method,
       );
     } on io.HttpException catch (error) {
       outgoing?.abort();
       throw ConnectionException(
-        'HTTP error for ${request.url}: ${error.message}',
+        'HTTP error for ${_shown(request.url)}: ${error.message}',
+        mayHaveBeenSent: outgoing != null,
+        method: request.method,
       );
     } on io.IOException catch (error) {
       // TLS failures (HandshakeException, CertificateException) and other
       // I/O errors, so retry() and callers see them as connection errors.
       outgoing?.abort();
-      throw ConnectionException('Could not reach ${request.url}: $error');
+      throw ConnectionException(
+        'Could not reach ${_shown(request.url)}: $error',
+        mayHaveBeenSent: outgoing != null,
+        method: request.method,
+      );
     }
   }
 
@@ -658,10 +692,10 @@ final class PendingRequest {
     Map<String, String>? form,
     String? body,
   ) {
-    var uri = Uri.parse(url);
+    var uri = _parseUrl(url);
     final base = _baseUrl;
     if (!uri.hasScheme && base != null) {
-      uri = Uri.parse(
+      uri = _parseUrl(
         '${base.endsWith('/') ? base.substring(0, base.length - 1) : base}'
         '/${url.startsWith('/') ? url.substring(1) : url}',
       );
@@ -947,13 +981,25 @@ final class HttpFake {
 /// The server could not be reached, or did not answer in time.
 final class ConnectionException extends DaravelException {
   /// The connection failed with [message]; [isTimeout] when it timed out.
-  const ConnectionException(super.message, {this.isTimeout = false});
+  const ConnectionException(
+    super.message, {
+    this.isTimeout = false,
+    this.mayHaveBeenSent = false,
+    this.method,
+  });
 
-  /// Whether the request was sent and the answer did not come in time: it
-  /// may have been processed, unlike a connection that was refused or
-  /// reset before anything was sent, so a caller retrying must not
-  /// assume it was not.
+  /// The method of the request (`POST`), for a retry policy deciding
+  /// whether a timeout may be sent again ([Http.isIdempotent]); `null`
+  /// when unknown.
+  final String? method;
+
+  /// Whether the operation ended because its request deadline elapsed.
   final bool isTimeout;
+
+  /// Whether the request had passed connection opening before the failure,
+  /// so the server may have received or processed it. A retry policy must
+  /// not resend a non-idempotent request when this is true.
+  final bool mayHaveBeenSent;
 }
 
 /// A response body larger than the request allows
@@ -962,7 +1008,7 @@ final class ConnectionException extends DaravelException {
 final class ResponseTooLargeException extends DaravelException {
   /// The response from [url] went past [maxBytes].
   ResponseTooLargeException(this.url, this.maxBytes)
-    : super('The response from $url is larger than $maxBytes bytes.');
+    : super('The response from ${_shown(url)} is larger than $maxBytes bytes.');
 
   /// The URL requested.
   final Uri url;
@@ -985,7 +1031,10 @@ final class RequestException extends DaravelException {
 final class StrayRequestException extends DaravelException {
   /// A request no fake matched while stray requests are prevented.
   StrayRequestException(ClientRequest request)
-    : super('Attempted request to [${request.url}] without a matching fake.');
+    : super(
+        'Attempted request to [${_shown(request.url)}] without a matching '
+        'fake.',
+      );
 }
 
 Object? _dig(Object? source, String key) {
@@ -1004,4 +1053,24 @@ Object? _dig(Object? source, String key) {
     }
   }
   return current;
+}
+
+/// [url] as an error message shows it: the user-info password and
+/// sensitive query values masked (`redactUrl`). The exception keeps the
+/// URL itself for code (`ResponseTooLargeException.url`, the request).
+String _shown(Object url) => redactUrl('$url');
+
+/// [duration] for a message: milliseconds below a second (`500ms`, not
+/// `0s`), seconds otherwise.
+String _duration(Duration duration) => duration < const Duration(seconds: 1)
+    ? '${duration.inMilliseconds}ms'
+    : '${duration.inSeconds}s';
+
+/// [url] parsed, with malformed values reported through [redactUrl].
+Uri _parseUrl(String url) {
+  try {
+    return Uri.parse(url);
+  } on FormatException {
+    throw FormatException('Malformed request URL: "${redactUrl(url)}".');
+  }
 }

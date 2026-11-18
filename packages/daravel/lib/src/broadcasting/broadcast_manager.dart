@@ -354,7 +354,8 @@ final class BroadcastManager {
           .post(url.toString(), body: body);
       if (!response.successful) {
         throw StateError(
-          'Broadcasting to $host failed: ${response.status} ${response.body}',
+          'Broadcasting to $host failed: ${response.status} '
+          '${_summary(response.body)}',
         );
       }
     }
@@ -616,3 +617,10 @@ final class BroadcastShed {
   /// `overloaded` or `timeout`.
   final String reason;
 }
+
+/// [body] cut to 120 characters, as Laravel's `RequestException` cuts a
+/// failed response (`$truncateAt = 120`, Guzzle's `bodySummary`): the
+/// rest of an error page or an echo of the request stays out of the
+/// message and the log.
+String _summary(String body) =>
+    body.length <= 120 ? body : '${body.substring(0, 120)} (truncated...)';
