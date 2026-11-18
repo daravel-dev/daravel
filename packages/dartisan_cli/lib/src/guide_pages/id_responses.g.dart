@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/responses.md`.
 const String pageIdResponses =
-    r'''<!-- source: responses.md sha256:a33fb6d667ed -->
+    r'''<!-- source: responses.md sha256:ce19f9193204 -->
 # Respons dan resource
 
 Handler bisa mengembalikan `Response.json(data, status: 201)`,
@@ -504,8 +504,8 @@ dibuang, juga bila handler melanjutkan pembacaan sesudahnya, dan
 `closeCode` tetap null kecuali close dari client sudah terbaca sebelumnya;
 koneksi yang berakhir sesudah itu tidak mengubahnya menjadi `1006`. Begitu
 sesi berakhir (`done`-nya selesai), apa pun caranya, tidak ada yang tetap
-ditahan untuknya, dan koneksinya dihancurkan paling lambat sesudah masa
-tenggang close (5 detik).
+ditahan untuknya, dan koneksinya dihancurkan paling lambat satu detik
+sesudahnya.
 
 Apa yang menunggu dikirim di WebSocket dihitung. Client yang membaca lebih
 lambat daripada server menulis membuat `dart:io` mengantrekan setiap frame

@@ -89,7 +89,38 @@ final class WebSocketGuard {
   _GuardedSocket? _socket;
   WebSocket? _attached;
   bool _violated = false;
+
+  /// Destroys the socket once [WebSocketGuardLimits.closeGrace] passed
+  /// ([_startGrace]); cancelled once the socket is destroyed otherwise.
   Timer? _grace;
+
+  /// Destroys [socket] after [WebSocketGuardLimits.closeGrace], unless a
+  /// grace is under way already (the earliest one stands). Pending graces
+  /// are counted (`graces`), for tests.
+  void _startGrace(_GuardedSocket? socket) {
+    if (_grace?.isActive ?? false) {
+      return;
+    }
+    WebSocketGuardStats.graceBy(1);
+    late final Timer timer;
+    timer = Timer(limits.closeGrace, () {
+      if (identical(_grace, timer)) {
+        _grace = null;
+      }
+      WebSocketGuardStats.graceBy(-1);
+      socket?.destroy();
+    });
+    _grace = timer;
+  }
+
+  void _cancelGrace() {
+    final grace = _grace;
+    _grace = null;
+    if (grace != null && grace.isActive) {
+      grace.cancel();
+      WebSocketGuardStats.graceBy(-1);
+    }
+  }
 
   /// permessage-deflate was agreed to at the handshake: a message's first
   /// frame may carry RSV1.
@@ -183,7 +214,7 @@ final class WebSocketGuard {
       // A WebSocket whose sink is bound refuses at once; the grace below
       // destroys the connection anyway.
     }
-    _grace = Timer(limits.closeGrace, () => socket?.destroy());
+    _startGrace(socket);
   }
 
   void _slowClient() {
@@ -233,7 +264,7 @@ final class WebSocketGuard {
     } on Object {
       // Closing already: the grace below ends it.
     }
-    _grace = Timer(limits.closeGrace, () => socket?.destroy());
+    _startGrace(socket);
   }
 
   /// The client's close is being answered ([_closedUnread]).
@@ -278,11 +309,15 @@ final class WebSocketGuard {
     // keep the session until the WebSocket's own close timeout; the grace
     // destroys the socket, which ends the session.
     if (!_violated && !_keepGrace) {
-      _grace?.cancel();
-      _grace = null;
+      _cancelGrace();
     }
     if (socket != null && !socket._destroyed) {
-      _grace ??= Timer(limits.closeGrace, socket.destroy);
+      _startGrace(socket);
+    } else {
+      // Destroyed (this runs from [_GuardedSocket.destroy] too): nothing
+      // is left for a grace to end, and the timer does not keep the socket
+      // for the grace.
+      _cancelGrace();
     }
   }
 }
@@ -1232,7 +1267,8 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _resumeReading();
   }
 
-  /// What the client may still send after a violation, read and dropped:
+  /// What the client may still send after a violation, or once the session
+  /// ended ([_sessionOver]), read and dropped:
   /// enough for its close frame and what was in flight, so the connection
   /// ends with a FIN and the client sees the close code. Past it, reading
   /// stops and TCP holds the client back (a socket destroyed with unread
@@ -1242,7 +1278,11 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   int _discarded = 0;
 
   void _read(Uint8List chunk) {
-    if (_guard._violated) {
+    if (_guard._violated || _sessionOver) {
+      // Nothing parses it any more: dropped, and paced the same way after
+      // the session ended (its close or its going away is waited for
+      // within the grace, not read at whatever rate the client sends).
+      WebSocketGuardStats.discardRead(chunk.length);
       _discarded += chunk.length;
       if (_discarded > discardAfterViolation) {
         // A pause of its own, which no resume from the WebSocket undoes.

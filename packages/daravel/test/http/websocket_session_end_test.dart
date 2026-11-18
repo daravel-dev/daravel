@@ -28,6 +28,17 @@ void main() {
     ended = Completer<int?>();
   });
 
+  /// The pending graces, once they are none or [within] passed.
+  Future<int> gracesWithin(Duration within) async {
+    final deadline = DateTime.now().add(within);
+    var graces = WebSocketGuardStats.toJson()['graces']!;
+    while (graces != 0 && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      graces = WebSocketGuardStats.toJson()['graces']!;
+    }
+    return graces;
+  }
+
   const handlers = ['never', 'late', 'reads', 'paused', 'resumes'];
   const holds = ['tail', 'held', 'assembling'];
   const ends = [
@@ -251,6 +262,8 @@ void main() {
             client.socket.destroy();
             await expectWebSocketCountsReleased();
             expect(WebSocketGuardStats.toJson()['pinned'], 0);
+            // No timer of the session is left either: the socket is gone.
+            expect(await gracesWithin(const Duration(seconds: 7)), 0);
           } finally {
             await engine.stop();
             await app.shutdown();
@@ -258,6 +271,48 @@ void main() {
         }, timeout: const Timeout(Duration(seconds: 60)));
       }
     }
+  }
+
+  // After a close handshake the client's end destroys the socket at once,
+  // its grace timer with it. After a violation the session ends only when
+  // the grace (1 s) destroys the socket, the client's end notwithstanding:
+  // bounded by it, not at once.
+  for (final (end, frame, code, within) in [
+    (
+      'a close handshake',
+      RawWsClient.frame(0x8, const [0x03, 0xE8]),
+      1000,
+      const Duration(milliseconds: 400),
+    ),
+    (
+      'a violation',
+      RawWsClient.frame(0x3, const []),
+      1002,
+      const Duration(milliseconds: 1500),
+    ),
+  ]) {
+    test('a session that ends with $end keeps no grace timer once the '
+        'client closed its connection (within $within)', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/end?handler=reads&end=client-close',
+        );
+        client.send(0x1, utf8.encode('hello'));
+        client.socket.add(frame);
+        expect(await client.closeFrame(), code);
+        await client.socket.close();
+        final watch = Stopwatch()..start();
+        expect(await gracesWithin(within), 0);
+        expect(watch.elapsed, lessThanOrEqualTo(within + _slack));
+        expect(engine.openWebSockets, 0);
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    });
   }
 
   test('a handler that resumes after the server closed gets none of what it '
@@ -284,3 +339,6 @@ void main() {
     }
   });
 }
+
+/// What a wait polled every 20 ms may run over its bound.
+const Duration _slack = Duration(milliseconds: 100);
