@@ -122,7 +122,10 @@ abstract final class WebSocketGuardStats {
   }
 
   /// [length] bytes were read from a client after this side started
-  /// closing or its session ended (bounded, then the socket destroyed).
+  /// closing, after a violation, or once its session ended: the one count
+  /// the guard bounds (`discardAfterViolation`), started by whichever of
+  /// them comes first and never started again. Past the bound reading is
+  /// paused, or the socket destroyed once the session is over.
   static void readWhileEnding(int length) {
     _readWhileEnding += length;
   }

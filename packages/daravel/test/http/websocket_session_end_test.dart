@@ -795,6 +795,138 @@ void main() {
         await app.shutdown();
       }
     }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('session over x past the bound: the socket is destroyed at the '
+        'bound, not read on', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/close-on-first',
+        );
+        final before = readSinceDone();
+        client.send(0x1, utf8.encode('go'));
+        expect(await client.closeFrame(), 1000);
+        // The handshake completes: the session is over.
+        client.send(0x8, const [0x03, 0xE8]);
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        var flushed = 0;
+        for (var i = 0; i < 96 && !client.ended; i++) {
+          try {
+            client.socket.add(payload);
+            await client.socket.flush().timeout(const Duration(seconds: 2));
+            flushed += payload.length;
+          } on Object {
+            break; // Cut off.
+          }
+        }
+        final gone = DateTime.now().add(const Duration(seconds: 5));
+        while (!client.ended && DateTime.now().isBefore(gone)) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        expect(client.ended, isTrue, reason: 'destroyed, not paused');
+        expect(flushed, lessThan(96 * payload.length));
+        expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+        expect(await gracesWithin(const Duration(seconds: 2)), 0);
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('a violation x the client sending on: the graces end the socket '
+        'within 11 s of the close', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/end?handler=reads&end=client-close',
+        );
+        final before = readSinceDone();
+        final watch = Stopwatch()..start();
+        client.socket.add(RawWsClient.frame(0x3, const []));
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        while (!client.ended && watch.elapsed < const Duration(seconds: 20)) {
+          try {
+            client.socket.add(payload);
+            await client.socket.flush().timeout(
+              const Duration(milliseconds: 500),
+            );
+          } on TimeoutException {
+            // Held back: the server stopped reading. Keep trying.
+          } on Object {
+            break;
+          }
+        }
+        final deadline = DateTime.now().add(const Duration(seconds: 20));
+        while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(engine.openWebSockets, 0);
+        expect(await gracesWithin(const Duration(seconds: 13)), 0);
+        expect(
+          watch.elapsed,
+          lessThan(const Duration(seconds: 11) + const Duration(seconds: 2)),
+        );
+        expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    test('closed as a slow client x the client sending on: the graces end '
+        'the socket within 11 s of the close', () async {
+      final (app, engine) = await serve();
+      try {
+        final client = await RawWsClient.connect(
+          engine.port!,
+          '/overflow-on-first',
+        );
+        // Never reads: what is sent to it piles up and it is closed as a
+        // slow client.
+        client.pauseReading();
+        final before = readSinceDone();
+        final watch = Stopwatch()..start();
+        client.send(0x1, utf8.encode('go'));
+        final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        while (watch.elapsed < const Duration(seconds: 20)) {
+          try {
+            client.socket.add(payload);
+            await client.socket.flush().timeout(
+              const Duration(milliseconds: 500),
+            );
+          } on TimeoutException {
+            // Held back: the server stopped reading. Keep trying.
+          } on Object {
+            break; // The socket is gone.
+          }
+          if (engine.openWebSockets == 0) {
+            break;
+          }
+        }
+        final deadline = DateTime.now().add(const Duration(seconds: 20));
+        while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(engine.openWebSockets, 0);
+        expect(await gracesWithin(const Duration(seconds: 13)), 0);
+        expect(
+          watch.elapsed,
+          lessThan(const Duration(seconds: 11) + const Duration(seconds: 2)),
+        );
+        expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+        client.socket.destroy();
+      } finally {
+        await engine.stop();
+        await app.shutdown();
+      }
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }
 
