@@ -16,27 +16,54 @@ import 'package:test/test.dart';
 /// an image read has sides of at most 65 535; a JPEG has at most as many
 /// scans as its size allows.
 void main() {
-  /// Converts [bytes] with [manipulations], failing the test when it takes
-  /// longer than [within]: each refusal here comes before any large image
-  /// is made.
+  /// Converts [bytes] with [manipulations]; a refusal taking longer than
+  /// [within] fails the test, since each refusal here comes before any
+  /// large image is made. A conversion that runs is not timed: its time
+  /// is the machine's, and the work budget is checked against the model
+  /// ([cost]), not against a clock.
   Object? convert(
     Uint8List bytes,
     Map<String, List<Object?>> manipulations, {
-    int? maxPixels,
+    int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
+    int maxWork = MediaLibraryConfig.defaultMaxConversionWork,
     Duration within = const Duration(seconds: 2),
   }) {
     final watch = Stopwatch()..start();
     Object? outcome;
     try {
-      outcome = maxPixels == null
-          ? convertImageSync(bytes, manipulations)
-          : convertImageSync(bytes, manipulations, maxPixels: maxPixels);
+      outcome = convertImageSync(
+        bytes,
+        manipulations,
+        maxPixels: maxPixels,
+        maxWork: maxWork,
+      );
     } on ImageConversionException catch (error) {
       outcome = error;
+      expect(watch.elapsed, lessThan(within), reason: '$manipulations');
     }
-    expect(watch.elapsed, lessThan(within), reason: '$manipulations');
     return outcome;
   }
+
+  /// The work units the conversion estimates for [manipulations] of an
+  /// image of [shape] stored as [container].
+  double cost(
+    ImageContainer container,
+    ImageShape shape,
+    Map<String, List<Object?>> manipulations,
+  ) => conversionCost(
+    container,
+    shape,
+    planConversion(
+      shape,
+      manipulations,
+      growth: MediaLibraryConfig.defaultMaxImagePixels ~/ 4,
+      maxSide: 65535,
+    ),
+    orient: true,
+  )!;
+
+  /// A budget no image here reaches, for tests of another limit.
+  const unbounded = 1 << 40;
 
   Uint8List png(int width, int height) =>
       img.encodePng(img.Image(width: width, height: height));
@@ -287,38 +314,135 @@ void main() {
     });
   });
 
-  group('blur work is bounded', () {
-    Uint8List png16(int width, int height) => img.encodePng(
-      img.Image(width: width, height: height, format: img.Format.uint16),
-    );
+  group('one work budget for the whole conversion', () {
+    ImageShape shape(int width, int height, PixelKind kind, [int frames = 1]) =>
+        (width: width, height: height, frames: frames, kind: kind);
 
-    Uint8List pngWith(int width, int height, int channels) => img.encodePng(
-      img.Image(width: width, height: height, numChannels: channels),
-    );
-
-    test('blur work counts the channels (measured on three)', () {
-      // 2 000 x 2 000 at radius 20: 80 million for three channels.
-      final blur40 = <String, List<Object?>>{
+    test('blur costs more with more channels and a larger radius', () {
+      final blur = <String, List<Object?>>{
         'blur': [40],
       };
-      expect(convert(pngWith(2000, 2000, 4), blur40), refused);
-      expect(
-        convert(
-          pngWith(2000, 2000, 3),
-          blur40,
-          within: const Duration(seconds: 10),
-        ),
-        converted,
+      final gray = cost(
+        ImageContainer.png,
+        shape(1000, 1000, PixelKind.gray8),
+        blur,
       );
-      // 3 000 x 3 000: 180 million for three, 60 million for one.
-      expect(convert(pngWith(3000, 3000, 3), blur40), refused);
+      final rgb = cost(
+        ImageContainer.png,
+        shape(1000, 1000, PixelKind.rgb8),
+        blur,
+      );
+      final rgba = cost(
+        ImageContainer.png,
+        shape(1000, 1000, PixelKind.rgba8),
+        blur,
+      );
+      expect(gray, lessThan(rgb));
+      expect(rgb, lessThan(rgba));
       expect(
-        convert(
-          pngWith(3000, 3000, 1),
-          blur40,
-          within: const Duration(seconds: 10),
+        cost(ImageContainer.png, shape(1000, 1000, PixelKind.rgb8), {
+          'blur': [80],
+        }),
+        greaterThan(rgb),
+      );
+    });
+
+    test('a manipulated 16-bit image is made 8-bit before its first step', () {
+      final steps = planConversion(
+        shape(100, 100, PixelKind.rgb16),
+        {
+          'blur': [10],
+        },
+        growth: 1 << 30,
+        maxSide: 65535,
+      );
+      expect(steps.first, isA<ToEightBit>());
+      expect(steps[1], isA<Blur>());
+      expect(steps[1].shape.kind, PixelKind.rgb8);
+      // Only written in another format, it keeps its 16 bits.
+      final kept = planConversion(
+        shape(100, 100, PixelKind.rgb16),
+        {
+          'format': ['png'],
+        },
+        growth: 1 << 30,
+        maxSide: 65535,
+      );
+      expect(kept.single, isA<Encode>());
+      expect(kept.single.shape.kind, PixelKind.rgb16);
+    });
+
+    test('every step counts every frame', () {
+      for (final manipulations in <Map<String, List<Object?>>>[
+        {
+          'width': [50],
+        },
+        {
+          'blur': [10],
+        },
+        {'greyscale': []},
+        {
+          'crop': [40, 40, 'center'],
+        },
+        {
+          'fit': ['fill', 120, 80],
+        },
+      ]) {
+        final one = cost(
+          ImageContainer.gif,
+          shape(100, 100, PixelKind.palette8),
+          manipulations,
+        );
+        final ten = cost(
+          ImageContainer.gif,
+          shape(100, 100, PixelKind.palette8, 10),
+          manipulations,
+        );
+        expect(ten, closeTo(one * 10, one * 1e-9), reason: '$manipulations');
+      }
+    });
+
+    test('a resize before blur costs less than the reverse', () {
+      final source = shape(2000, 1000, PixelKind.rgb8);
+      expect(
+        cost(ImageContainer.png, source, {
+          'width': [1000],
+          'blur': [82],
+        }),
+        lessThan(
+          cost(ImageContainer.png, source, {
+            'blur': [82],
+            'width': [1000],
+          }),
         ),
-        converted,
+      );
+    });
+
+    test('at the budget an image converts; one unit less refuses it, '
+        'before decoding', () {
+      final bytes = png(300, 200);
+      final manipulations = <String, List<Object?>>{
+        'blur': [20],
+        'width': [150],
+      };
+      final work = cost(
+        ImageContainer.png,
+        shape(300, 200, PixelKind.rgb8),
+        manipulations,
+      );
+      expect(convert(bytes, manipulations, maxWork: work.ceil()), converted);
+      expect(convert(bytes, manipulations, maxWork: work.ceil() - 1), refused);
+    });
+
+    test('a step with no measured cost for the pixels is not run', () {
+      // BMP decoding has no row for gray pixels: refused, not guessed.
+      expect(
+        conversionCost(
+          ImageContainer.bmp,
+          shape(10, 10, PixelKind.gray8),
+          const [],
+        ),
+        isNull,
       );
     });
 
@@ -356,84 +480,6 @@ void main() {
       expect(out, converted);
       expect(img.decodeGif(out! as Uint8List)!.width, 64);
     });
-
-    test('a 16-bit image counts eleven times an 8-bit one', () {
-      // 1 MP at radius 8: 8 million, 88 million counted for 16 bits.
-      expect(
-        convert(png16(1000, 1000), {
-          'blur': [16],
-        }),
-        refused,
-      );
-      expect(
-        convert(png(1000, 1000), {
-          'blur': [16],
-        }),
-        converted,
-      );
-      // 0.49 MP at radius 8: 43 million counted.
-      expect(
-        convert(png16(700, 700), {
-          'blur': [16],
-        }, within: const Duration(seconds: 5)),
-        converted,
-      );
-    });
-
-    test('still images and animations have separate budgets', () {
-      final still = png(1600, 1000);
-      expect(
-        convert(still, {
-          'blur': [100],
-        }, within: const Duration(seconds: 10)),
-        converted,
-      );
-      expect(
-        convert(png(1601, 1000), {
-          'blur': [100],
-        }),
-        refused,
-      );
-
-      Uint8List animation(int frames) {
-        final image = img.Image(width: 100, height: 100);
-        for (var i = 1; i < frames; i++) {
-          image.addFrame(img.Image(width: 100, height: 100));
-        }
-        return img.encodeGif(image);
-      }
-
-      expect(
-        convert(animation(100), {
-          'blur': [40],
-        }, within: const Duration(seconds: 10)),
-        converted,
-      );
-      expect(
-        convert(animation(101), {
-          'blur': [40],
-        }),
-        refused,
-      );
-    }, timeout: const Timeout(Duration(seconds: 30)));
-
-    test('a resize before blur reduces its work; the reverse does not', () {
-      final source = png(2000, 1000);
-      expect(
-        convert(source, {
-          'width': [1000],
-          'blur': [82],
-        }, within: const Duration(seconds: 10)),
-        converted,
-      );
-      expect(
-        convert(source, {
-          'blur': [82],
-          'width': [1000],
-        }),
-        refused,
-      );
-    }, timeout: const Timeout(Duration(seconds: 20)));
   });
 
   test('non-positive manipulation dimensions have one public error', () {
@@ -486,8 +532,14 @@ void main() {
 
     test('more scans than its size allows: refused before decoding', () {
       // 8 000 x 5 000 allows 16 scans at the default limit.
-      expect(convert(_scansOnly(8000, 5000, 16), {}), isNot(refused));
-      expect(convert(_scansOnly(8000, 5000, 17), {}), refused);
+      expect(
+        convert(_scansOnly(8000, 5000, 16), {}, maxWork: unbounded),
+        isNot(refused),
+      );
+      expect(
+        convert(_scansOnly(8000, 5000, 17), {}, maxWork: unbounded),
+        refused,
+      );
       // A small image allows many more.
       expect(convert(_scansOnly(64, 48, 17), {}), isNot(refused));
     });
@@ -513,7 +565,11 @@ void main() {
           for (var i = 0; i < 20; i++) ...[0xFF, 0xDA, 0x00],
         ];
         expect(
-          convert(_scansOnly(8000, 5000, 1, segment: (marker, inside)), {}),
+          convert(
+            _scansOnly(8000, 5000, 1, segment: (marker, inside)),
+            {},
+            maxWork: unbounded,
+          ),
           isNot(refused),
         );
       });
@@ -559,8 +615,13 @@ void main() {
               beforeScans: beforeScans,
             ),
             {},
+            maxWork: unbounded,
           ),
-          refused,
+          isA<ImageTooLargeException>().having(
+            (e) => e.message,
+            'message',
+            contains('scans'),
+          ),
         );
       });
     }
@@ -672,12 +733,20 @@ void main() {
       final thumbnail = _scansOnly(160, 120, 16);
       final exif = [...'Exif'.codeUnits, 0, 0, ...thumbnail];
       expect(
-        convert(_scansOnly(8000, 5000, 16, segment: (0xE1, exif)), {}),
+        convert(
+          _scansOnly(8000, 5000, 16, segment: (0xE1, exif)),
+          {},
+          maxWork: unbounded,
+        ),
         isNot(refused),
       );
       // The image's own scans still count: one more is refused.
       expect(
-        convert(_scansOnly(8000, 5000, 17, segment: (0xE1, exif)), {}),
+        convert(
+          _scansOnly(8000, 5000, 17, segment: (0xE1, exif)),
+          {},
+          maxWork: unbounded,
+        ),
         refused,
       );
     });

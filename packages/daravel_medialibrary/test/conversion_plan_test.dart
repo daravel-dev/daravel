@@ -155,9 +155,98 @@ void main() {
         if (work != null) {
           expect(work.isFinite, isTrue, reason: '$kind $frames');
           expect(work, greaterThan(0), reason: '$kind $frames');
-          // Far past any budget an int setting can hold: refused.
-          expect(work > 14400, isTrue);
+          // Past the default budget: refused.
+          expect(
+            work,
+            greaterThan(MediaLibraryConfig.defaultMaxConversionWork),
+          );
         }
+      }
+    }
+  });
+
+  test('every step at the largest sizes and frame counts: finite, '
+      'positive, or refused (null); never NaN, never wrapped', () {
+    // Terms are products of a side (at most 65 535), a side, frames (an
+    // int) and a coefficient, as doubles: at most about 4.3e9 x 2^62 x
+    // 1e4 / 1e6, far inside a double's range; a double never wraps.
+    final chains = <Map<String, List<Object?>>>[
+      {
+        'width': [65535],
+        'blur': [100],
+        'greyscale': [],
+        'format': ['gif'],
+      },
+      {
+        'fit': ['fill', 65535, 65535],
+        'crop': [65535, 65535, 'bottomRight'],
+        'format': ['jpg'],
+        'quality': [100],
+      },
+      {
+        'blur': [100],
+        'fit': ['fillMax', 65535, 65535],
+        'format': ['png'],
+      },
+    ];
+    for (final kind in PixelKind.values) {
+      for (final frames in [1, 1000, 1 << 30, 1 << 62]) {
+        for (final container in ImageContainer.values) {
+          for (final manipulations in chains) {
+            final shape = (
+              width: 65535,
+              height: 65535,
+              frames: frames,
+              kind: kind,
+            );
+            final List<ConversionStep> plan;
+            try {
+              plan = planConversion(
+                shape,
+                manipulations,
+                growth: 1 << 62,
+                maxSide: 65535,
+              );
+            } on ImageTooLargeException {
+              // Refused by the growth limit, before any cost: also safe.
+              continue;
+            }
+            final work = conversionCost(container, shape, plan, orient: true);
+            final reason = '$kind $frames $container $manipulations';
+            if (work != null) {
+              expect(work.isNaN, isFalse, reason: reason);
+              expect(work.isFinite, isTrue, reason: reason);
+              expect(work, greaterThan(0), reason: reason);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  test('the estimate grows with the sides and the frames: it never wraps '
+      'around to look small', () {
+    // Pixels strictly growing: the sides double up to 65 535, then the
+    // frames grow to 2^62.
+    final sizes = [
+      for (var side = 1; side < 65535; side = side * 2 + 1) (side, 1),
+      for (final frames in [1, 2, 1 << 20, 1 << 40, 1 << 62]) (65535, frames),
+    ];
+    for (final kind in [PixelKind.rgb8, PixelKind.rgba16, PixelKind.palette8]) {
+      var previous = 0.0;
+      for (final (side, frames) in sizes) {
+        final shape = (width: side, height: side, frames: frames, kind: kind);
+        final plan = planConversion(
+          shape,
+          {
+            'blur': [50],
+          },
+          growth: 1 << 62,
+          maxSide: 65535,
+        );
+        final work = conversionCost(ImageContainer.png, shape, plan)!;
+        expect(work, greaterThan(previous), reason: '$kind $side $frames');
+        previous = work;
       }
     }
   });

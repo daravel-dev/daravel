@@ -425,7 +425,7 @@ Uint8List convertImageSync(
   }
   final container = _containerOf(info, decoder);
   final kind = _kindOfInfo(info, decoder, bytes);
-  if (kind == null) {
+  if (container == null || kind == null) {
     throw ImageConversionException(
       'The image\'s pixels (${_describeInfo(info)}) are not converted in '
       'this version.',
@@ -620,16 +620,22 @@ img.Image _onCanvas(img.Image image, ImageShape shape, ImageShape source) {
   return canvas!;
 }
 
-/// How the file was stored, as far as decoding costs differ.
-ImageContainer _containerOf(img.DecodeInfo info, img.Decoder decoder) =>
-    switch (info) {
-      img.JpegInfo() => ImageContainer.jpeg,
-      img.GifInfo() => ImageContainer.gif,
-      img.WebPInfo(:final format) =>
-        format == img.WebPFormat.lossless
-            ? ImageContainer.webpLossless
-            : ImageContainer.webpLossy,
-      _ => decoder is img.BmpDecoder ? ImageContainer.bmp : ImageContainer.png,
+/// How the file was stored, as far as decoding costs differ; null for a
+/// container without measured costs, which is refused (none reaches here
+/// today: only these five decoders are tried).
+ImageContainer? _containerOf(img.DecodeInfo info, img.Decoder decoder) =>
+    switch ((info, decoder)) {
+      (img.JpegInfo(), img.JpegDecoder()) => ImageContainer.jpeg,
+      (img.PngInfo(), img.PngDecoder()) => ImageContainer.png,
+      (img.GifInfo(), img.GifDecoder()) => ImageContainer.gif,
+      (img.WebPInfo(:final format), img.WebPDecoder()) =>
+        switch (format) {
+          img.WebPFormat.lossless => ImageContainer.webpLossless,
+          img.WebPFormat.lossy => ImageContainer.webpLossy,
+          _ => null,
+        },
+      (_, img.BmpDecoder()) => ImageContainer.bmp,
+      _ => null,
     };
 
 /// A BMP's bits per pixel, from its header (the 16-bit field at byte 28).
