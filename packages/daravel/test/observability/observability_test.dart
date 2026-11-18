@@ -422,8 +422,9 @@ void main() {
       expect((checks['queue']! as Map)['size'], 0);
       await app.shutdown();
 
+      // The errors are in the body with APP_DEBUG only (LG-1).
       await boot(
-        {},
+        {'APP_DEBUG': 'true'},
         checks: [
           CallbackHealthCheck('broken', () => throw StateError('down')),
           CallbackHealthCheck('slow', () async {
@@ -439,6 +440,20 @@ void main() {
       expect((failed['broken'] as Map)['error'], contains('down'));
       expect((failed['slow'] as Map)['error'], contains('Timed out'));
       expect((failed['database'] as Map)['ok'], isTrue);
+      await app.shutdown();
+
+      await boot(
+        {},
+        checks: [CallbackHealthCheck('broken', () => throw StateError('down'))],
+      );
+      final quiet = await app.handle(Request.fake(path: '/up/ready'));
+      expect(quiet.status, 503);
+      final broken =
+          ((jsonDecode(await quiet.bodyText()) as Map)['checks']
+                  as Map)['broken']
+              as Map;
+      expect(broken['ok'], isFalse);
+      expect(broken.containsKey('error'), isFalse, reason: 'no APP_DEBUG');
     });
 
     test('request logs carry request_id and Log.withContext data', () async {
