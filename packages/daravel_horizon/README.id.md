@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:897a8ab7b749 -->
+<!-- source: README.md sha256:5c0add3cc2d6 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -180,7 +180,16 @@ Bila master sendiri terlambat (prosesnya sibuk), ia tidak menilai worker
 menganggur pada putaran itu, yang bisa datang sebelum heartbeat mereka:
 paling banyak tiga putaran berturut-turut, dicatat sebagai peringatan,
 sehingga worker yang benar-benar hilang tetap dibunuh paling lambat tiga
-heartbeat kemudian.
+putaran lease kemudian. Putaran master yang terus terlambat lebih panjang
+dari satu heartbeat, jadi itu bisa lebih dari tiga heartbeat (sekitar 7 dtk
+pada heartbeat 500 ms dengan putaran 1,4 dtk). Putaran dihitung terlambat
+bila lewat setengah heartbeat, dan tidak pernah di bawah 50 ms, jitter timer
+mesin yang senggang; `HORIZON_HEARTBEAT_MS` di bawah 50 ditolak saat boot.
+Pada antrean berkas SQLite, lease mengikuti `busy_timeout` yang benar-benar
+berlaku di koneksi (tidak ada pada URI `file:`) dan paling lama 10 menit:
+worker yang menunggu kunci tulis lebih lama dari itu dibunuh. Supervisor
+tertanam mencatat catatan SQLite yang sama dengan yang ditulis
+`dartisan horizon` ke stderr.
 
 ## Lisensi
 

@@ -98,8 +98,11 @@ typedef HorizonEventSink = void Function(
 /// isolates per plan, sized by the auto-scaler ([decide]) every
 /// `balanceCooldown`, each worker polling the queues its share says.
 ///
-/// An idle worker that stops sending heartbeats for three intervals is
-/// killed (its lease). A worker running a job is judged by that job's
+/// An idle worker silent longer than its lease ([idleLease]: four
+/// heartbeats, longer on a SQLite file queue) is killed; a master that runs
+/// late defers that judgment at most three lease rounds, which for a master
+/// that stays late is more than three heartbeats. A worker running a job is
+/// judged by that job's
 /// contract instead, since synchronous work blocks its heartbeats too: it
 /// is killed once the job runs past the timeout the processor enforces
 /// plus `killGrace` (a margin before `retry_after` at the latest), the
@@ -893,7 +896,7 @@ final class HorizonMaster {
         );
       }
       _deferredLeaseRounds++;
-    } else if (late <= config.heartbeat ~/ 2) {
+    } else if (late <= HorizonConfig.lateness(config.heartbeat)) {
       _deferredLeaseRounds = 0;
     }
     for (final pool in _pools.values) {

@@ -325,58 +325,93 @@ final class HorizonConfig implements ConfigSection {
   /// its [sqliteBusyTimeout] plus two heartbeats. A worker waiting for the
   /// SQLite write lock waits inside one blocking call and sends nothing
   /// meanwhile; killed there, it would force a restart of the process
-  /// ([sqliteWarning]) for a wait SQLite itself ends.
+  /// ([sqliteWarning]) for a wait SQLite itself ends. The SQLite part is
+  /// at most [maxSqliteLease]: a worker stuck longer than that is killed,
+  /// not left unnoticed for as long as `busy_timeout` says.
   static Duration idleLease(Duration heartbeat, {Duration? sqliteBusyTimeout}) {
     final beats = heartbeat * 4;
     if (sqliteBusyTimeout == null) {
       return beats;
     }
-    final sqlite = sqliteBusyTimeout + heartbeat * 2;
+    // Compared before adding: nothing past the cap is summed.
+    final room = maxSqliteLease - heartbeat * 2;
+    final sqlite = sqliteBusyTimeout >= room
+        ? maxSqliteLease
+        : sqliteBusyTimeout + heartbeat * 2;
     return sqlite > beats ? sqlite : beats;
   }
 
-  /// The `busy_timeout` of the SQLite file a supervisor of [config] works
-  /// as its queue ([onSqliteFile]): the connection's option in
-  /// milliseconds, 5 s when unset (as `SqliteDriver.fromConfig`), zero when
-  /// zero. Null for any other queue: its lease is four heartbeats.
+  /// The longest lease a SQLite `busy_timeout` gives an idle worker
+  /// ([idleLease]); four heartbeats can still be longer.
+  static const Duration maxSqliteLease = Duration(minutes: 10);
+
+  /// The `busy_timeout` the SQLite file a supervisor of [config] works as
+  /// its queue ([onSqliteFile]) really has on its connection, as the
+  /// driver applies it (`SqliteDriver.appliedBusyTimeout`): the option,
+  /// 5 s when unset, and zero where no `busy_timeout` is set (a `file:`
+  /// URI) or one SQLite does not take. Null for any other queue: its lease
+  /// is four heartbeats.
   static Duration? sqliteBusyTimeout(ConfigRepository config) {
     if (!onSqliteFile(config)) {
       return null;
     }
     final database = config.section<DatabaseConfig>();
-    final connection = database.connections[database.defaultConnection];
-    final busy = switch (connection?.options['busy_timeout']) {
-      final int ms => ms,
-      final String ms => int.tryParse(ms),
-      _ => null,
-    };
-    return busy == null || busy < 0
-        ? const Duration(seconds: 5)
-        : Duration(milliseconds: busy);
+    final name = database.defaultConnection;
+    return SqliteDriver.fromConfig(
+      name,
+      database.connections[name]!,
+    ).appliedBusyTimeout;
   }
 
   /// Whether a lease round of the master is deferred: it ran [late] (past
-  /// its heartbeat), more than half a [heartbeat], and fewer than three
-  /// rounds in a row were deferred already ([deferred]). A late round may
-  /// read heartbeats the master has not handled yet; deferring lets them
-  /// in. The bound keeps a master that is always late killing a silent
-  /// worker at most three rounds later.
+  /// its heartbeat) by more than [lateness], and fewer than three rounds
+  /// in a row were deferred already ([deferred]). A late round may read
+  /// heartbeats the master has not handled yet; deferring lets them in.
+  /// The bound keeps a master that is always late killing a silent worker
+  /// at most three lease rounds later (rounds of a late master are longer
+  /// than a heartbeat, so that is more than three heartbeats).
   static bool deferLeaseRound({
     required Duration late,
     required int deferred,
     required Duration heartbeat,
-  }) => late > heartbeat ~/ 2 && deferred < maxDeferredLeaseRounds;
+  }) => late > lateness(heartbeat) && deferred < maxDeferredLeaseRounds;
+
+  /// How late a lease round may run and still count as on time: half a
+  /// [heartbeat], and at least [minimumLateness], above the jitter of an
+  /// idle machine's timers.
+  static Duration lateness(Duration heartbeat) {
+    final half = heartbeat ~/ 2;
+    return half > minimumLateness ? half : minimumLateness;
+  }
+
+  /// The least [lateness]: timers of an idle Windows machine fire up to
+  /// about 15 ms late, which half of a small heartbeat does not cover.
+  static const Duration minimumLateness = Duration(milliseconds: 50);
 
   /// The most lease rounds deferred in a row ([deferLeaseRound]).
   static const int maxDeferredLeaseRounds = 3;
 
   /// The sentence the SQLite warning ends with: how long an idle worker is
-  /// given ([idleLease]) for the queue's [busyTimeout].
+  /// given ([idleLease]) for the queue's [busyTimeout], and what is off
+  /// when that `busy_timeout` is zero or past [maxSqliteLease].
   static String sqliteLeaseNote(Duration heartbeat, Duration busyTimeout) {
     final lease = idleLease(heartbeat, sqliteBusyTimeout: busyTimeout);
-    return 'An idle worker is given busy_timeout '
-        '(${busyTimeout.inMilliseconds} ms) plus two heartbeats, '
-        '${lease.inMilliseconds} ms, before it counts as gone.';
+    final ms = busyTimeout.inMilliseconds;
+    if (busyTimeout == Duration.zero) {
+      return 'The queue connection has no busy_timeout (a file: URI, or a '
+          'value SQLite does not take): a worker gets SQLITE_BUSY instead of '
+          'waiting for the write lock. An idle worker is given four '
+          'heartbeats, ${lease.inMilliseconds} ms, before it counts as gone.';
+    }
+    if (busyTimeout + heartbeat * 2 > maxSqliteLease) {
+      return 'busy_timeout ($ms ms) is longer than the longest idle lease: '
+          'an idle worker is given ${lease.inMilliseconds} ms before it '
+          'counts as gone, and one still waiting for the write lock then is '
+          'killed. Lower busy_timeout below '
+          '${maxSqliteLease.inMinutes} minutes.';
+    }
+    return 'An idle worker is given busy_timeout ($ms ms) plus two '
+        'heartbeats, ${lease.inMilliseconds} ms, before it counts as gone.';
   }
 
   /// The shortest time the queue named [connection] keeps a job reserved
@@ -622,7 +657,21 @@ final class HorizonConfig implements ConfigSection {
     // HORIZON_STORE=process is wrong only for a `dartisan horizon` serving
     // no dashboard of its own, which configuration cannot tell:
     // [storeProcessWarning] is printed by that command when it starts so.
-    if (horizon.heartbeat < minimumHeartbeat &&
+    if (horizon.heartbeat < leastHeartbeat) {
+      // In every environment: below it the master kills healthy workers
+      // and logs every round whatever the machine (0 ms: hundreds of lines
+      // a second). Tests that need a shorter one build HorizonConfig
+      // directly.
+      issues.add(
+        ConfigIssue(
+          ConfigIssueLevel.error,
+          'HORIZON_HEARTBEAT_MS=${horizon.heartbeat.inMilliseconds} is below '
+          '${leastHeartbeat.inMilliseconds} ms: idle workers would be killed '
+          'and every lease round logged as late. Use '
+          '${minimumHeartbeat.inMilliseconds} ms or more (1000 by default).',
+        ),
+      );
+    } else if (horizon.heartbeat < minimumHeartbeat &&
         env.string('APP_ENV', 'production') != 'testing') {
       issues.add(
         ConfigIssue(
@@ -691,6 +740,11 @@ final class HorizonConfig implements ConfigSection {
   /// heartbeats are the lease of an idle worker, and a busy host delays
   /// heartbeats by a few hundred milliseconds.
   static const Duration minimumHeartbeat = Duration(milliseconds: 250);
+
+  /// Below this heartbeat [check] refuses the configuration, in every
+  /// environment ([minimumHeartbeat] only warns): it is [minimumLateness],
+  /// so a lease round on time is never mistaken for a late one.
+  static const Duration leastHeartbeat = minimumLateness;
 
   /// Why the embedded supervisor refuses a SQLite file queue.
   static const String embedSqliteMessage =

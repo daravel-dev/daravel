@@ -171,7 +171,15 @@ one reserved but not reported yet comes back after `retry_after`.
 When the master itself runs late (its process busy), it does not judge idle
 workers on that round, which may come before their heartbeats: at most three
 rounds in a row, logged as a warning, so a worker that is really gone is
-still killed at most three heartbeats later.
+still killed at most three lease rounds later. The rounds of a master that
+stays late are longer than a heartbeat, so that can be more than three
+heartbeats (about 7 s at a 500 ms heartbeat with rounds of 1.4 s). A round
+counts as late past half a heartbeat, and never under 50 ms, the jitter of
+an idle machine's timers; `HORIZON_HEARTBEAT_MS` below 50 is refused at boot.
+On a SQLite file queue the lease follows the `busy_timeout` the connection
+really has (none on a `file:` URI) and is at most 10 minutes: a worker
+waiting longer for the write lock is killed. The embedded supervisor logs
+the same SQLite note `dartisan horizon` writes to stderr.
 
 ## License
 

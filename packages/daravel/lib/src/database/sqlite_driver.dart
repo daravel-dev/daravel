@@ -79,6 +79,22 @@ final class SqliteDriver
   /// statement is not part of. 5 seconds by default.
   final Duration busyTimeout;
 
+  /// Whether [path] is opened with this driver's pragmas (`busy_timeout`,
+  /// WAL, `synchronous`): a file path, not `:memory:` or a `file:` URI.
+  bool get _setsFilePragmas => path != ':memory:' && !path.startsWith('file:');
+
+  /// The lock wait SQLite applies on this connection: [busyTimeout] for a
+  /// file path; zero for `:memory:` and a `file:` URI, where no
+  /// `busy_timeout` is set; and zero for a value `PRAGMA busy_timeout`
+  /// does not take (negative, or past a 32-bit integer), which leaves the
+  /// connection without one.
+  Duration get appliedBusyTimeout {
+    final ms = busyTimeout.inMilliseconds;
+    return _setsFilePragmas && ms >= 0 && ms <= 0x7fffffff
+        ? busyTimeout
+        : Duration.zero;
+  }
+
   Database? _db;
   Future<void> _transactionQueue = Future<void>.value();
 
@@ -127,7 +143,7 @@ final class SqliteDriver
     if (_db != null) {
       return;
     }
-    final isMemory = path == ':memory:' || path.startsWith('file:');
+    final isMemory = !_setsFilePragmas;
     if (!isMemory) {
       final parent = File(path).parent;
       if (!parent.existsSync()) {
