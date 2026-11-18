@@ -250,7 +250,12 @@ double? modelOf(Chain chain) {
 void runChain(Chain chain, int repeat) {
   final model = modelOf(chain)!;
   measure(chain.name, model, repeat, () {
-    convertImageSync(chain.bytes, chain.manipulations, maxWork: 1 << 40);
+    convertImageSync(
+      chain.bytes,
+      chain.manipulations,
+      maxWork: 1 << 40,
+      maxPixels: 1 << 40,
+    );
   });
 }
 
@@ -443,7 +448,7 @@ void reference(int repeat) {
     );
     runChain(chain, repeat);
     final model = modelOf(chain)!;
-    print('  ${model <= _budget ? 'passes' : 'REFUSED'} at the default');
+    print('  default: ${verdict(chain, model)}');
   }
 
   photo(4000, 3000);
@@ -495,7 +500,7 @@ void reference(int repeat) {
   for (final chain in cases) {
     runChain(chain, repeat);
     final model = modelOf(chain)!;
-    print('  ${model <= _budget ? 'passes' : 'REFUSED'} at the default');
+    print('  default: ${verdict(chain, model)}');
   }
 }
 
@@ -538,4 +543,16 @@ void main(List<String> args) {
     File(out)
         .writeAsStringSync('${_summary.join('\n')}\n', mode: FileMode.append);
   }
+}
+
+/// Whether the defaults let [chain] through: the work budget and the
+/// pixel limit (`MEDIA_MAX_IMAGE_PIXELS`, half of it for a 16-bit PNG).
+String verdict(Chain chain, double model) {
+  final s = chain.shape;
+  final pixels = s.width * s.height * s.frames;
+  final limit = chain.container == ImageContainer.png && s.kind.is16
+      ? MediaLibraryConfig.defaultMaxImagePixels ~/ 2
+      : MediaLibraryConfig.defaultMaxImagePixels;
+  return '${model <= _budget ? 'within' : 'PAST'} the work budget, '
+      '${pixels <= limit ? 'within' : 'PAST'} the pixel limit';
 }

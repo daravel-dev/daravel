@@ -430,6 +430,45 @@ void main() {
       expect(convert(bytes, manipulations, maxWork: work.ceil() - 1), refused);
     });
 
+    // Golden values: units of two measured chains, rounded up. A change to
+    // them means the costs changed; measure again on the reference runner
+    // (whole conversions against their units), do not adjust the numbers.
+    final reviewerChain = <String, List<Object?>>{
+      'width': [3162],
+      'height': [3161],
+      'crop': [3160, 3160, 'center'],
+      'fit': ['fill', 2000, 1999],
+      'blur': [30],
+      'format': ['gif'],
+    };
+
+    test('golden units: the longest measured attack chain and the chain '
+        'whose time came closest to its units', () {
+      expect(
+        cost(
+          ImageContainer.png,
+          shape(100, 100, PixelKind.rgb8),
+          reviewerChain,
+        ).ceil(),
+        12880,
+      );
+      expect(
+        cost(ImageContainer.png, shape(239, 1416, PixelKind.gray8), {
+          'crop': [609, 2042, 'left'],
+          'format': ['gif'],
+        }).ceil(),
+        108,
+      );
+    });
+
+    test('the attack chain is refused at the default budget, before '
+        'decoding; at its golden units it converts', () {
+      final bytes = png(100, 100);
+      expect(convert(bytes, reviewerChain), refused);
+      expect(convert(bytes, reviewerChain, maxWork: 12879), refused);
+      expect(convert(bytes, reviewerChain, maxWork: 12880), converted);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     test('a step with no measured cost for the pixels is not run', () {
       // BMP decoding has no row for gray pixels: refused, not guessed.
       expect(
