@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -129,18 +131,24 @@ void main() {
       );
     });
 
-    test('many [] appends parse in linear time (issue #166)', () {
-      const count = 100000;
-      final query = List.filled(count, 'a[]=v').join('&');
-      final watch = Stopwatch()..start();
-      final parsed = parseQueryString(query);
-      watch.stop();
-      expect(parsed['a'], hasLength(count));
-      expect((parsed['a']! as List<Object?>).last, 'v');
-      // The quadratic scan took over a minute for this input; linear
-      // parsing takes milliseconds, so the bound only catches a regression.
-      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
-    });
+    test(
+      'many [] appends parse in linear time (issue #166)',
+      () {
+        const count = 100000;
+        final query = List.filled(count, 'a[]=v').join('&');
+        final watch = Stopwatch()..start();
+        final parsed = parseQueryString(query, maxInputVars: count);
+        watch.stop();
+        expect(parsed['a'], hasLength(count));
+        expect((parsed['a']! as List<Object?>).last, 'v');
+        // The quadratic scan took over a minute for this input; linear
+        // parsing takes milliseconds, so the bound only catches a regression.
+        expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+      },
+      skip: Platform.environment['DARAVEL_SKIP_TIMING'] == '1'
+          ? 'Timing reserved for CI'
+          : false,
+    );
 
     test('decodes, tolerates junk and limits depth', () {
       expect(parseQueryString('a%5B%5D=1&b=x+y&c&&d=%ZZ'), {
