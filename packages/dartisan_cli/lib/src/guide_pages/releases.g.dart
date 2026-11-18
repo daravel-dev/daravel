@@ -15,6 +15,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.27.6` | Fixes: xlsx cell references bounded to XFD and written at their column; Midtrans notifications confirmed through the status API, amounts and currencies compared, identifiers bounded; refused WebSocket upgrades answered through the ordinary response lifecycle; form method overrides read a body only where a matching route exists |
 | `1.27.5` | Security fixes: WebSocket messages limited as a whole and control frames rate limited per connection; Encrypter checks payload field types; RedisEventStream reads Last-Event-ID safely; mass assignment matches guarded columns as Laravel does |
 | `1.27.4` | Security fixes: markdown mail and mail addresses read in one pass; numeric validation rules in linear time |
 | `1.27.3` | Security fixes: the request URL from the request line, a valid Host and the listener; forwarded headers only from trusted proxies; slashes and the bearer token read in one pass; a host at most 253 characters |
