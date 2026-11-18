@@ -394,40 +394,44 @@ enum ImageContainer { jpeg, png, gif, webpLossy, webpLossless, bmp }
 
 /// Work units per million pixels (all frames) of each step, by
 /// [PixelKind] in its declaration order; null where the conversion has no
-/// measured cost, and such a step is not run. PROVISIONAL: measured on a
-/// developer machine; the reference figures come from the CI runner.
+/// measured cost, and such a step is not run. One unit is about a
+/// millisecond of one core of the reference machine, a GitHub Actions
+/// `ubuntu-latest` runner (4 cores, 16 GB, November 2026): each step was
+/// measured on worst-case content, then scaled to that runner by the
+/// largest ratio its whole conversions showed (0.46), and the GIF of gray
+/// and alpha by its own (0.63); rounded up.
 const Map<String, List<double?>> _perMegapixel = {
   //               g8    ga8   rgb8  rgba8 g16   ga16  rgb16 rgba16 pal8 low
-  'decodePng': [10, 21, 30, 40, 30, 75, 125, 125, 10, 56],
-  'decodeBmp': [null, null, 60, 110, null, null, null, null, 35, 35],
-  'resize': [230, 460, 510, 650, 5200, 4650, 3500, 3500, 10, 75],
-  'crop': [5, 5, 5, 5, 5, 5, 5, 5, 5, 175],
-  'greyscale': [80, 215, 10, 10, 65, 75, 60, 60, 120, 355],
-  'toEightBit': [0, 1, 0, 0, 145, 167, 165, 165, 120, 157],
-  'blurBase': [20, 55, 40, 50, 320, 190, 230, 140, null, null],
-  'blurPerRadius': [15, 40, 40, 55, 370, 390, 290, 330, null, null],
-  'jpg': [125, 161, 175, 165, 302, 294, 370, 370, 215, 200],
-  'png': [20, 67, 450, 450, 83, 318, 550, 550, 60, 6],
-  'bmp': [10, 159, 10, 10, 100, 257, 180, 180, 5, 5],
-  'tiff': [1, 1, 1, 1, 118, 149, 155, 155, 1, 1],
-  'gif': [530, 1751, 1300, 1300, null, null, null, null, 40, 30],
+  'decodePng': [5, 10, 14, 19, 14, 35, 58, 58, 5, 26],
+  'decodeBmp': [null, null, 28, 51, null, null, null, null, 17, 17],
+  'resize': [106, 212, 235, 299, 2392, 2139, 1610, 1610, 5, 35],
+  'crop': [3, 3, 3, 3, 3, 3, 3, 3, 3, 81],
+  'greyscale': [37, 99, 5, 5, 30, 35, 28, 28, 56, 164],
+  'toEightBit': [0, 1, 0, 0, 67, 77, 76, 76, 56, 73],
+  'blurBase': [10, 26, 19, 23, 148, 88, 106, 65, null, null],
+  'blurPerRadius': [7, 19, 19, 26, 171, 180, 134, 152, null, null],
+  'jpg': [58, 75, 81, 76, 139, 136, 171, 171, 99, 92],
+  'png': [10, 31, 207, 207, 39, 147, 253, 253, 28, 3],
+  'bmp': [5, 74, 5, 5, 46, 119, 83, 83, 3, 3],
+  'tiff': [1, 1, 1, 1, 55, 69, 72, 72, 1, 1],
+  'gif': [244, 1104, 598, 598, null, null, null, null, 19, 14],
 };
 
 /// Per million pixels of a decode that does not depend on the pixels.
 const Map<ImageContainer, double> _decodePerMegapixel = {
-  ImageContainer.jpeg: 170,
-  ImageContainer.gif: 30,
-  ImageContainer.webpLossy: 200,
-  ImageContainer.webpLossless: 60,
+  ImageContainer.jpeg: 79,
+  ImageContainer.gif: 14,
+  ImageContainer.webpLossy: 92,
+  ImageContainer.webpLossless: 28,
 };
 
 /// A canvas: filling it, per million pixels of the canvas, and putting
 /// the image on it, per million pixels of the image put.
-const double _canvasFill = 40;
-const double _canvasPut = 1000;
+const double _canvasFill = 19;
+const double _canvasPut = 460;
 
 /// Turning a photo upright (EXIF orientation), per million pixels.
-const double _orient = 50;
+const double _orient = 23;
 
 /// What is added to every estimate: the measured whole conversions took
 /// up to this much more than the sum of their steps.

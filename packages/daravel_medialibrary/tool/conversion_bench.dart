@@ -420,6 +420,85 @@ void random(int repeat, int count) {
   }
 }
 
+/// The guide's reference table: whole conversions with their units, the
+/// runner's time, and whether the default budget lets them through. Ones
+/// past it are timed with no budget.
+void reference(int repeat) {
+  header(
+    'd) reference table (default budget '
+    '${MediaLibraryConfig.defaultMaxConversionWork} units)',
+  );
+  void photo(int w, int h) {
+    final image = rich(PixelKind.rgb8, w, h);
+    final chain = (
+      name:
+          'JPEG ${(w * h / 1e6).toStringAsFixed(0)} MP ($w x $h) to width '
+          '1600',
+      bytes: img.encodeJpg(image, quality: 90),
+      container: ImageContainer.jpeg,
+      shape: shapeOf(image, PixelKind.rgb8),
+      manipulations: <String, List<Object?>>{
+        'width': [1600],
+      },
+    );
+    runChain(chain, repeat);
+    final model = modelOf(chain)!;
+    print('  ${model <= _budget ? 'passes' : 'REFUSED'} at the default');
+  }
+
+  photo(4000, 3000);
+  photo(6000, 4000);
+  photo(8000, 5000);
+  photo(8160, 6120);
+  final cases = <Chain>[
+    pngChain(
+      'PNG 16-bit 24 MP (6000 x 4000) written as PNG',
+      PixelKind.rgb16,
+      6000,
+      4000,
+      {
+        'format': ['png'],
+      },
+    ),
+    () {
+      final gif = rich(PixelKind.palette8, 800, 600, frames: 30);
+      return (
+        name: 'animated GIF 800 x 600 x 30 frames to width 400, as GIF',
+        bytes: img.encodeGif(gif),
+        container: ImageContainer.gif,
+        shape: shapeOf(gif, PixelKind.palette8),
+        manipulations: <String, List<Object?>>{
+          'width': [400],
+          'format': ['gif'],
+        },
+      );
+    }(),
+    pngChain('reviewer chain', PixelKind.rgb8, 100, 100, {
+      'width': [3162],
+      'height': [3161],
+      'crop': [3160, 3160, 'center'],
+      'fit': ['fill', 2000, 1999],
+      'blur': [30],
+      'format': ['gif'],
+    }),
+    pngChain(
+      'largest-ratio random chain (#31): PNG gray8 239 x 1416, crop, GIF',
+      PixelKind.gray8,
+      239,
+      1416,
+      {
+        'crop': [609, 2042, 'left'],
+        'format': ['gif'],
+      },
+    ),
+  ];
+  for (final chain in cases) {
+    runChain(chain, repeat);
+    final model = modelOf(chain)!;
+    print('  ${model <= _budget ? 'passes' : 'REFUSED'} at the default');
+  }
+}
+
 void main(List<String> args) {
   final mode = args.firstWhere((a) => !a.startsWith('--'), orElse: () => 'all');
   int option(String name, int fallback) {
@@ -444,6 +523,9 @@ void main(List<String> args) {
   }
   if (mode == 'random' || mode == 'all') {
     random(repeat, option('random', 40));
+  }
+  if (mode == 'reference' || mode == 'all') {
+    reference(repeat);
   }
   final last =
       'Largest median/model: ${_largest.toStringAsFixed(2)} ($_largestName)';

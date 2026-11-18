@@ -246,11 +246,11 @@ void followUpTests() {
     expect([config.maxImagePixels, config.maxImageFrames], [1000, 2]);
   });
 
-  test('MEDIA_MAX_CONVERSION_WORK: 14 400 work units unless set, at least '
+  test('MEDIA_MAX_CONVERSION_WORK: 10 000 work units unless set, at least '
       '1', () {
     expect(
       MediaLibraryConfig.fromEnv(Env.fromMap({})).maxConversionWork,
-      14400,
+      10000,
     );
     final set = MediaLibraryConfig.fromEnv(
       Env.fromMap({'MEDIA_MAX_CONVERSION_WORK': '30000'}),

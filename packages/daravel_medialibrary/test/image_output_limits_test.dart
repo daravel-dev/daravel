@@ -292,25 +292,21 @@ void main() {
       );
     });
 
-    test('a small PNG enlarged to 10 million pixels is refused as a GIF '
-        'before encoding, and converts as a JPEG', () {
+    test('writing a GIF counts its encoding: a budget a JPEG of the same '
+        'enlargement fits refuses the GIF before encoding', () {
       final small = png(100, 100);
-      final enlarge = <String, List<Object?>>{
-        'width': [3162],
+      const shape = (width: 100, height: 100, frames: 1, kind: PixelKind.rgb8);
+      final asGif = <String, List<Object?>>{
+        'width': [1500],
+        'format': ['gif'],
       };
-      // The resize itself takes a few seconds; encoding the GIF would add
-      // 6 to 11.
-      expect(
-        convert(small, {
-          ...enlarge,
-          'format': ['gif'],
-        }, within: const Duration(seconds: 5)),
-        refused,
-      );
-      expect(
-        convert(small, enlarge, within: const Duration(seconds: 10)),
-        converted,
-      );
+      final asJpeg = <String, List<Object?>>{
+        'width': [1500],
+      };
+      final jpeg = cost(ImageContainer.png, shape, asJpeg).ceil();
+      expect(cost(ImageContainer.png, shape, asGif), greaterThan(jpeg * 2));
+      expect(convert(small, asGif, maxWork: jpeg), refused);
+      expect(convert(small, asJpeg, maxWork: jpeg), converted);
     });
   });
 
