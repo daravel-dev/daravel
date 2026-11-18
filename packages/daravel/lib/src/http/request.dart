@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import '../foundation/slashes.dart';
 import '../foundation/container.dart';
+import '../foundation/env.dart';
 import '../foundation/ids.dart';
 import '../foundation/locale.dart';
 import '../routing/domain_pattern.dart';
@@ -217,6 +218,30 @@ final class Request {
   /// middleware and `RouteEntry.bodyLimit` with theirs.
   static const int defaultMaxBodyBytes = 50 << 20;
 
+  /// The most nonempty pairs the query, and a URL-encoded form body, may
+  /// each hold (PHP's `max_input_vars`); more is a `400`. The kernel sets
+  /// the application's (`HTTP_MAX_INPUT_VARS`, [maxInputVarsFromEnv]) on
+  /// each request. `null` turns it off.
+  int? maxInputVars = defaultMaxInputVars;
+
+  /// Default maximum for each input source: PHP's `max_input_vars`.
+  static const int defaultMaxInputVars = 1000;
+
+  /// [maxInputVars] from `HTTP_MAX_INPUT_VARS`: unset means
+  /// [defaultMaxInputVars], `0` no limit; a negative value is an error at
+  /// boot.
+  static int? maxInputVarsFromEnv(Env env) {
+    final value = env.integer('HTTP_MAX_INPUT_VARS', defaultMaxInputVars);
+    if (value < 0) {
+      throw ArgumentError.value(
+        value,
+        'HTTP_MAX_INPUT_VARS',
+        'must be a positive number of variables, or 0 for no limit',
+      );
+    }
+    return value == 0 ? null : value;
+  }
+
   /// The request being handled, from anywhere in its zone (Laravel's
   /// `request()`): a helper, an observer, a listener run synchronously.
   /// `null` outside a request (a job, a command, a test without one).
@@ -235,6 +260,7 @@ final class Request {
   Stream<List<int>>? _bodyStream;
   List<int>? _bodyBytes;
   Object? _parsedBody;
+  BadRequestHttpException? _inputVarsError;
   bool _bodyParsed = false;
   final List<UploadedFile> _uploads = [];
   bool _cleanupScheduled = false;
@@ -266,16 +292,46 @@ final class Request {
   String get path => uri.path;
 
   /// Single-valued query parameters.
-  Map<String, String> get query => uri.queryParameters;
+  Map<String, String> get query {
+    _checkQueryCount();
+    return uri.queryParameters;
+  }
 
   /// Multi-valued query parameters.
-  Map<String, List<String>> get queryMulti => uri.queryParametersAll;
+  Map<String, List<String>> get queryMulti {
+    _checkQueryCount();
+    return uri.queryParametersAll;
+  }
 
   /// Query parameters as Laravel reads them (PHP's `parse_str`):
   /// `ids[]=1&ids[]=2` is a list, `filter[status]=x` a map, and a repeated
   /// plain key keeps its last value.
-  Map<String, Object?> get queryInput =>
-      _queryInput ??= parseQueryString(uri.query);
+  Map<String, Object?> get queryInput {
+    _checkQueryCount();
+    return _queryInput ??= parseQueryString(uri.query);
+  }
+
+  /// Whether the query was counted against [maxInputVars], and the error
+  /// if it went over: counted once per request (the query does not change),
+  /// the same error thrown on every read after.
+  bool _queryCounted = false;
+  BadRequestHttpException? _queryCountError;
+
+  void _checkQueryCount() {
+    if (!_queryCounted) {
+      _queryCounted = true;
+      final limit = maxInputVars;
+      if (limit != null) {
+        _queryCountError = _overInputVars(
+          _countInputVars(uri.query.codeUnits, limit),
+          limit,
+        );
+      }
+    }
+    if (_queryCountError case final error?) {
+      throw error;
+    }
+  }
 
   /// Client address. Equals [remoteAddress] unless a trusted proxy supplied
   /// `X-Forwarded-For` (see `TrustProxiesMiddleware`).
@@ -620,6 +676,9 @@ final class Request {
   /// JSON → decoded value, form → a map read like PHP's `parse_str` (see
   /// [parseQueryString]), otherwise the raw text (or `null` when empty).
   Future<Object?> body() async {
+    if (_inputVarsError case final error?) {
+      throw error;
+    }
     if (_bodyParsed) {
       return _parsedBody;
     }
@@ -655,6 +714,18 @@ final class Request {
       return _parsedBody = decoded;
     }
     if (contentType.contains('application/x-www-form-urlencoded')) {
+      // Counted on the bytes, before anything is decoded: `&` (0x26) is
+      // never part of a multibyte UTF-8 sequence, so the pairs are the
+      // same, and a body over the limit (up to the whole body limit, 50
+      // MiB by default) is refused without decoding it.
+      final limit = maxInputVars;
+      if (limit != null) {
+        if (_overInputVars(_countInputVars(raw, limit), limit)
+            case final error?) {
+          _inputVarsError = error;
+          throw error;
+        }
+      }
       return _parsedBody = parseQueryString(utf8.decode(raw));
     }
     return _parsedBody = utf8.decode(raw);
@@ -1086,7 +1157,32 @@ final class Request {
 /// Laravel's input: `a[]=1&a[]=2` is a list, `f[status]=x` a map, keys nest
 /// up to [maxDepth] levels, and a repeated plain key keeps its last value.
 /// Maps whose keys are exactly `0..n-1` become lists, as in Laravel's JSON.
-Map<String, Object?> parseQueryString(String query, {int maxDepth = 32}) {
+/// With [maxInputVars], more nonempty pairs than that throws
+/// [BadRequestHttpException] before any is decoded; without it (the
+/// default) there is no limit: [Request] passes its own for what a client
+/// sends, and a query string an application builds or parses itself is
+/// not limited.
+Map<String, Object?> parseQueryString(
+  String query, {
+  int maxDepth = 32,
+  int? maxInputVars,
+}) {
+  if (maxInputVars != null) {
+    if (maxInputVars <= 0) {
+      throw ArgumentError.value(
+        maxInputVars,
+        'maxInputVars',
+        'must be positive, or null for no limit',
+      );
+    }
+    if (_overInputVars(
+          _countInputVars(query.codeUnits, maxInputVars),
+          maxInputVars,
+        )
+        case final error?) {
+      throw error;
+    }
+  }
   final pairs = <(String, Object)>[];
   for (final pair in query.split('&')) {
     if (pair.isEmpty) {
@@ -1306,3 +1402,28 @@ String _bracketed(String host) => host.contains(':') ? '[$host]' : host;
 String _pathAndQuery(Uri target) =>
     '${target.path.isEmpty ? '/' : target.path}'
     '${target.hasQuery ? '?${target.query}' : ''}';
+
+/// The nonempty `&`-separated pairs in [units] (the code units of a query
+/// or the bytes of a form body: `&` is 0x26 in both, and never part of a
+/// multibyte UTF-8 sequence), counted up to one past [limit] and no
+/// further.
+int _countInputVars(List<int> units, int limit) {
+  var count = 0;
+  var inPair = false;
+  for (var i = 0; i < units.length; i++) {
+    if (units[i] == 0x26) {
+      inPair = false;
+    } else if (!inPair) {
+      inPair = true;
+      if (++count > limit) {
+        return count;
+      }
+    }
+  }
+  return count;
+}
+
+/// The `400` for [count] pairs over [limit], or null within it.
+BadRequestHttpException? _overInputVars(int count, int limit) => count > limit
+    ? BadRequestHttpException('Input exceeds the limit of $limit variables.')
+    : null;

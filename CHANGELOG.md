@@ -17,7 +17,12 @@ match Laravel more closely.
 
 **Upgrading can change what an application sees:**
 
+- Query strings and URL-encoded forms with more than 1,000 nonempty pairs now return `400` when read instead of accepting all input. Set `HTTP_MAX_INPUT_VARS` to a limit appropriate for the application, or `0` for none (a negative value is an error at boot); PHP instead warns and truncates excess input. Multipart keeps its own part limit.
+- New public names: `Request.maxInputVars` (`int?`, `null` for no limit), `Request.defaultMaxInputVars`, `Request.maxInputVarsFromEnv`, `HttpKernel.maxInputVars`, and an optional `maxInputVars` on `parseQueryString`, which sets no limit unless given (a query string an application builds or parses itself is not limited).
+
 ### Fixed
+
+- Security: the number of query and URL-encoded form pairs was not bounded, so one request could build nested input from hundreds of thousands of pairs (a form up to the 50 MiB body limit). They are now bounded (`HTTP_MAX_INPUT_VARS`, 1 000 by default, each source counted on its own) before any nested input is built; a form body is counted on its bytes, before it is decoded, and the query once per request.
 
 ## 1.27.6
 
