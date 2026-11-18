@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 
 import 'config.dart';
 import 'image_guard.dart';
+import 'conversion_plan.dart';
 import 'jpeg_walk.dart';
 
 /// How [Conversion.fit] fits an image into a box (spatie/image's `Fit`).
@@ -340,36 +341,33 @@ Future<Uint8List> convertImage(
   Map<String, List<Object?>> manipulations, {
   int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
   int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
-  int? maxGifPixels,
+  int maxWork = MediaLibraryConfig.defaultMaxConversionWork,
 }) => Isolate.run(
   () => convertImageSync(
     bytes,
     manipulations,
     maxPixels: maxPixels,
     maxFrames: maxFrames,
-    maxGifPixels: maxGifPixels,
+    maxWork: maxWork,
   ),
 );
 
 /// [convertImage] on the calling isolate.
 ///
-/// A GIF output holds at most [maxGifPixels] (width x height x frames;
-/// a tenth of [maxPixels] when null): encoding a GIF costs about 1.1 to
-/// 1.2 s per million pixels of a photograph.
+/// The whole conversion (decoding, every manipulation, writing) is
+/// estimated in work units before it runs, from the image's size, frames
+/// and pixel format, and refused past [maxWork]
+/// (`MEDIA_MAX_CONVERSION_WORK`).
 Uint8List convertImageSync(
   Uint8List bytes,
   Map<String, List<Object?>> manipulations, {
   int maxPixels = MediaLibraryConfig.defaultMaxImagePixels,
   int maxFrames = MediaLibraryConfig.defaultMaxImageFrames,
-  int? maxGifPixels,
+  int maxWork = MediaLibraryConfig.defaultMaxConversionWork,
 }) {
-  if (maxPixels < 1 || maxFrames < 1) {
-    throw ArgumentError('maxPixels and maxFrames are at least 1.');
+  if (maxPixels < 1 || maxFrames < 1 || maxWork < 1) {
+    throw ArgumentError('maxPixels, maxFrames and maxWork are at least 1.');
   }
-  if (maxGifPixels != null && maxGifPixels < 1) {
-    throw ArgumentError.value(maxGifPixels, 'maxGifPixels', 'at least 1');
-  }
-  final gifLimit = maxGifPixels ?? math.max(1, maxPixels ~/ 10);
   // One decoder instance reads the file once: what is checked below is
   // the decoder's own reading, and the same instance then decodes it.
   final decoder = _decoderFor(bytes, maxPixels);
@@ -425,9 +423,45 @@ Uint8List convertImageSync(
       'converted.',
     );
   }
+  final container = _containerOf(info, decoder);
+  final kind = _kindOfInfo(info, decoder, bytes);
+  if (kind == null) {
+    throw ImageConversionException(
+      'The image\'s pixels (${_describeInfo(info)}) are not converted in '
+      'this version.',
+    );
+  }
+  final growth = math.max(1, maxPixels ~/ _growthDivisor);
+  // Before decoding: refused when the conversion of the header's image is
+  // refused either way it may be turned (its EXIF orientation is read
+  // with the pixels).
+  final upright = (
+    width: info.width,
+    height: info.height,
+    frames: frames,
+    kind: kind,
+  );
+  final turned = (
+    width: info.height,
+    height: info.width,
+    frames: frames,
+    kind: kind,
+  );
+  Object? refusal;
+  for (final shape in [upright, turned]) {
+    try {
+      _plannedWithin(container, shape, manipulations, growth, maxWork);
+      refusal = null;
+      break;
+    } on ImageConversionException catch (error) {
+      refusal ??= error;
+    }
+  }
+  if (refusal != null) {
+    throw refusal;
+  }
   // A still image: its one frame, from the reading checked above. An
-  // animated GIF (still converted: its decoder checks every frame against
-  // its screen while decoding) is decoded whole.
+  // animated GIF is decoded whole, each frame held to the limits above.
   final decoded = guardImageCall(
     () => decoder is img.GifDecoder && frames > 1
         ? decoder.decode(bytes)
@@ -442,262 +476,138 @@ Uint8List convertImageSync(
   var image = (decoded.exif.imageIfd.orientation ?? 1) == 1
       ? decoded
       : guardImageCall(() => img.bakeOrientation(decoded));
-  int? quality;
-  var format = 'jpg';
-  // How large an image made by a manipulation may be.
-  final growth = math.max(1, maxPixels ~/ _growthDivisor);
-  for (final MapEntry(key: name, value: args) in manipulations.entries) {
-    switch (name) {
-      case 'width':
-        image = _width(image, args[0]! as int, growth);
-      case 'height':
-        image = _height(image, args[0]! as int, growth);
-      case 'fit':
-        image = _fit(
-          image,
-          Fit.values.byName(args[0]! as String),
-          args[1] as int?,
-          args[2] as int?,
-          growth,
-        );
-      case 'crop':
-        _checkTarget(
-          image,
-          args[0]! as int,
-          args[1]! as int,
-          image.numFrames,
-          growth,
-        );
-        image = _crop(
-          image,
-          args[0]! as int,
-          args[1]! as int,
-          CropPosition.values.byName(args[2]! as String),
-        );
-      case 'quality':
-        quality = args[0]! as int;
-      case 'format':
-        format = args[0]! as String;
-      case 'greyscale':
-        image = guardImageCall(() => img.grayscale(image));
-      case 'blur':
-        final amount = (args[0]! as int).clamp(0, 100);
-        if (amount > 0) {
-          final radius = math.max(1, amount ~/ 2);
-          _checkBlur(image, radius);
-          if (_isLowBit(image.format)) {
-            // Blurred at 1, 2 or 4 bits it would cost 10 to 50 times as much
-            // and fall back to as few levels: made 8-bit first, which loses
-            // nothing (a palette spreads to its channels).
-            image = guardImageCall(
-              () => image.convert(format: img.Format.uint8),
-            );
-          }
-          image = guardImageCall(() => img.gaussianBlur(image, radius: radius));
-        }
-      default:
-        throw ImageConversionException('Unknown manipulation [$name].');
-    }
-  }
-  return guardImageCall(
-    () => switch (ImageFormat.fromExtension(format)) {
-      ImageFormat.png => img.encodePng(image),
-      ImageFormat.gif => _encodeGif(image, gifLimit),
-      ImageFormat.bmp => img.encodeBmp(image),
-      ImageFormat.tiff => img.encodeTiff(image),
-      // GD's default JPEG quality when none is set.
-      ImageFormat.jpg || null => img.encodeJpg(image, quality: quality ?? 75),
-    },
-  );
-}
-
-double _aspect(img.Image image) => image.width / image.height;
-
-/// spatie/image's `width()`: the height follows the aspect ratio.
-img.Image _width(img.Image image, int width, int growth) =>
-    _resize(image, width, _side(width / _aspect(image)), growth);
-
-/// spatie/image's `height()`: the width follows the aspect ratio.
-img.Image _height(img.Image image, int height, int growth) =>
-    _resize(image, _side(height * _aspect(image)), height, growth);
-
-/// A side computed from an aspect ratio, at least 1; [_checkTarget]
-/// refuses one past [_maxImageSide]. A value no int holds (infinite, or
-/// past 2^53) reads as 2^53, which is refused the same way.
-int _side(double value) => value.isFinite && value < 9007199254740992
-    ? math.max(1, value.round())
-    : 9007199254740992;
-
-img.Image _resize(img.Image image, int width, int height, int growth) {
-  _checkDimensions(width, height);
-  if (width == image.width && height == image.height) {
-    return image;
-  }
-  _checkTarget(image, width, height, image.numFrames, growth);
-  return guardImageCall(
-    () => img.copyResize(
-      image,
-      width: width,
-      height: height,
-      interpolation: img.Interpolation.cubic,
-    ),
-  );
-}
-
-/// Refuses to make a [width] x [height] image of [frames] frames out of
-/// [image] when a side is longer than [_maxImageSide], or when it holds more
-/// pixels than [growth]: making an image costs time with its output pixels,
-/// even when it is smaller than its input. Divisions only, without a product
-/// that could overflow.
-void _checkTarget(
-  img.Image image,
-  int width,
-  int height,
-  int frames,
-  int growth,
-) {
-  _checkDimensions(width, height);
-  final allowed = growth;
-  final count = math.max(1, frames);
-  if (width < 1 ||
-      height < 1 ||
-      width > _maxImageSide ||
-      height > _maxImageSide ||
-      width > allowed ~/ count ~/ height) {
-    throw ImageTooLargeException(
-      'The conversion would make a $width x $height image'
-      '${count > 1 ? ' of $count frames' : ''} out of a ${image.width} x '
-      '${image.height} one, past the limit of $allowed pixels; it was not '
-      'converted.',
+  // The steps of the image as decoded, turned upright: what runs.
+  final decodedKind = kindOfImage(image);
+  if (decodedKind == null) {
+    throw ImageConversionException(
+      'The image\'s pixels (${image.format.name}, ${image.numChannels} '
+      'channels) are not converted in this version.',
     );
   }
-}
-
-/// spatie/image's `Fit::calculateSize()` and `Size::resize()`.
-(int, int) _size(
-  int width,
-  int height,
-  int desiredWidth,
-  int desiredHeight, {
-  required bool preserveAspect,
-  required bool doNotUpsize,
-}) {
-  (int, int) resizeWidth((int, int) size) {
-    final newWidth = doNotUpsize
-        ? math.min(desiredWidth, size.$1)
-        : desiredWidth;
-    var newHeight = size.$2;
-    if (preserveAspect) {
-      final calculated = math.max(1, (newWidth / (size.$1 / size.$2)).round());
-      newHeight = doNotUpsize ? math.min(calculated, size.$2) : calculated;
-    }
-    return (newWidth, newHeight);
-  }
-
-  (int, int) resizeHeight((int, int) size) {
-    final newHeight = doNotUpsize
-        ? math.min(desiredHeight, size.$2)
-        : desiredHeight;
-    var newWidth = size.$1;
-    if (preserveAspect) {
-      final calculated = math.max(1, (newHeight * (size.$1 / size.$2)).round());
-      newWidth = doNotUpsize ? math.min(calculated, size.$1) : calculated;
-    }
-    return (newWidth, newHeight);
-  }
-
-  final original = (width, height);
-  final dominantWidth = resizeWidth(resizeHeight(original));
-  final dominantHeight = resizeHeight(resizeWidth(original));
-  return dominantHeight.$1 <= desiredWidth && dominantHeight.$2 <= desiredHeight
-      ? dominantHeight
-      : dominantWidth;
-}
-
-img.Image _fit(img.Image image, Fit fit, int? width, int? height, int growth) {
-  _checkDimensions(width, height);
-  final desiredWidth = width ?? image.width;
-  final desiredHeight = height ?? image.height;
-  switch (fit) {
-    case Fit.crop:
-      // spatie/image's fitCrop(): scale on the side that covers the box,
-      // then a centered canvas of the box.
-      final originalAspect = _aspect(image);
-      var result = image;
-      if (image.width < desiredWidth || image.height < desiredHeight) {
-        result = desiredWidth < desiredHeight
-            ? _height(result, desiredHeight, growth)
-            : _width(result, desiredWidth, growth);
-      }
-      result = originalAspect > desiredWidth / desiredHeight
-          ? _height(result, desiredHeight, growth)
-          : _width(result, desiredWidth, growth);
-      return _canvas(result, desiredWidth, desiredHeight, growth);
-    case Fit.fillMax:
-      if (width == null || height == null) {
-        throw const ImageConversionException(
-          'Fit.fillMax needs a width and a height.',
+  final steps = _plannedWithin(
+    container,
+    (
+      width: image.width,
+      height: image.height,
+      frames: math.max(1, image.numFrames),
+      kind: decodedKind,
+    ),
+    manipulations,
+    growth,
+    maxWork,
+  );
+  for (final step in steps) {
+    switch (step) {
+      case ToEightBit():
+        final current = image;
+        image = guardImageCall(
+          () => current.convert(
+            format: img.Format.uint8,
+            numChannels: step.shape.kind.channels,
+          ),
         );
-      }
-      final (w, h) = _size(
-        image.width,
-        image.height,
-        width,
-        height,
-        preserveAspect: true,
-        doNotUpsize: false,
-      );
-      return _canvas(_resize(image, w, h, growth), width, height, growth);
-    case Fit.contain || Fit.max || Fit.fill || Fit.stretch:
-      final (w, h) = fit == Fit.stretch
-          ? (desiredWidth, desiredHeight)
-          : _size(
-              image.width,
-              image.height,
-              desiredWidth,
-              desiredHeight,
-              preserveAspect: true,
-              doNotUpsize: fit != Fit.contain,
-            );
-      final resized = _resize(image, w, h, growth);
-      return fit == Fit.fill
-          ? _canvas(resized, desiredWidth, desiredHeight, growth)
-          : resized;
+      case Resize(:final shape):
+        final current = image;
+        image = guardImageCall(
+          () => img.copyResize(
+            current,
+            width: shape.width,
+            height: shape.height,
+            interpolation: img.Interpolation.cubic,
+          ),
+        );
+      case Crop(:final shape, :final x, :final y):
+        image = _cropped(image, x, y, shape.width, shape.height);
+      case Canvas(:final shape, :final source):
+        image = _onCanvas(image, shape, source);
+      case Greyscale():
+        final current = image;
+        image = guardImageCall(() => img.grayscale(current));
+      case Blur(:final radius):
+        final current = image;
+        image = guardImageCall(() => img.gaussianBlur(current, radius: radius));
+      case Encode(:final format, :final quality):
+        final current = image;
+        return guardImageCall(
+          () => switch (format) {
+            ImageFormat.png => img.encodePng(current),
+            ImageFormat.gif => img.encodeGif(current),
+            ImageFormat.bmp => img.encodeBmp(current),
+            ImageFormat.tiff => img.encodeTiff(current),
+            // GD's default JPEG quality when none is set.
+            ImageFormat.jpg => img.encodeJpg(current, quality: quality ?? 75),
+          },
+        );
+    }
   }
+  throw StateError('A conversion plan ends with its encoding.');
 }
 
-/// spatie/image's `resizeCanvas()` centered: [image] on a white canvas of
-/// [width] × [height], cut where it is larger. Every frame of an animation
-/// gets its own canvas, with its duration ([_checkTarget] counts them all).
-img.Image _canvas(img.Image image, int width, int height, int growth) {
-  _checkDimensions(width, height);
-  _checkTarget(image, width, height, image.numFrames, growth);
-  if (image.width == width && image.height == height) {
-    return image;
+/// The steps of a conversion of an image of [shape] from [container],
+/// refused when they are ([planConversion]), when a step has no measured
+/// cost for its pixels, or when their work is past [maxWork].
+List<ConversionStep> _plannedWithin(
+  ImageContainer container,
+  ImageShape shape,
+  Map<String, List<Object?>> manipulations,
+  int growth,
+  int maxWork,
+) {
+  final steps = planConversion(
+    shape,
+    manipulations,
+    growth: growth,
+    maxSide: _maxImageSide,
+  );
+  final work = conversionCost(container, shape, steps, orient: true);
+  if (work == null) {
+    throw const ImageConversionException(
+      'A step of this conversion is not run on the image\'s pixels in this '
+      'version.',
+    );
   }
-  final cut = _crop(image, width, height, CropPosition.center);
-  if (cut.width == width && cut.height == height) {
-    return cut;
+  if (work > maxWork) {
+    throw ImageTooLargeException(
+      'The conversion of a ${shape.width} x ${shape.height} image'
+      '${shape.frames > 1 ? ' of ${shape.frames} frames' : ''} would take '
+      'about ${work.round()} work units, past MEDIA_MAX_CONVERSION_WORK '
+      '($maxWork); it was not converted.',
+    );
   }
+  return steps;
+}
+
+/// [image] cut to [width] x [height] at [x], [y], every frame keeping its
+/// duration.
+img.Image _cropped(img.Image image, int x, int y, int width, int height) {
+  final cut = guardImageCall(
+    () => img.copyCrop(image, x: x, y: y, width: width, height: height),
+  );
+  for (var i = 0; i < cut.numFrames && i < image.numFrames; i++) {
+    cut.frames[i].frameDuration = image.frames[i].frameDuration;
+  }
+  return cut;
+}
+
+/// spatie/image's `resizeCanvas()` centered: every frame of [image] (of
+/// [source]'s size) on a white canvas of [shape], with its duration.
+img.Image _onCanvas(img.Image image, ImageShape shape, ImageShape source) {
   img.Image? canvas;
-  for (var i = 0; i < cut.numFrames; i++) {
-    final frame = cut.frames[i];
-    final channels = math.max(3, cut.numChannels);
-    final dstX = (width - cut.width) ~/ 2;
-    final dstY = (height - cut.height) ~/ 2;
+  final channels = shape.kind.channels;
+  final dstX = (shape.width - source.width) ~/ 2;
+  final dstY = (shape.height - source.height) ~/ 2;
+  for (var i = 0; i < image.numFrames; i++) {
+    final frame = image.frames[i];
     final page = guardImageCall(() {
       final page = img.Image(
-        width: width,
-        height: height,
+        width: shape.width,
+        height: shape.height,
         numChannels: channels,
       );
       img.fill(page, color: img.ColorRgba8(255, 255, 255, 255));
       return img.compositeImage(page, frame, dstX: dstX, dstY: dstY);
     });
-    // From the frame before the crop, which keeps its duration.
-    page.frameDuration = i < image.numFrames
-        ? image.frames[i].frameDuration
-        : frame.frameDuration;
+    page.frameDuration = frame.frameDuration;
     if (canvas == null) {
       canvas = page
         ..loopCount = image.loopCount
@@ -710,103 +620,70 @@ img.Image _canvas(img.Image image, int width, int height, int growth) {
   return canvas!;
 }
 
-/// spatie/image's `crop()` with its `calculateCropOffsets()`.
-img.Image _crop(img.Image image, int width, int height, CropPosition position) {
-  _checkDimensions(width, height);
-  final w = math.min(width, image.width);
-  final h = math.min(height, image.height);
-  final dx = image.width - w;
-  final dy = image.height - h;
-  final (x, y) = switch (position) {
-    CropPosition.topLeft => (0, 0),
-    CropPosition.top => (dx ~/ 2, 0),
-    CropPosition.topRight => (dx, 0),
-    CropPosition.left => (0, dy ~/ 2),
-    CropPosition.center => (dx ~/ 2, dy ~/ 2),
-    CropPosition.right => (dx, dy ~/ 2),
-    CropPosition.bottomLeft => (0, dy),
-    CropPosition.bottom => (dx ~/ 2, dy),
-    CropPosition.bottomRight => (dx, dy),
+/// How the file was stored, as far as decoding costs differ.
+ImageContainer _containerOf(img.DecodeInfo info, img.Decoder decoder) =>
+    switch (info) {
+      img.JpegInfo() => ImageContainer.jpeg,
+      img.GifInfo() => ImageContainer.gif,
+      img.WebPInfo(:final format) =>
+        format == img.WebPFormat.lossless
+            ? ImageContainer.webpLossless
+            : ImageContainer.webpLossy,
+      _ => decoder is img.BmpDecoder ? ImageContainer.bmp : ImageContainer.png,
+    };
+
+/// A BMP's bits per pixel, from its header (the 16-bit field at byte 28).
+int _bmpBitsPerPixel(Uint8List bytes) =>
+    bytes.length < 30 ? 0 : bytes[28] | (bytes[29] << 8);
+
+/// The pixels the header announces, or null for a kind without measured
+/// costs (it is refused).
+PixelKind? _kindOfInfo(
+  img.DecodeInfo info,
+  img.Decoder decoder,
+  Uint8List bytes,
+) {
+  if (decoder is img.BmpDecoder) {
+    return switch (_bmpBitsPerPixel(bytes)) {
+      1 || 2 || 4 => PixelKind.lowBit,
+      8 => PixelKind.palette8,
+      24 => PixelKind.rgb8,
+      32 => PixelKind.rgba8,
+      _ => null,
+    };
+  }
+  return switch (info) {
+    img.JpegInfo() => PixelKind.rgb8,
+    img.GifInfo() => PixelKind.palette8,
+    img.WebPInfo() => PixelKind.rgba8,
+    img.PngInfo(:final bits, :final colorType, :final transparency) => switch ((
+      colorType,
+      bits,
+    )) {
+      (0, 1 || 2 || 4) => PixelKind.lowBitGray,
+      (0, 8) => PixelKind.gray8,
+      (0, 16) => PixelKind.gray16,
+      (2, 8) => PixelKind.rgb8,
+      (2, 16) => PixelKind.rgb16,
+      (3, 1 || 2 || 4) =>
+        transparency == null ? PixelKind.lowBit : PixelKind.lowBitAlpha,
+      (3, 8) =>
+        transparency == null ? PixelKind.palette8 : PixelKind.paletteAlpha8,
+      (4, 8) => PixelKind.grayAlpha8,
+      (4, 16) => PixelKind.grayAlpha16,
+      (6, 8) => PixelKind.rgba8,
+      (6, 16) => PixelKind.rgba16,
+      _ => null,
+    },
+    _ => null,
   };
-  return guardImageCall(
-    () => img.copyCrop(image, x: x, y: y, width: w, height: h),
-  );
 }
 
-void _checkDimensions(int? width, int? height) {
-  if ((width != null && width <= 0) || (height != null && height <= 0)) {
-    throw const ImageConversionException(
-      'Image manipulation dimensions must be greater than zero.',
-    );
-  }
-}
-
-/// [image] as a GIF, refused before encoding past [limit] pixels (width x
-/// height x frames): the encoder quantizes every frame, about 1.1 to 1.2 s
-/// per million pixels of a photograph, 0.2 to 0.6 s of flat colors.
-Uint8List _encodeGif(img.Image image, int limit) {
-  final frames = math.max(1, image.numFrames);
-  if (image.width > limit ~/ frames ~/ image.height) {
-    throw ImageTooLargeException(
-      'A GIF of ${image.width} x ${image.height} pixels in $frames frame(s) '
-      'is past the GIF limit of $limit pixels (encoding costs about 1.2 s '
-      'per million): make it smaller first, choose another format, or raise '
-      'MEDIA_MAX_GIF_PIXELS.',
-    );
-  }
-  // A GIF holds 8-bit palette colors; its encoder does not take 16 bits.
-  return img.encodeGif(
-    image.format == img.Format.uint16
-        ? guardImageCall(() => image.convert(format: img.Format.uint8))
-        : image,
-  );
-}
-
-/// 1, 2 or 4 bits per channel (a PNG or BMP can be), made 8-bit before blur.
-bool _isLowBit(img.Format format) =>
-    format == img.Format.uint1 ||
-    format == img.Format.uint2 ||
-    format == img.Format.uint4;
-
-/// How much more a blur costs per pixel of [format] than of an 8-bit one,
-/// measured (a compiled process): about 10 to 11 times for 16 bits; a
-/// low-bit image is blurred as the 8-bit one it is made into. Null for a
-/// format the decoders here do not make, which is not blurred.
-int? _blurDepthFactor(img.Format format) => switch (format) {
-  img.Format.uint8 || img.Format.uint1 || img.Format.uint2 => 1,
-  img.Format.uint4 => 1,
-  img.Format.uint16 => 11,
-  _ => null,
+String _describeInfo(img.DecodeInfo info) => switch (info) {
+  img.PngInfo(:final bits, :final colorType) =>
+    'PNG color type $colorType, $bits bits',
+  _ => info.runtimeType.toString(),
 };
-
-/// Blur work is `pixels x frames x radius x depth factor x channels / 3`,
-/// the channels of the image blurred (a palette's spread to its own): the
-/// limits were measured on three channels, and the cost follows them (one
-/// channel about a third, four about 1.3 times).
-void _checkBlur(img.Image image, int radius) {
-  final factor = _blurDepthFactor(image.format);
-  if (factor == null) {
-    throw ImageConversionException(
-      'Blur is not applied to ${image.format.name} pixels.',
-    );
-  }
-  final channels = math.max(
-    1,
-    image.hasPalette ? image.palette!.numChannels : image.numChannels,
-  );
-  final frames = math.max(1, image.numFrames);
-  final allowed =
-      (frames == 1 ? _maxStillBlurWork : _maxAnimatedBlurWork) *
-      3 ~/
-      (factor * channels);
-  if (image.width > allowed ~/ frames ~/ image.height ~/ radius) {
-    throw ImageTooLargeException(
-      'Blur would process ${image.width} x ${image.height} pixels in '
-      '$frames frame(s) at radius $radius, past its work limit; resize the '
-      'image before applying blur.',
-    );
-  }
-}
 
 /// The decoder of [bytes] among the formats [canConvert] names (JPEG, PNG,
 /// GIF, WebP, BMP; detected from the content in
@@ -845,8 +722,7 @@ bool _isAnimated(img.DecodeInfo info) => switch (info) {
   _ => false,
 };
 
-/// Whether an animated GIF is converted: its decoder checks every frame
-/// against its logical screen while decoding.
+/// Whether an animated GIF is converted (each frame within the limits).
 const bool _convertsAnimatedGif = true;
 
 /// The longest side converted, of the image read and of any image a
@@ -865,20 +741,6 @@ const int _maxImageSide = 65535;
 /// manipulation is checked separately: several resize steps pay that cost
 /// several times.
 const int _growthDivisor = 4;
-
-/// The maximum blur work for a still image ([_checkBlur]): `pixels x radius`
-/// for three 8-bit channels.
-///
-/// At 80 million, blur alone took 2.1 to 4.0 s (a compiled process, a
-/// photograph-like image; 1, 3 and 4 channels and 16 bits at their own
-/// budgets land in that range).
-const int _maxStillBlurWork = 80000000;
-
-/// The maximum `pixels x frames x radius` for an animated image.
-///
-/// At 20 million, an animated GIF at the boundary took 3.2 s here and 4.4 s
-/// on a slower reference machine. Forty million took 6.4 s and 8.9 s.
-const int _maxAnimatedBlurWork = 20000000;
 
 /// For a JPEG, refuses one with more scans than its size allows, before
 /// it is decoded. Each scan is a pass over the frame, so a small file of

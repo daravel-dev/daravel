@@ -246,48 +246,24 @@ void followUpTests() {
     expect([config.maxImagePixels, config.maxImageFrames], [1000, 2]);
   });
 
-  test('MEDIA_MAX_GIF_PIXELS: a tenth of MEDIA_MAX_IMAGE_PIXELS unless set, '
-      'at least 1', () {
-    expect(MediaLibraryConfig.fromEnv(Env.fromMap({})).gifPixelLimit, 4000000);
+  test('MEDIA_MAX_CONVERSION_WORK: 14 400 work units unless set, at least '
+      '1', () {
     expect(
-      MediaLibraryConfig.fromEnv(
-        Env.fromMap({'MEDIA_MAX_IMAGE_PIXELS': '1000'}),
-      ).gifPixelLimit,
-      100,
+      MediaLibraryConfig.fromEnv(Env.fromMap({})).maxConversionWork,
+      14400,
     );
     final set = MediaLibraryConfig.fromEnv(
-      Env.fromMap({'MEDIA_MAX_GIF_PIXELS': '15000000'}),
+      Env.fromMap({'MEDIA_MAX_CONVERSION_WORK': '30000'}),
     );
-    expect(set.gifPixelLimit, 15000000);
-    expect(set.toMap()['max_gif_pixels'], 15000000);
+    expect(set.maxConversionWork, 30000);
+    expect(set.toMap()['max_conversion_work'], 30000);
     for (final value in ['0', '-1']) {
       expect(
         () => MediaLibraryConfig.fromEnv(
-          Env.fromMap({'MEDIA_MAX_GIF_PIXELS': value}),
+          Env.fromMap({'MEDIA_MAX_CONVERSION_WORK': value}),
         ),
         throwsA(isA<ConfigException>()),
         reason: value,
-      );
-    }
-    // Below 10 image pixels a tenth would be 0, which a conversion refuses
-    // to take: the default is at least 1.
-    final gif = img.encodeGif(img.Image(width: 1, height: 1));
-    for (var pixels = 1; pixels <= 9; pixels++) {
-      final config = MediaLibraryConfig.fromEnv(
-        Env.fromMap({'MEDIA_MAX_IMAGE_PIXELS': '$pixels'}),
-      );
-      expect(config.gifPixelLimit, 1, reason: '$pixels');
-      expect(
-        convertImageSync(
-          gif,
-          {
-            'format': ['gif'],
-          },
-          maxPixels: config.maxImagePixels,
-          maxGifPixels: config.gifPixelLimit,
-        ),
-        isNotEmpty,
-        reason: '$pixels',
       );
     }
   });

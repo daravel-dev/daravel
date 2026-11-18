@@ -238,24 +238,24 @@ void main() {
     });
   });
 
-  test('booted with MEDIA_MAX_IMAGE_PIXELS below 10, the GIF limit the '
-      'conversions get is 1, not 0', () async {
-    final app = await migrated({'MEDIA_MAX_IMAGE_PIXELS': '5'});
+  test('booted with MEDIA_MAX_CONVERSION_WORK, the conversions get that '
+      'budget', () async {
+    final app = await migrated({'MEDIA_MAX_CONVERSION_WORK': '1'});
     await app.run(() async {
       final config = App.make<ConfigRepository>().section<MediaLibraryConfig>();
-      expect(config.gifPixelLimit, 1);
-      final gif = img.encodeGif(img.Image(width: 1, height: 1));
-      expect(
-        await convertImage(
-          gif,
+      expect(config.maxConversionWork, 1);
+      final png = img.encodePng(img.Image(width: 200, height: 200));
+      await expectLater(
+        convertImage(
+          png,
           {
-            'format': ['gif'],
+            'width': [100],
           },
           maxPixels: config.maxImagePixels,
           maxFrames: config.maxImageFrames,
-          maxGifPixels: config.gifPixelLimit,
+          maxWork: config.maxConversionWork,
         ),
-        isNotEmpty,
+        throwsA(isA<ImageTooLargeException>()),
       );
     });
   });

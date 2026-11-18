@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:daravel_medialibrary/daravel_medialibrary.dart';
 // The walk the conversion follows before decoding; not exported.
+import 'package:daravel_medialibrary/src/conversion_plan.dart';
 import 'package:daravel_medialibrary/src/jpeg_walk.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
@@ -223,34 +224,44 @@ void main() {
       return img.encodeGif(first);
     }
 
-    test('an animation at the GIF limit is written, one frame more is '
-        'refused before encoding', () {
-      // maxPixels 400 000: the GIF limit is 40 000, 100 frames of 20 x 20.
-      expect(
-        convert(animation(100), {
-          'format': ['gif'],
-        }, maxPixels: 400000),
-        converted,
+    // The work of writing a GIF of [frames] frames (the plan the
+    // conversion runs, and its cost).
+    double gifWork(int frames) {
+      final shape = (
+        width: 20,
+        height: 20,
+        frames: frames,
+        kind: PixelKind.palette8,
       );
-      expect(
-        convert(animation(101), {
-          'format': ['gif'],
-        }, maxPixels: 400000),
-        refused,
-      );
-    });
-
-    test('maxGifPixels raises it', () {
-      expect(
-        convertImageSync(
-          animation(101),
+      return conversionCost(
+        ImageContainer.gif,
+        shape,
+        planConversion(
+          shape,
           {
             'format': ['gif'],
           },
-          maxPixels: 400000,
-          maxGifPixels: 50000,
+          growth: 10000000,
+          maxSide: 65535,
         ),
+        orient: true,
+      )!;
+    }
+
+    test('an animation within the work budget is written; one unit less '
+        'is refused before decoding', () {
+      final work = gifWork(1000).ceil();
+      expect(
+        convertImageSync(animation(1000), {
+          'format': ['gif'],
+        }, maxWork: work),
         converted,
+      );
+      expect(
+        () => convertImageSync(animation(1000), {
+          'format': ['gif'],
+        }, maxWork: work - 1),
+        throwsA(isA<ImageTooLargeException>()),
       );
     });
 
