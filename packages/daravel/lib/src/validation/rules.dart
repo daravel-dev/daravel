@@ -8,6 +8,7 @@ import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
+import 'validator.dart' show Validator;
 
 /// Factory facade for built-in rules (`Rule.required()`, `Rule.email()`...).
 /// Each factory returns a `const`-friendly [Rule] subclass that can be
@@ -1152,57 +1153,69 @@ final class DistinctRule extends Rule {
   String get name => 'distinct';
   @override
   String? passes(ValidationContext c) {
-    // Compare against siblings in the enclosing list.
-    final lastDot = c.attribute.lastIndexOf('.');
-    if (lastDot == -1) {
+    // The attributes the pattern matches, whatever holds them (a list, a
+    // JSON object, a sparse form), compared by their text within a group:
+    // the attributes that share the key at every `*` but the last (with
+    // one `*`, the whole pattern, as Laravel's `extractDistinctValues`;
+    // with more, the items of one parent, as this version did). An empty
+    // key at a `*` is not among the values compared, as Laravel's `[^.]+`
+    // never matches it, but its own value is compared with the others. An
+    // item that lacks the field is not compared either (`Arr::dot` has no
+    // such key): its absence is not the text `null`.
+    final patternSegments = c.pattern.split('.');
+    final own = _groupOf(c.attribute, patternSegments);
+    if (own == null) {
       return null;
     }
-    final parentPath = c.attribute.substring(0, lastDot);
-    final leaf = c.attribute.substring(lastDot + 1);
-    final parentDot = parentPath.lastIndexOf('.');
-    final listPath = parentDot == -1
-        ? null
-        : parentPath.substring(0, parentDot);
-    final list = listPath == null ? c.root(parentPath) : c.root(listPath);
-    if (list is! List<Object?>) {
-      return null;
-    }
-    String textOf(Object? item) =>
-        '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
-    final memo = c.memo;
-    if (memo == null) {
-      var seen = 0;
-      for (final item in list) {
-        if (textOf(item) == '${c.value}') {
-          seen++;
+    Map<String, Map<String, int>> build() {
+      final groups = <String, Map<String, int>>{};
+      for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
+        final group = _groupOf(attribute, patternSegments);
+        if (group == null ||
+            !group.counted ||
+            !ValidationContext.exists(c.data, attribute)) {
+          continue;
         }
+        final counts = groups.putIfAbsent(group.key, () => {});
+        final text = '${ValidationContext.dig(c.data, attribute)}';
+        counts[text] = (counts[text] ?? 0) + 1;
       }
-      return seen > 1 ? 'distinct' : null;
+      return groups;
     }
-    // The list counted once per run, not once per item: scanning it for
-    // every item took time quadratic in its length (16 000 numbers: 15 s).
-    // The same comparison: the items' text, counted.
-    final counts =
-        memo.putIfAbsent(
-              // The leaf names the compared key only inside items
-              // (`items.*.id`); for a list of scalars it is the index.
-              (
-                'distinct',
-                c.data,
-                listPath ?? parentPath,
-                listPath == null ? null : leaf,
-              ),
-              () {
-                final counts = <String, int>{};
-                for (final item in list) {
-                  final text = textOf(item);
-                  counts[text] = (counts[text] ?? 0) + 1;
-                }
-                return counts;
-              },
-            )!
-            as Map<String, int>;
-    return (counts['${c.value}'] ?? 0) > 1 ? 'distinct' : null;
+
+    // Gathered once per run, not once per item: scanning for every item
+    // took time quadratic in their number (16 000 numbers: 15 s).
+    final memo = c.memo;
+    final groups = memo == null
+        ? build()
+        : memo.putIfAbsent(('distinct', c.data, c.pattern), build)!
+              as Map<String, Map<String, int>>;
+    final seen = groups[own.key]?['${c.value}'] ?? 0;
+    return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+  }
+
+  /// The group of [attribute] under [patternSegments] (its keys at every
+  /// `*` but the last), and whether it is counted (no `*` takes an empty
+  /// key); null when it has no `*` or another depth.
+  static ({String key, bool counted})? _groupOf(
+    String attribute,
+    List<String> patternSegments,
+  ) {
+    final segments = attribute.split('.');
+    if (segments.length != patternSegments.length) {
+      return null;
+    }
+    final stars = [
+      for (var i = 0; i < segments.length; i++)
+        if (patternSegments[i] == '*') segments[i],
+    ];
+    if (stars.isEmpty) {
+      return null;
+    }
+    return (
+      key: jsonEncode(stars.sublist(0, stars.length - 1)),
+      counted: stars.every((key) => key.isNotEmpty),
+    );
   }
 }
 
