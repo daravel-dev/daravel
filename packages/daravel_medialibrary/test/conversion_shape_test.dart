@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:daravel_medialibrary/daravel_medialibrary.dart';
+import 'package:daravel_medialibrary/src/conversion_plan.dart';
 import 'package:image/image.dart' as img;
 import 'package:test/test.dart';
 
@@ -40,8 +41,9 @@ void main() {
       width: 8,
       height: 6,
       format: format,
+      // As many palette colors as the pixel format holds (256 for uint8,
+      // 16 for uint4).
       withPalette: true,
-      numPaletteColors: format == img.Format.uint8 ? 256 : 16,
       paletteFormat: img.Format.uint8,
       numChannels: channels,
     ),
@@ -84,6 +86,9 @@ void main() {
     'height': const MapEntry('height', [4]),
     for (final fit in Fit.values)
       'fit ${fit.name}': MapEntry('fit', [fit.name, 7, 5]),
+    // Another aspect: the fits that pad put the image on a canvas.
+    for (final fit in Fit.values)
+      'fit ${fit.name} wide': MapEntry('fit', [fit.name, 12, 4]),
     'crop': const MapEntry('crop', [4, 3, 'center']),
     'greyscale': const MapEntry('greyscale', <Object?>[]),
     'blur': const MapEntry('blur', [4]),
@@ -127,4 +132,54 @@ void main() {
     print('converted $converted, refused otherwise $refused');
     expect(mismatches, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  // The steps planned for the inputs and steps where a library step could
+  // change the pixel kind or the frames; the test above shows each step
+  // makes what its plan says, so these are also what the steps make.
+  test('the planned kinds where a step could change them', () {
+    final cases = <(String, String)>[
+      for (final input in [
+        'png palette8',
+        'png paletteAlpha8',
+        'png lowBit',
+        'gif palette8',
+        'bmp palette8',
+        'bmp lowBit',
+      ])
+        (input, 'width down'),
+      for (final input in inputs.keys) (input, 'greyscale'),
+      ('png grayAlpha8', 'blur'),
+      for (final fit in Fit.values)
+        for (final input in ['png gray8', 'png grayAlpha8'])
+          for (final size in ['', ' wide']) (input, 'fit ${fit.name}$size'),
+      ('gif palette8 x3', 'crop'),
+    ];
+    final lines = <String>[];
+    for (final (input, step) in cases) {
+      final image = img.decodeImage(inputs[input]!)!;
+      final shape = (
+        width: image.width,
+        height: image.height,
+        frames: max(1, image.numFrames),
+        kind: kindOfImage(image)!,
+      );
+      final manipulation = singles[step]!;
+      final steps = planConversion(
+        shape,
+        {
+          manipulation.key: manipulation.value,
+          'format': ['png'],
+        },
+        growth: 1 << 30,
+        maxSide: 1 << 20,
+      );
+      lines.add(
+        '$input (${shape.kind.name}, ${shape.frames} frame(s)) | $step | '
+        '${[for (final s in steps) '${s.runtimeType} ${s.shape.kind.name} '
+              'x${s.shape.frames}'].join(' -> ')}',
+      );
+    }
+    print(lines.join('\n'));
+    expect(lines, hasLength(cases.length));
+  });
 }
