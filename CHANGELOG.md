@@ -26,6 +26,7 @@ match Laravel more closely.
 - Security: a personal access token whose `abilities` column is `NULL`, empty or not a JSON list of strings has no ability (`PersonalAccessToken.abilitiesOf`), where `NULL` or an empty value read as every ability (`["*"]`); elements that are not strings are left out, and a row with a `NULL` name, owner type or hash reads without an error. Daravel and Sanctum always write a JSON list (`["*"]` for every ability).
 - Security: `JwtGuard.invalidate(token)` verifies the token's signature against the key ring before revoking its `jti` (an expired but signed token may still be revoked; `JwtCodec.verify(token, checkTimes: false)`), and throws `JwtException` for a `jti` that is not a string or an `exp` no date holds. Before, it read the `jti` of the token unverified, so a forged token could revoke someone else's.
 - A JWT whose `kid`, `jti` or `iss` is not a string, or whose `exp`, `nbf` or `iat` no date holds (`1e308`), is refused with `JwtException` (a `401`) instead of a type error (a `500`); the `JwtClaims` getters return null for such values and never throw.
+- A database connection that failed to open while several requests waited for it reached only the request that opened it: the others, waiting on the same open from their own request, never got the error and hung until their request timeout. Every request waiting for that connection now gets the error.
 
 ## 1.27.6
 
