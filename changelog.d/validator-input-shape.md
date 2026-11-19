@@ -1,7 +1,7 @@
 ### Fixed
 
 - Security: `validated()` read a map key from the client as a list index when it looked like a number. `{"items": {"20000000": "a"}}` (or the form `items[20000000]=a`) against `items.*` built a list of 20 000 001 entries. Each level of `validated()` now has the shape it has in the input: a map stays a map with its keys as sent, a list stays a list, and no key decides the length of a list.
-- Security: an empty key was dropped from the paths the validator builds. `{"": {"role": "admin"}}` passed `*.role` against `in:user` without the rule running, and `*.*: distinct` never compared a list under an empty key. An empty key is now an empty segment, as Laravel's `Arr::dot` writes it: the error is reported under `.role`.
+- Security: an empty key was dropped from the paths the validator builds. `{"": {"role": "admin"}}` passed `*.role` against `in:user` without the rule running. An empty key is now an empty segment, as Laravel's `Arr::dot` writes it: the error is reported under `.role`.
 - A list index is read only in its canonical form, in every lookup, in `validated()` and in `exclude`: `items.-1.*` no longer fails with a `500`, and `items.01.name` (or `items.+1.name`) names the key `01`, as in PHP, not the element at index 1.
 
 ### Upgrade notes
