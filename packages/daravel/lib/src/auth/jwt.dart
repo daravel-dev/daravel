@@ -128,14 +128,15 @@ final class JwtClaims {
   /// The `sub` claim: the user's id.
   String? get subject => claims['sub']?.toString();
 
-  /// The `iss` claim.
-  String? get issuer => claims['iss'] as String?;
+  /// The `iss` claim; null when it is not a string. The getters never
+  /// throw: a token's claims come from outside.
+  String? get issuer => _string(claims['iss']);
 
   /// The `aud` claim: a string or a list.
   Object? get audience => claims['aud'];
 
-  /// The `jti` claim: the token's id.
-  String? get jti => claims['jti'] as String?;
+  /// The `jti` claim: the token's id; null when it is not a string.
+  String? get jti => _string(claims['jti']);
 
   /// The `exp` claim as a time.
   DateTime? get expiresAt => _time(claims['exp']);
@@ -146,12 +147,26 @@ final class JwtClaims {
   /// The `iat` claim as a time.
   DateTime? get issuedAt => _time(claims['iat']);
 
-  /// The key id of the header.
-  String? get kid => header['kid'] as String?;
+  /// The key id of the header; null when it is not a string.
+  String? get kid => _string(header['kid']);
 
-  static DateTime? _time(Object? value) => value is num
-      ? DateTime.fromMillisecondsSinceEpoch((value * 1000).round(), isUtc: true)
-      : null;
+  static String? _string(Object? value) => value is String ? value : null;
+
+  /// The latest instant a [DateTime] holds, in milliseconds.
+  static const int _maxMs = 8640000000000000;
+
+  /// A NumericDate claim as a time; null when it is not a number or no
+  /// [DateTime] can hold it (`1e308`).
+  static DateTime? _time(Object? value) {
+    if (value is! num || !value.isFinite) {
+      return null;
+    }
+    final ms = value * 1000;
+    if (ms.abs() > _maxMs) {
+      return null;
+    }
+    return DateTime.fromMillisecondsSinceEpoch(ms.round(), isUtc: true);
+  }
 }
 
 /// Signs and verifies JWTs (RFC 7519) with a key ring.
@@ -224,8 +239,11 @@ final class JwtCodec {
     return '$input.${_encode(signature)}';
   }
 
-  /// Verifies signature and time claims; throws [JwtException] otherwise.
-  Future<JwtClaims> verify(String token) async {
+  /// Verifies signature and time claims; throws [JwtException] otherwise,
+  /// and nothing else for any token. [checkTimes] false skips `exp`,
+  /// `nbf` and `iat` (a token still signed by a key of the ring, as for
+  /// revoking one that has expired).
+  Future<JwtClaims> verify(String token, {bool checkTimes = true}) async {
     final parts = token.split('.');
     if (parts.length != 3) {
       throw const JwtException('Malformed token.');
@@ -250,7 +268,11 @@ final class JwtCodec {
     } on ConfigException {
       throw JwtException('Unsupported algorithm [$alg].');
     }
-    final kid = header['kid'] as String?;
+    final kid = switch (header['kid']) {
+      null => null,
+      final String value => value,
+      _ => throw const JwtException('Malformed token.'),
+    };
     final candidates = keys.where(
       (k) => k.algorithm == algorithm && (kid == null || k.kid == kid),
     );
@@ -268,7 +290,9 @@ final class JwtCodec {
     if (!valid) {
       throw const JwtException('Invalid signature.');
     }
-    _checkTimeClaims(payload);
+    if (checkTimes) {
+      _checkTimeClaims(payload);
+    }
     if (issuer != null && payload['iss'] != issuer) {
       throw const JwtException('Invalid issuer.');
     }
@@ -526,6 +550,12 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
 
   /// Revokes [token] (defaults to the current request's token) via the
   /// denylist until it expires. Throws [StateError] without a denylist.
+  ///
+  /// A [token] given is verified first: its signature must be one of the
+  /// ring's (an expired token may still be revoked), or [JwtException] is
+  /// thrown, as for a `jti` that is not a string or an `exp` no date
+  /// holds. Before, its `jti` was read unverified, so a forged token could
+  /// revoke someone else's.
   Future<void> invalidate([String? token]) async {
     final list = denylist;
     if (list == null) {
@@ -536,7 +566,16 @@ final class JwtGuard<T extends Authenticatable> extends RequestGuard<T> {
     }
     final JwtClaims? current = token == null
         ? await claims()
-        : JwtClaims(JwtCodec.decodeUnverified(token).payload);
+        : await codec.verify(token, checkTimes: false);
+    if (current != null) {
+      final rawJti = current['jti'];
+      if (rawJti != null && rawJti is! String) {
+        throw const JwtException('The token jti is not a string.');
+      }
+      if (current['exp'] != null && current.expiresAt == null) {
+        throw const JwtException('The token exp is not a date.');
+      }
+    }
     final jti = current?.jti;
     if (jti == null) {
       return;
