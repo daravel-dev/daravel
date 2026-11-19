@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
@@ -71,8 +72,12 @@ void main() {
       },
       {'items.a', 'items.b'},
     ),
+    // Two wildcards: in this version the items of one parent are compared
+    // with each other, not with those of another parent (Laravel compares
+    // the whole pattern; 1.28.0 follows it, a change of behavior a patch
+    // does not make).
     (
-      'two levels: every item of every parent is compared',
+      'two levels: the same value in two parents passes (1.x)',
       'a.*.items.*.id',
       {
         'a': [
@@ -88,7 +93,47 @@ void main() {
           },
         ],
       },
-      {'a.0.items.0.id', 'a.1.items.0.id'},
+      <String>{},
+    ),
+    (
+      'two levels: the same value twice in one parent fails',
+      'a.*.items.*.id',
+      {
+        'a': [
+          {
+            'items': [
+              {'id': 1},
+              {'id': 1},
+            ],
+          },
+          {
+            'items': [
+              {'id': 1},
+            ],
+          },
+        ],
+      },
+      {'a.0.items.0.id', 'a.0.items.1.id'},
+    ),
+    (
+      'two levels under maps: the same value twice in one parent fails',
+      'a.*.items.*.id',
+      {
+        'a': {
+          'p': {
+            'items': {
+              'x': {'id': 1},
+              'y': {'id': 1},
+            },
+          },
+          'q': {
+            'items': {
+              'x': {'id': 1},
+            },
+          },
+        },
+      },
+      {'a.p.items.x.id', 'a.p.items.y.id'},
     ),
     (
       'a fixed level before the wildcard',
@@ -182,13 +227,96 @@ void main() {
     });
   }
 
-  test('under a map parent the work is linear (1 000 against 4 000 items, '
-      'counted reads)', () async {
-    final small = await readsFor(1000);
-    final large = await readsFor(4000);
-    // Linear is 4; reading the parent once per item would be about 16.
-    expect(large / small, inInclusiveRange(1, 4.2), reason: '$small → $large');
-  });
+  for (final (shape, pattern) in [
+    ('a list', 'items.*.id'),
+    ('a map', 'items.*.id'),
+    ('two levels', 'a.*.items.*.id'),
+  ]) {
+    test('the work is linear for $shape (1 000 against 4 000 items, counted '
+        'reads)', () async {
+      final small = await readsFor(1000, shape: shape, pattern: pattern);
+      final large = await readsFor(4000, shape: shape, pattern: pattern);
+      // Linear is 4; reading the items once per item would be about 16.
+      expect(
+        large / small,
+        inInclusiveRange(1, 4.2),
+        reason: '$small → $large',
+      );
+    });
+  }
+
+  test(
+    '300 seeded inputs of lists: the same failures as the rule before '
+    'this change, for distinct, distinct:strict and distinct:ignore_case',
+    () async {
+      final random = Random(20261119);
+      const values = <Object?>[1, 2, '1', '2', 'a', 'A', null, true, 1.0, ''];
+      Object? value() => values[random.nextInt(values.length)];
+      var compared = 0;
+      var failing = 0;
+      for (var i = 0; i < 300; i++) {
+        final n = 1 + random.nextInt(5);
+        final (Map<String, Object?> data, String pattern) = switch (i % 3) {
+          0 => (
+            {
+              'items': [for (var j = 0; j < n; j++) value()],
+            },
+            'items.*',
+          ),
+          1 => (
+            {
+              'items': [
+                for (var j = 0; j < n; j++)
+                  random.nextInt(5) == 0
+                      ? <String, Object?>{}
+                      : <String, Object?>{'id': value()},
+              ],
+            },
+            'items.*.id',
+          ),
+          _ => (
+            {
+              'a': [
+                for (var j = 0; j < n; j++)
+                  {
+                    'items': [
+                      for (var k = random.nextInt(3); k >= 0; k--)
+                        <String, Object?>{'id': value()},
+                    ],
+                  },
+              ],
+            },
+            'a.*.items.*.id',
+          ),
+        };
+        final expected = <String>{
+          for (final attribute in Validator.expandPattern(data, pattern))
+            if (ValidationContext.exists(data, attribute) &&
+                !_blank(ValidationContext.dig(data, attribute)) &&
+                _failedBefore(data, attribute))
+              attribute,
+        };
+        for (final rule in [
+          'distinct',
+          'distinct:strict',
+          'distinct:ignore_case',
+        ]) {
+          final errors = await Validator(data, {pattern: rule}).run();
+          expect(
+            errors.keys.toSet(),
+            expected,
+            reason: '$rule ${jsonEncode(data)}',
+          );
+          compared++;
+        }
+        if (expected.isNotEmpty) {
+          failing++;
+        }
+      }
+      expect(compared, 900);
+      expect(failing, greaterThan(60));
+    },
+  );
 
   group('through HTTP', () {
     late Application app;
@@ -284,12 +412,73 @@ final class _CountingMap extends MapBase<String, Object?> {
   Object? remove(Object? key) => _source.remove(key);
 }
 
-/// The reads of `items` for [n] items under a map parent: linear in [n],
-/// the parent counted once per run (the memo), not once per item.
-Future<int> readsFor(int n) async {
-  final items = _CountingMap({
-    for (var i = 0; i < n; i++) 'k$i': {'id': i},
-  });
-  await Validator({'items': items}, {'items.*.id': 'distinct'}).run();
-  return items.reads;
+/// The reads of every map of the input for [n] items in [shape] (`a list`,
+/// `a map`, `two levels`) under [pattern]: linear in [n] when the items
+/// are gathered once per run (the memo), not once per item.
+Future<int> readsFor(
+  int n, {
+  String shape = 'a map',
+  String pattern = 'items.*.id',
+}) async {
+  final maps = <_CountingMap>[];
+  _CountingMap counted(Map<String, Object?> source) {
+    final map = _CountingMap(source);
+    maps.add(map);
+    return map;
+  }
+
+  final Map<String, Object?> data = switch (shape) {
+    'a list' => {
+      'items': [
+        for (var i = 0; i < n; i++) counted({'id': i}),
+      ],
+    },
+    'two levels' => {
+      'a': [
+        for (var p = 0; p < n ~/ 4; p++)
+          counted({
+            'items': [
+              for (var i = 0; i < 4; i++) counted({'id': i}),
+            ],
+          }),
+      ],
+    },
+    _ => {
+      'items': counted({
+        for (var i = 0; i < n; i++) 'k$i': counted({'id': i}),
+      }),
+    },
+  };
+  await Validator(data, {pattern: 'distinct'}).run();
+  return maps.fold<int>(0, (sum, map) => sum + map.reads);
+}
+
+bool _blank(Object? value) => value is String && value.trim().isEmpty;
+
+/// Whether `distinct` failed [attribute] before this change, as it was
+/// written: the parent found from the attribute's depth, a list only, the
+/// items' text counted.
+bool _failedBefore(Map<String, Object?> data, String attribute) {
+  final lastDot = attribute.lastIndexOf('.');
+  if (lastDot == -1) {
+    return false;
+  }
+  final parentPath = attribute.substring(0, lastDot);
+  final leaf = attribute.substring(lastDot + 1);
+  final parentDot = parentPath.lastIndexOf('.');
+  final listPath = parentDot == -1 ? null : parentPath.substring(0, parentDot);
+  final list = ValidationContext.dig(data, listPath ?? parentPath);
+  if (list is! List<Object?>) {
+    return false;
+  }
+  final value = '${ValidationContext.dig(data, attribute)}';
+  var seen = 0;
+  for (final item in list) {
+    final text =
+        '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
+    if (text == value) {
+      seen++;
+    }
+  }
+  return seen > 1;
 }
