@@ -31,6 +31,7 @@ export 'src/foundation/shared_result.dart';
 export 'src/foundation/php.dart';
 export 'src/foundation/php_serialize.dart';
 export 'src/foundation/version.dart';
+export 'src/foundation/loggable.dart';
 export 'src/http/client.dart';
 export 'src/http/exception_handler.dart';
 export 'src/http/headers.dart';
