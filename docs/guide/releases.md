@@ -1,11 +1,9 @@
 # Releases and versioning
 
-Daravel `1.x` is the stable release line. The twelve packages (`daravel`,
-`dartisan_cli`, `daravel_test`, `daravel_lints`, `daravel_mysql`,
-`daravel_sqlite`, `daravel_postgres`, and since 1.12.0 `daravel_redis`,
-`daravel_permission` and `daravel_teorion`, and since 1.13.0
-`daravel_livekit` and `daravel_google`) are released together under one
-version,
+Daravel `1.x` is the stable release line. Its packages (listed
+at the top of the
+[changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md))
+are released together under one version,
 published on [pub.dev](https://pub.dev/packages/daravel) by the verified
 publisher `framework.daravel.dev`.
 

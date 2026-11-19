@@ -5,7 +5,7 @@ All notable changes to the Daravel workspace (`daravel`, `daravel_test`,
 `daravel_excel`, `daravel_log_viewer`, `daravel_pulse`, `daravel_horizon`, `daravel_payments`,
 `daravel_medialibrary`, `daravel_redis`, `daravel_sqlite`, `daravel_postgres`,
 `daravel_teorion`, `daravel_livekit`, `daravel_google`, `daravel_teobiefy`, `daravel_s3`,
-`daravel_session`, `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
+`daravel_scout`, `daravel_session`, `dartisan_cli`). Versions follow SemVer: breaking changes to the Dart API
 wait for a new major version, and Laravel-facing formats change only to
 match Laravel more closely.
 

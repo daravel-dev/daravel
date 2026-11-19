@@ -78,7 +78,6 @@ them). Dates without a format stay ISO-8601 UTC (`Carbon::toJSON()`).
 
 | Laravel | Daravel | Why |
 | :-- | :-- | :-- |
-| `Crypt::encrypt()` uses PHP `serialize()` | JSON | No PHP serializer yet (Tier 2); use the `*String` variants across runtimes |
 | `HASH_VERIFY` rejects any other driver | accepts bcrypt and argon2id across a switch | Lets `rehashPasswordIfRequired` upgrade old hashes (ADR-024) |
 | JSON escapes `/` and non-ASCII (`\/`, `é`) | plain UTF-8 | Equivalent after decoding; cursors use PHP's escaping |
 | `$model->with(...)` | `with_(...)` | `with` is reserved in Dart |
@@ -104,8 +103,14 @@ language. Daravel keeps the intent and changes the mechanism:
 
 **Cache values.** Both frameworks can use one `cache` table, but Laravel stores
 `serialize()` text and Daravel JSON. A value the other side wrote is a cache miss
-here, so give each its own `CACHE_PREFIX`: with the same key, each would overwrite
-the other's value.
+here, and with the same key each would overwrite the other's value. The locks of
+queued jobs (unique jobs, `WithoutOverlapping`, debounce) are cache entries too,
+under Laravel's own key names (`laravel_unique_job:<job>:<id>` after the prefix),
+and the two applications see each other's locks only with the same `CACHE_PREFIX`.
+So the prefix is a choice for now. Different prefixes keep the values apart, but
+the same unique job can then be pending in both applications at once. The same
+prefix shares the locks, and the two applications then overwrite each other's
+values under equal keys.
 
 **Queues.** Both frameworks can use one `jobs` table, but each runs only its
 own jobs: Laravel's payloads carry a PHP-serialized command and Daravel's a
