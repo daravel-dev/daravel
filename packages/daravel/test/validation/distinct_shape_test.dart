@@ -356,17 +356,21 @@ void main() {
       )) {
         changed++;
       }
-      for (final rule in [
-        'distinct',
-        'distinct:strict',
-        'distinct:ignore_case',
+      // `distinct` compares by text as before; with a parameter, by that
+      // parameter's comparison, within the same groups.
+      for (final (rule, want) in [
+        ('distinct', expected),
+        (
+          'distinct:strict',
+          _duplicatesWithinParent(data, pattern, key: _identicalKey),
+        ),
+        (
+          'distinct:ignore_case',
+          _duplicatesWithinParent(data, pattern, key: _foldedKey),
+        ),
       ]) {
         final errors = await Validator(data, {pattern: rule}).run();
-        expect(
-          errors.keys.toSet(),
-          expected,
-          reason: '$rule ${jsonEncode(data)}',
-        );
+        expect(errors.keys.toSet(), want, reason: '$rule ${jsonEncode(data)}');
         compared++;
       }
       if (expected.isNotEmpty) {
@@ -439,15 +443,21 @@ void main() {
           for (final attribute in attributes)
             if (_failedBefore(data, attribute)) attribute,
         };
-        for (final rule in [
-          'distinct',
-          'distinct:strict',
-          'distinct:ignore_case',
+        for (final (rule, want) in [
+          ('distinct', duplicates),
+          (
+            'distinct:strict',
+            _duplicatesWithinParent(data, pattern, key: _identicalKey),
+          ),
+          (
+            'distinct:ignore_case',
+            _duplicatesWithinParent(data, pattern, key: _foldedKey),
+          ),
         ]) {
           final errors = await Validator(data, {pattern: rule}).run();
           expect(
             errors.keys.toSet(),
-            duplicates,
+            want,
             reason: '$rule ${jsonEncode(data)}',
           );
         }
@@ -636,10 +646,27 @@ bool _failedBefore(
   return seen > 1;
 }
 
-/// The attributes of [pattern] in [data] whose value (by text) appears
-/// again among the attributes of the same parent: those sharing the key at
-/// every `*` but the last. A field that is missing is no value.
-Set<String> _duplicatesWithinParent(Map<String, Object?> data, String pattern) {
+/// A scalar of these inputs by PHP's `===`: its type and its value.
+String _identicalKey(Object? value) => '${value.runtimeType}:$value';
+
+/// A scalar of these inputs as PHP writes it in a string, in lower case
+/// (`distinct:ignore_case`): `null` is `""`, `true` and `1.0` are `"1"`.
+String _foldedKey(Object? value) => switch (value) {
+  null => '',
+  true => '1',
+  1.0 => '1',
+  _ => '$value'.toLowerCase(),
+};
+
+/// The attributes of [pattern] in [data] whose value (by text, or by
+/// [key]) appears again among the attributes of the same parent: those
+/// sharing the key at every `*` but the last. A field that is missing is
+/// no value.
+Set<String> _duplicatesWithinParent(
+  Map<String, Object?> data,
+  String pattern, {
+  String Function(Object?) key = _textKey,
+}) {
   final patternSegments = pattern.split('.');
   final groups = <String, Map<String, List<String>>>{};
   for (final attribute in Validator.expandPattern(data, pattern)) {
@@ -652,7 +679,7 @@ Set<String> _duplicatesWithinParent(Map<String, Object?> data, String pattern) {
         if (patternSegments[i] == '*') segments[i],
     ];
     final group = stars.sublist(0, stars.length - 1).join('\u0000');
-    final text = '${ValidationContext.dig(data, attribute)}';
+    final text = key(ValidationContext.dig(data, attribute));
     groups
         .putIfAbsent(group, () => {})
         .putIfAbsent(text, () => [])
@@ -666,3 +693,5 @@ Set<String> _duplicatesWithinParent(Map<String, Object?> data, String pattern) {
             if (!_blank(ValidationContext.dig(data, attribute))) attribute,
   };
 }
+
+String _textKey(Object? value) => '$value';

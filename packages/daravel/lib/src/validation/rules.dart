@@ -268,8 +268,11 @@ abstract final class Rules {
   static Rule enumValues<E extends Enum>(List<E> values) =>
       InRule(values.map((v) => v.name).toList());
 
-  /// `distinct`: no duplicates among the list's items (`items.*`).
-  static Rule distinct() => const DistinctRule();
+  /// `distinct`: no duplicates among the list's items (`items.*`), by
+  /// PHP's `===` with [strict] (`distinct:strict`), and as strings
+  /// whatever their case with [ignoreCase] (`distinct:ignore_case`).
+  static Rule distinct({bool strict = false, bool ignoreCase = false}) =>
+      DistinctRule(strict: strict, ignoreCase: ignoreCase);
 
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
@@ -1146,9 +1149,23 @@ final class InRule extends Rule {
 }
 
 /// `distinct`: see [Rules.distinct].
+///
+/// The parameters are read as Laravel's `validateDistinct` reads them
+/// (12.x `ValidatesAttributes.php` :881-890): with [ignoreCase] the value
+/// and the others are compared as PHP writes them in a string, ignoring
+/// case (`preg_grep('/^value$/iu')`), and [ignoreCase] wins over
+/// [strict]; with [strict] by PHP's `===`. Without either, by their text,
+/// as before.
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
-  const DistinctRule();
+  const DistinctRule({this.strict = false, this.ignoreCase = false});
+
+  /// `distinct:strict`: values equal only by `===` (`1` is not `'1'`).
+  final bool strict;
+
+  /// `distinct:ignore_case`: values equal as strings whatever their case.
+  final bool ignoreCase;
+
   @override
   String get name => 'distinct';
   @override
@@ -1177,8 +1194,13 @@ final class DistinctRule extends Rule {
           continue;
         }
         final counts = groups.putIfAbsent(group.key, () => {});
-        final text = '${ValidationContext.dig(c.data, attribute)}';
-        counts[text] = (counts[text] ?? 0) + 1;
+        // Each value once per way of comparing it ([_keyOf]).
+        final value = ValidationContext.dig(c.data, attribute);
+        for (final way in _Way.values) {
+          if (_keyOf(way, value) case final key?) {
+            counts[key] = (counts[key] ?? 0) + 1;
+          }
+        }
       }
       return groups;
     }
@@ -1190,8 +1212,88 @@ final class DistinctRule extends Rule {
         ? build()
         : memo.putIfAbsent(('distinct', c.data, c.pattern), build)!
               as Map<String, Map<String, int>>;
-    final seen = groups[own.key]?['${c.value}'] ?? 0;
+    final value = c.value;
+    // `ignore_case` for a value PHP writes in a string; else as below.
+    final key =
+        (ignoreCase ? _keyOf(_Way.folded, value) : null) ??
+        _keyOf(strict ? _Way.identical : _Way.text, value)!;
+    final seen = groups[own.key]?[key] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+  }
+
+  /// The key under which [value] is counted for [way], or null when [way]
+  /// does not compare it (a list or map, or a malformed string, ignoring
+  /// case: PHP warns, or `/u` matches nothing).
+  static String? _keyOf(_Way way, Object? value) => switch (way) {
+    _Way.text => 't$value',
+    _Way.identical => 'i${jsonEncode(_identity(value))}',
+    _Way.folded => switch (_phpString(value)) {
+      final text? when _wellFormed(text) => 'f${_caseFold(text)}',
+      _ => null,
+    },
+  };
+
+  // A value tagged with its type, so that equal tags are PHP's `===`:
+  // `1` is not `1.0` nor `'1'`; a list or map by its keys in order.
+  static Object? _identity(Object? value) => switch (value) {
+    null => 'n',
+    final bool b => ['b', b],
+    final int i => ['i', '$i'],
+    final double d => ['d', '$d'],
+    final String s => ['s', s],
+    final List<Object?> list => [
+      'a',
+      for (var i = 0; i < list.length; i++) ['$i', _identity(list[i])],
+    ],
+    final Map<Object?, Object?> map => [
+      'a',
+      for (final MapEntry(:key, :value) in map.entries)
+        ['$key', _identity(value)],
+    ],
+    _ => ['o', '$value'],
+  };
+
+  // How PHP writes [value] in a string (`(string)`), or null for a list or
+  // map. A float with an integral value under 1e15 is written without a
+  // fraction (`1.0` is `"1"`); others as Dart writes them, which differs
+  // from PHP's 14 significant digits only beyond them or with an exponent.
+  static String? _phpString(Object? value) => switch (value) {
+    null || false => '',
+    true => '1',
+    final double d when d == d.truncateToDouble() && d.abs() < 1e15 =>
+      '${d.toInt()}',
+    num() || String() => '$value',
+    _ => null,
+  };
+
+  // mb_check_encoding($value, 'UTF-8'): no lone surrogate.
+  static bool _wellFormed(String value) {
+    for (var i = 0; i < value.length; i++) {
+      final unit = value.codeUnitAt(i);
+      if (unit >= 0xD800 && unit <= 0xDBFF) {
+        if (i + 1 >= value.length ||
+            value.codeUnitAt(i + 1) < 0xDC00 ||
+            value.codeUnitAt(i + 1) > 0xDFFF) {
+          return false;
+        }
+        i++;
+      } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // [value] with each code point case-folded, as PCRE's `/iu` compares
+  // them: `ſ` is `s`, the Kelvin sign is `k`, `ß` stays `ß`.
+  static String _caseFold(String value) =>
+      String.fromCharCodes([for (final rune in value.runes) _fold(rune)]);
+
+  static int _fold(int rune) {
+    final char = String.fromCharCode(rune);
+    final upper = char.toUpperCase();
+    final lower = (upper.runes.length == 1 ? upper : char).toLowerCase();
+    return lower.runes.length == 1 ? lower.runes.first : rune;
   }
 
   /// The group of [attribute] under [patternSegments] (its keys at every
@@ -1218,6 +1320,10 @@ final class DistinctRule extends Rule {
     );
   }
 }
+
+/// How [DistinctRule] compares values: by their text, by PHP's `===`, or
+/// as strings ignoring case.
+enum _Way { text, identical, folded }
 
 /// `confirmed`: see [Rules.confirmed].
 final class ConfirmedRule extends Rule {
