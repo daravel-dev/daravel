@@ -523,14 +523,23 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 2));
         client.socket.destroy();
       }
+      final lastCut = DateTime.now();
       final deadline = DateTime.now().add(const Duration(seconds: 10));
       while (engine.openWebSockets > 0 && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       expect(engine.openWebSockets, 0);
-      // Every socket is gone: no timer of theirs is left (the grace is
-      // 1 s; this looks well before).
-      expect(await gracesWithin(const Duration(milliseconds: 300)), 0);
+      // Every socket is gone: no timer of theirs is left. Cancelled when
+      // the cut was seen, not expired: the last grace (1 s) began at the
+      // last violation, just before the last cut, so none can have run out
+      // 900 ms after that cut. Measured from the cut, not from when the
+      // sessions were seen to end, which a slow machine sees later.
+      final cancelledBy = lastCut.add(const Duration(milliseconds: 900));
+      expect(
+        await gracesWithin(cancelledBy.difference(DateTime.now())),
+        0,
+        reason: 'cancelled once each cut was seen',
+      );
       await expectWebSocketCountsReleased();
     } finally {
       await engine.stop();
@@ -819,8 +828,8 @@ void main() {
       }
     }, timeout: const Timeout(Duration(seconds: 60)));
 
-    test('session over x past the bound: the socket is destroyed at the '
-        'bound, not read on', () async {
+    test('session over x past the bound: reading stops at the bound, not '
+        'read on; the grace destroys the socket', () async {
       final (app, engine) = await serve();
       try {
         final client = await RawWsClient.connect(
@@ -851,9 +860,12 @@ void main() {
         while (!client.ended && DateTime.now().isBefore(gone)) {
           await Future<void>.delayed(const Duration(milliseconds: 20));
         }
-        expect(client.ended, isTrue, reason: 'destroyed, not paused');
+        expect(client.ended, isTrue, reason: 'destroyed by the grace');
         expect(flushed, lessThan(96 * payload.length));
-        expect(readSinceDone() - before, lessThanOrEqualTo(bound));
+        final counted = readSinceDone() - before;
+        expect(counted, lessThanOrEqualTo(bound));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(readSinceDone() - before, counted, reason: 'not read on');
         expect(await gracesWithin(const Duration(seconds: 2)), 0);
       } finally {
         await engine.stop();
