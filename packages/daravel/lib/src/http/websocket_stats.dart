@@ -36,6 +36,7 @@ abstract final class WebSocketGuardStats {
   static int _graces = 0;
   static int _discardRead = 0;
   static int _readWhileEnding = 0;
+  static int _boundStops = 0;
 
   /// Peaks back to the current counts (the largest chunk and the chunks
   /// read while a rest waited to none).
@@ -52,6 +53,7 @@ abstract final class WebSocketGuardStats {
     _chunksWhileUnparsed = 0;
     _discardRead = 0;
     _readWhileEnding = 0;
+    _boundStops = 0;
   }
 
   /// Every count and peak, by name.
@@ -76,6 +78,7 @@ abstract final class WebSocketGuardStats {
     'graces': _graces,
     'discardRead': _discardRead,
     'readWhileEnding': _readWhileEnding,
+    'boundStops': _boundStops,
   };
 
   /// The rest of a chunk kept unparsed changed by [delta].
@@ -128,6 +131,13 @@ abstract final class WebSocketGuardStats {
   /// paused, or the socket destroyed once the session is over.
   static void readWhileEnding(int length) {
     _readWhileEnding += length;
+  }
+
+  /// Reading stopped at the bound of [readWhileEnding], once per socket:
+  /// paused, or the socket destroyed once its session ended. Tests tell a
+  /// stop at the bound from a socket the grace ended.
+  static void boundStop() {
+    _boundStops++;
   }
 
   /// The bytes being assembled changed by [delta].

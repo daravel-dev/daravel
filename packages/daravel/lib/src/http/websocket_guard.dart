@@ -1319,8 +1319,12 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
         _overBound();
         return;
       }
-      if (data.length > room) {
-        data = Uint8List.sublistView(data, 0, room);
+      if (data.length >= room) {
+        // At the bound, also exactly: nothing more is taken, so reading
+        // stops now rather than at the next chunk, which may never come.
+        if (data.length > room) {
+          data = Uint8List.sublistView(data, 0, room);
+        }
         crossed = true;
       }
       _readSinceDone += data.length;
@@ -1353,7 +1357,7 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     _readSinceDone += counted;
     WebSocketGuardStats.readWhileEnding(counted);
     WebSocketGuardStats.discardRead(counted);
-    if (length > room) {
+    if (length >= room) {
       _overBound();
     }
   }
@@ -1362,13 +1366,15 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// is destroyed; before (closing, a violation) reading stops, a pause of
   /// its own which no resume from the WebSocket undoes.
   void _overBound() {
-    if (_sessionOver) {
-      destroy();
-      return;
-    }
     if (!_stoppedAtBound) {
       _stoppedAtBound = true;
-      _reading?.pause();
+      WebSocketGuardStats.boundStop();
+      if (!_sessionOver) {
+        _reading?.pause();
+      }
+    }
+    if (_sessionOver) {
+      destroy();
     }
   }
 

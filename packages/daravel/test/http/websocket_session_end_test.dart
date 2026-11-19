@@ -608,6 +608,7 @@ void main() {
     }
 
     int readSinceDone() => WebSocketGuardStats.toJson()['readWhileEnding'] ?? 0;
+    int boundStops() => WebSocketGuardStats.toJson()['boundStops'] ?? 0;
 
     for (final (name, paused, waitFirst) in [
       ('while the client reads', false, false),
@@ -776,19 +777,41 @@ void main() {
           '/end?handler=reads&end=client-close',
         );
         final before = readSinceDone();
+        final stopsBefore = boundStops();
+        // The violation and 6 MiB after it, as fast as the client writes:
+        // on Linux and macOS much of it comes in the violation's own chunk,
+        // which counts too.
         client.socket.add(RawWsClient.frame(0x3, const []));
         final payload = RawWsClient.frame(0x2, Uint8List(64 << 10));
+        var sentAll = true;
         for (var i = 0; i < 96; i++) {
           try {
             client.socket.add(payload);
             await client.socket.flush().timeout(const Duration(seconds: 2));
           } on Object {
+            // The server stopped reading (TCP fills) or the grace ended
+            // the socket; which one is asserted below.
+            sentAll = false;
             break;
           }
         }
         expect(await client.closeFrame(), 1002);
         await Future<void>.delayed(const Duration(milliseconds: 300));
-        expect(readSinceDone() - before, bound);
+        final counted = readSinceDone() - before;
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(readSinceDone() - before, counted, reason: 'reading stopped');
+        final stopped = boundStops() - stopsBefore;
+        expect(stopped, lessThanOrEqualTo(1));
+        if (stopped == 1) {
+          // Paused at the bound: exactly the bound was read.
+          expect(counted, bound);
+        } else {
+          // The grace ended the socket first: under the bound, and the
+          // client could not send it all (6 MiB read without reaching the
+          // bound would mean bytes read and not counted).
+          expect(counted, lessThan(bound));
+          expect(sentAll, isFalse, reason: 'all sent, under the bound');
+        }
         client.socket.destroy();
       } finally {
         await engine.stop();
