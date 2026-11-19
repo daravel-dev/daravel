@@ -111,14 +111,15 @@ void main() {
     });
 
     test('distinct compares a list under an empty key', () async {
-      // This version's distinct compares the items of the enclosing list;
-      // under an empty key that list was never reached.
+      // The rule key names the empty key itself (`.*`): its list was never
+      // reached. (Under `*.*` an empty key at the `*` is compared with
+      // nothing, as Laravel's `[^.]+` never matches it.)
       expect(
         (await errors(
           {
             '': ['a', 'a'],
           },
-          {'*.*': 'distinct'},
+          {'.*': 'distinct'},
         )).keys.toSet(),
         {'.0', '.1'},
       );
