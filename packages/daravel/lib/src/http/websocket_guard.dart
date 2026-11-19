@@ -1340,6 +1340,24 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     }
   }
 
+  /// Counts [length] bytes dropped from a chunk read before this side
+  /// stopped caring, as [_read] counts a chunk read after: within the
+  /// bound, and past it reading stops ([_overBound]).
+  void _countDropped(int length) {
+    final room = discardAfterViolation - _readSinceDone;
+    if (room <= 0) {
+      _overBound();
+      return;
+    }
+    final counted = length > room ? room : length;
+    _readSinceDone += counted;
+    WebSocketGuardStats.readWhileEnding(counted);
+    WebSocketGuardStats.discardRead(counted);
+    if (length > room) {
+      _overBound();
+    }
+  }
+
   /// Past the bound of [_readSinceDone]: once the session ended the socket
   /// is destroyed; before (closing, a violation) reading stops, a pause of
   /// its own which no resume from the WebSocket undoes.
@@ -1429,11 +1447,18 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
           _unparsed = null;
           next = tail;
         }
+        // Read before this side stopped caring: [_read] did not count it.
+        final uncounted = !_caringStopped;
         final read = _guard._inbound.add(next, _handOn, stop: _stopParsing);
         if (read < next.length) {
           if (_guard._inbound.stopped || _guard._violated) {
-            // Refused or ended: the rest is not read (it was counted by
-            // [_readSinceDone] when it was read, if that count ran).
+            // Refused or ended: the rest is not read. Counted by
+            // [_readSinceDone] when it was read, if that count ran; if this
+            // side stopped caring in the middle of it, now: it came from
+            // the client after the violation as much as the next chunk.
+            if (uncounted && _caringStopped) {
+              _countDropped(next.length - read);
+            }
           } else if (!_destroyed) {
             // (Destroyed meanwhile, the rest is dropped: nothing reads it.)
             final rest = Uint8List.sublistView(next, read);
