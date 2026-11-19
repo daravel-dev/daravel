@@ -242,8 +242,12 @@ base class ImageConversionException implements Exception {
   /// What failed.
   final String message;
 
+  /// The class named in [toString]: written out, not `runtimeType`, which
+  /// an obfuscated build renames.
+  String get _name => 'ImageConversionException';
+
   @override
-  String toString() => '$runtimeType: $message';
+  String toString() => '$_name: $message';
 }
 
 /// An image whose header declares more pixels or frames than the media
@@ -253,6 +257,9 @@ base class ImageConversionException implements Exception {
 final class ImageTooLargeException extends ImageConversionException {
   /// The image was refused for [message].
   const ImageTooLargeException(super.message);
+
+  @override
+  String get _name => 'ImageTooLargeException';
 }
 
 /// The image library threw an [Error] reading, decoding or encoding this
@@ -265,6 +272,9 @@ final class ImageLibraryException extends ImageConversionException {
 
   /// The type of what the library threw, as `RangeError`.
   final String errorType;
+
+  @override
+  String get _name => 'ImageLibraryException';
 }
 
 /// Whether files of [mimeType] or with [extension] are converted (JPEG,

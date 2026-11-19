@@ -30,6 +30,22 @@ void main() {
     );
   });
 
+  test('each exception names its class in toString, written out (not '
+      'runtimeType, which an obfuscated build renames)', () {
+    expect(
+      const ImageConversionException('m').toString(),
+      'ImageConversionException: m',
+    );
+    expect(
+      const ImageTooLargeException('m').toString(),
+      'ImageTooLargeException: m',
+    );
+    expect(
+      const ImageLibraryException('RangeError', 'd').toString(),
+      'ImageLibraryException: The image library failed (RangeError): d',
+    );
+  });
+
   test('running out of memory or stack is thrown as it is', () {
     expect(
       () => guardImageCall<void>(() => throw OutOfMemoryError()),
