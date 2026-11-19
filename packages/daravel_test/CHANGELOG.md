@@ -2,7 +2,9 @@
 
 ## 1.27.7
 
-- Version aligned with Daravel 1.27.7; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- `LaravelContract.emptyKeyErrorKey`: the error key Laravel reports for a failure under a top-level wildcard whose data key is empty (`.role`).
 
 ## 1.27.6
 

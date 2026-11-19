@@ -21,6 +21,12 @@ match Laravel more closely.
 
 ## 1.27.7
 
+A patch: fixes only, with the API they need. Upgrade every application
+that validates nested input or uses `distinct`, that accepts personal
+access tokens or JWTs, that exposes `/up/ready`, or that writes headers or
+other secrets into its logs. Query strings and URL-encoded forms are now
+limited to 1 000 pairs by default (`HTTP_MAX_INPUT_VARS`).
+
 ### Changed
 
 **Upgrading can change what an application sees:**
@@ -33,6 +39,7 @@ match Laravel more closely.
 - New public name: `Loggable` (in `package:daravel` and `package:daravel/foundation.dart`), the interface `Headers` now implements so that the logger redacts it. An application class or import of that name gives an ambiguous-import error; `hide` it or rename yours.
 - Query strings and URL-encoded forms with more than 1,000 nonempty pairs now return `400` when read instead of accepting all input. Set `HTTP_MAX_INPUT_VARS` to a limit appropriate for the application, or `0` for none (a negative value is an error at boot); PHP instead warns and truncates excess input. Multipart keeps its own part limit.
 - New public names: `Request.maxInputVars` (`int?`, `null` for no limit), `Request.defaultMaxInputVars`, `Request.maxInputVarsFromEnv`, `HttpKernel.maxInputVars`, and an optional `maxInputVars` on `parseQueryString`, which sets no limit unless given (a query string an application builds or parses itself is not limited).
+- New public name: `LaravelContract.emptyKeyErrorKey` (in `package:daravel_test`).
 - On 1.27.x a query string is bounded only by its number of pairs and by the HTTP server's own request-line limit: one pair with a very long value is still parsed in time proportional to its length.
 - `validated()` keeps a JSON object as a map also when its keys are numbers: `{"items": {"0": "a", "1": "b"}}` used to come out as the list `["a", "b"]` and now comes out as that map. JSON lists are unchanged. Form fields keep the shape the form parser gives them: `items[0]`, `items[1]`, ... in order are a list, as before; sparse or out-of-order indexes (`items[1]` alone, `items[]` with `items[3]`) are a map, which `validated()` used to turn into a list padded with `null`s under a wildcard rule (`items.*.name`) and now keeps as that map, so `list()` throws for it: give the field the `list` rule to answer `422`. Under an `array` rule, `ValidatedData.list()` still reads a map keyed `"0"`, `"1"`, ... in order as a list; any other map throws a `StateError` (a `500`), so give the field the `list` rule to answer `422` (it takes only a list).
 - `distinct` now answers `422` for duplicates it used to pass without comparing them: values in a JSON object or a sparse form, under a fixed level before the wildcard (`a.b.*`), under a top-level wildcard (`*.id`), and in a list at the third level or under a field after a wildcard (`items.*.tags.*`, `org.*.teams.*.tags.*`, `a.*.b.id`). Only `items.*` and `items.*.id` over a list, and `a.*.items.*.id` within one parent, are compared as before, with one exception: `distinct` no longer counts an item that lacks the field, so `[{}, {"id": null}]` against `items.*.id` passes where it failed (the missing `id` was read as `null`), as in Laravel. With two or more wildcards (`a.*.items.*.id`), the same value under two different parents still passes in 1.27.x.

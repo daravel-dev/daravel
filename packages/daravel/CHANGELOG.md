@@ -2,7 +2,15 @@
 
 ## 1.27.7
 
-- Version aligned with Daravel 1.27.7; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: `validated()` keeps each level of the input as sent: a map key that looks like a number no longer decides the length of a list.
+- Security: an empty key is an empty segment of the paths the validator builds (`*.role` over `{"": …}` is checked, reported under `.role`), and a list index is read only in its canonical form (`01` and `+1` are keys).
+- Security: `distinct` compares every value its pattern matches, whatever holds them (a JSON object, a sparse form, `a.b.*`, `*.id`, deeper lists), and no longer counts an item that lacks the field.
+- Security: a personal access token whose `abilities` column is `NULL`, empty or not a JSON list has no ability; `JwtGuard.invalidate` verifies the token's signature before revoking it, and a JWT with claims of the wrong type is a `401`.
+- A database connection that fails to open reaches every request waiting for it, not only the one that opened it.
+- Security: without `APP_DEBUG`, `/up/ready` keeps a failing check's error out of the body; log redaction looks into every map, iterable and `Headers`, matching keys whatever their case and `-`/`_`.
+- Security: query strings and URL-encoded forms are bounded to `HTTP_MAX_INPUT_VARS` pairs (1 000 by default).
 
 ## 1.27.6
 
