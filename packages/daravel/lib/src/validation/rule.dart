@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../foundation/container.dart';
 
 /// Everything a [Rule] needs to evaluate one attribute (BLUEPRINT_V2 §7.4.1).
@@ -75,6 +77,21 @@ final class ValidationContext {
     return dig(data, dot == -1 ? key : '${attribute.substring(0, dot)}.$key');
   }
 
+  /// [segment] as an index of a list of [length]: only the canonical form
+  /// of an index that exists (`'1'`, not `'01'`, `'+1'`, `'-1'` or
+  /// `' 1'`), else null. PHP reads `'01'` as a string key, never as the
+  /// index 1 (`Arr::get`/`Arr::exists` use `array_key_exists`,
+  /// `laravel/framework` 12.x `src/Illuminate/Collections/Arr.php`
+  /// :263-279, :480-510). Every place the validator reads a path segment
+  /// as an index uses this.
+  @internal
+  static int? listIndex(String segment, int length) {
+    final index = int.tryParse(segment);
+    return index != null && index >= 0 && index < length && '$index' == segment
+        ? index
+        : null;
+  }
+
   /// Dot-path lookup supporting list indexes.
   static Object? dig(Object? source, String path) {
     Object? current = source;
@@ -85,8 +102,8 @@ final class ValidationContext {
         }
         current = current[segment];
       } else if (current is List<Object?>) {
-        final index = int.tryParse(segment);
-        if (index == null || index < 0 || index >= current.length) {
+        final index = listIndex(segment, current.length);
+        if (index == null) {
           return null;
         }
         current = current[index];
@@ -107,8 +124,8 @@ final class ValidationContext {
         }
         current = current[segment];
       } else if (current is List<Object?>) {
-        final index = int.tryParse(segment);
-        if (index == null || index < 0 || index >= current.length) {
+        final index = listIndex(segment, current.length);
+        if (index == null) {
           return false;
         }
         current = current[index];

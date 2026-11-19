@@ -62,10 +62,23 @@ extension type const ValidatedData(Map<String, Object?> _data)
   DateTime? maybeDateTime(String path) => parseDate(get(path));
 
   /// The list at [path], its items cast to [T]; throws when missing.
+  ///
+  /// `validated()` keeps each level as it was sent: a JSON object stays a
+  /// map even when its keys are numbers. Under an `array` rule (which takes
+  /// both) a map whose keys are exactly `"0"`, `"1"`, ... in order (PHP's
+  /// `array_is_list`, which Laravel's `list` rule applies) reads as that
+  /// list; any other map throws, as anything else that is not a list does.
+  /// A `list` rule takes only a list: an object is a `422`.
   List<T> list<T>(String path) {
     final value = get(path);
     if (value is List<Object?>) {
       return value.cast<T>();
+    }
+    if (value is Map<Object?, Object?>) {
+      var index = 0;
+      if (value.keys.every((key) => key == '${index++}')) {
+        return value.values.toList().cast<T>();
+      }
     }
     throw StateError('Validated attribute [$path] is not a list.');
   }
