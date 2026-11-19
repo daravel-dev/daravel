@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -128,6 +129,14 @@ void main() {
     });
   }
 
+  test('under a map parent the work is linear (1 000 against 4 000 items, '
+      'counted reads)', () async {
+    final small = await readsFor(1000);
+    final large = await readsFor(4000);
+    // Linear is 4; reading the parent once per item would be about 16.
+    expect(large / small, inInclusiveRange(1, 4.2), reason: '$small → $large');
+  });
+
   group('through HTTP', () {
     late Application app;
 
@@ -187,4 +196,47 @@ void main() {
       expect(status, 422);
     });
   });
+}
+
+/// Reads of a map, counted: the work of a run, which does not vary with the
+/// machine as a time does.
+final class _CountingMap extends MapBase<String, Object?> {
+  _CountingMap(this._source);
+
+  final Map<String, Object?> _source;
+  int reads = 0;
+
+  @override
+  Object? operator [](Object? key) {
+    reads++;
+    return _source[key];
+  }
+
+  @override
+  bool containsKey(Object? key) {
+    reads++;
+    return _source.containsKey(key);
+  }
+
+  @override
+  void operator []=(String key, Object? value) => _source[key] = value;
+
+  @override
+  void clear() => _source.clear();
+
+  @override
+  Iterable<String> get keys => _source.keys;
+
+  @override
+  Object? remove(Object? key) => _source.remove(key);
+}
+
+/// The reads of `items` for [n] items under a map parent: linear in [n],
+/// the parent counted once per run (the memo), not once per item.
+Future<int> readsFor(int n) async {
+  final items = _CountingMap({
+    for (var i = 0; i < n; i++) 'k$i': {'id': i},
+  });
+  await Validator({'items': items}, {'items.*.id': 'distinct'}).run();
+  return items.reads;
 }

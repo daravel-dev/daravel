@@ -1163,9 +1163,17 @@ final class DistinctRule extends Rule {
     final listPath = parentDot == -1
         ? null
         : parentPath.substring(0, parentDot);
-    final list = listPath == null ? c.root(parentPath) : c.root(listPath);
-    if (list is! List<Object?>) {
-      return null;
+    // The items' parent: a list, or a map (a JSON object, a sparse form
+    // such as `items[1]`, `items[3]`), whose values are compared alike.
+    final parent = listPath == null ? c.root(parentPath) : c.root(listPath);
+    final Iterable<Object?> list;
+    switch (parent) {
+      case final List<Object?> items:
+        list = items;
+      case final Map<Object?, Object?> items:
+        list = items.values;
+      default:
+        return null;
     }
     String textOf(Object? item) =>
         '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
