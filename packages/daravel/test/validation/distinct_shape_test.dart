@@ -380,6 +380,87 @@ void main() {
     expect(changed, 7);
   });
 
+  // Deeper patterns, where the rule before never compared anything: a list
+  // at the third level, or under a fixed field after a wildcard. Every
+  // answer that changes is a real duplicate within one parent (the count:
+  // inputs of the 300 whose answer changed).
+  for (final (pattern, changes) in [
+    ('items.*.tags.*', 115),
+    ('org.*.teams.*.tags.*', 167),
+    ('a.*.b.id', 108),
+  ]) {
+    test('300 seeded inputs under $pattern: each new failure is a duplicate '
+        'within one parent, for distinct, distinct:strict and '
+        'distinct:ignore_case', () async {
+      // A fixed seed per pattern (a string's hashCode is not one).
+      final random = Random(20261119 + pattern.length);
+      const values = <Object?>[1, 2, '1', 'a', 'A', null, true];
+      Object? value() => values[random.nextInt(values.length)];
+      List<Object?> tags() => [
+        for (var i = random.nextInt(4); i > 0; i--) value(),
+      ];
+      var changed = 0;
+      for (var i = 0; i < 300; i++) {
+        final n = 1 + random.nextInt(4);
+        final Map<String, Object?> data = switch (pattern) {
+          'items.*.tags.*' => {
+            'items': [
+              for (var j = 0; j < n; j++) {'tags': tags()},
+            ],
+          },
+          'org.*.teams.*.tags.*' => {
+            'org': [
+              for (var j = 0; j < n; j++)
+                {
+                  'teams': [
+                    for (var k = random.nextInt(3); k >= 0; k--)
+                      {'tags': tags()},
+                  ],
+                },
+            ],
+          },
+          _ => {
+            'a': [
+              for (var j = 0; j < n; j++)
+                {
+                  'b': {'id': value()},
+                },
+            ],
+          },
+        };
+        final attributes = [
+          for (final attribute in Validator.expandPattern(data, pattern))
+            if (ValidationContext.exists(data, attribute) &&
+                !_blank(ValidationContext.dig(data, attribute)))
+              attribute,
+        ];
+        final duplicates = _duplicatesWithinParent(data, pattern);
+        final before = {
+          for (final attribute in attributes)
+            if (_failedBefore(data, attribute)) attribute,
+        };
+        for (final rule in [
+          'distinct',
+          'distinct:strict',
+          'distinct:ignore_case',
+        ]) {
+          final errors = await Validator(data, {pattern: rule}).run();
+          expect(
+            errors.keys.toSet(),
+            duplicates,
+            reason: '$rule ${jsonEncode(data)}',
+          );
+        }
+        // What failed before still fails (a real duplicate too).
+        expect(duplicates.containsAll(before), isTrue);
+        if (!const SetEquality<String>().equals(duplicates, before)) {
+          changed++;
+        }
+      }
+      expect(changed, changes);
+    });
+  }
+
   group('through HTTP', () {
     late Application app;
 
@@ -553,4 +634,35 @@ bool _failedBefore(
     }
   }
   return seen > 1;
+}
+
+/// The attributes of [pattern] in [data] whose value (by text) appears
+/// again among the attributes of the same parent: those sharing the key at
+/// every `*` but the last. A field that is missing is no value.
+Set<String> _duplicatesWithinParent(Map<String, Object?> data, String pattern) {
+  final patternSegments = pattern.split('.');
+  final groups = <String, Map<String, List<String>>>{};
+  for (final attribute in Validator.expandPattern(data, pattern)) {
+    if (!ValidationContext.exists(data, attribute)) {
+      continue;
+    }
+    final segments = attribute.split('.');
+    final stars = [
+      for (var i = 0; i < segments.length; i++)
+        if (patternSegments[i] == '*') segments[i],
+    ];
+    final group = stars.sublist(0, stars.length - 1).join('\u0000');
+    final text = '${ValidationContext.dig(data, attribute)}';
+    groups
+        .putIfAbsent(group, () => {})
+        .putIfAbsent(text, () => [])
+        .add(attribute);
+  }
+  return {
+    for (final byText in groups.values)
+      for (final same in byText.values)
+        if (same.length > 1)
+          for (final attribute in same)
+            if (!_blank(ValidationContext.dig(data, attribute))) attribute,
+  };
 }
