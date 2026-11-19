@@ -121,6 +121,59 @@ void main() {
       },
       {'items..id'},
     ),
+    // Duplicates whose every key at a `*` is empty: `[^.]+` matches none
+    // of them, so Laravel compares nothing and passes them.
+    (
+      'duplicates under empty keys only (*.*.*)',
+      '*.*.*',
+      {
+        '': {
+          '': ['dup', 'dup'],
+        },
+      },
+      <String>{},
+    ),
+    (
+      'duplicates under an empty key (a.*.*)',
+      'a.*.*',
+      {
+        'a': {
+          '': ['dup', 'dup'],
+        },
+      },
+      <String>{},
+    ),
+    (
+      'duplicates under an empty top-level key (*.a.*)',
+      '*.a.*',
+      {
+        '': {
+          'a': ['dup', 'dup'],
+        },
+      },
+      <String>{},
+    ),
+    // The same shapes with named keys: compared.
+    (
+      'named keys (a.*.*)',
+      'a.*.*',
+      {
+        'a': {
+          'k': ['dup', 'dup'],
+        },
+      },
+      {'a.k.0', 'a.k.1'},
+    ),
+    (
+      'named keys (*.a.*)',
+      '*.a.*',
+      {
+        'k': {
+          'a': ['dup', 'dup'],
+        },
+      },
+      {'k.a.0', 'k.a.1'},
+    ),
   ];
 
   for (final (name, pattern, data, expected) in cases) {
