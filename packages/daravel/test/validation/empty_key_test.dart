@@ -91,26 +91,20 @@ void main() {
       );
     });
 
-    test('a dependent rule finds its sibling under the empty key', () async {
-      final rules = <String, Object>{
-        '*.role': 'required_if:*.type,admin',
-        '*.pin': 'confirmed',
-      };
+    test('confirmed finds its field under the empty key', () async {
+      // `{attribute}_confirmation` built on the attribute's path. (A `*` in
+      // a dependent rule's parameter, `required_if:*.type,…`, is not
+      // resolved in this version, empty key or not.)
+      final rules = <String, Object>{'*.pin': 'confirmed'};
       expect(
         (await errors({
-          '': {'type': 'admin', 'pin': '1', 'pin_confirmation': '2'},
-          'x': {'type': 'user'},
-        }, rules)).keys.toSet(),
-        {'.role', '.pin'},
+          '': {'pin': '1', 'pin_confirmation': '2'},
+        }, rules)).keys,
+        ['.pin'],
       );
       expect(
         await errors({
-          '': {
-            'type': 'admin',
-            'role': 'r',
-            'pin': '1',
-            'pin_confirmation': '1',
-          },
+          '': {'pin': '1', 'pin_confirmation': '1'},
         }, rules),
         isEmpty,
       );

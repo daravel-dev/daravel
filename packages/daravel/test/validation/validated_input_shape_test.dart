@@ -316,6 +316,15 @@ void main() {
       final (listStatus, listBody) = await send(form('/list'));
       expect(listStatus, 422);
       expect(((listBody! as Map)['errors'] as Map).keys, ['items']);
+      // Under a wildcard rule (`items.*.name`) the padding happened: the
+      // same map now comes back as it was sent.
+      final (nameStatus, nameBody) = await send(form('/name'));
+      expect(nameStatus, 200);
+      expect(nameBody, {
+        'items': {
+          '1': {'name': 'a'},
+        },
+      });
     });
 
     test('form and multipart: the key stays a key', () async {
