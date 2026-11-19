@@ -93,34 +93,57 @@ void main() {
 
   File stored(String path) => File('${dir.path}/storage/app/public/$path');
 
-  test('a refused conversion in the request: thrown to the caller, the row '
-      'and the original stay, a conversion made before it is on disk but '
-      'not recorded', () async {
-    await app.run(() async {
-      final gallery = await Gallery.definition.query().create({'title': 'g'});
-      await expectLater(
-        gallery
-            .addMediaFromBytes(jpeg(600, 400), fileName: 'a.jpg')
-            .toMediaCollection(),
-        throwsA(isA<ImageTooLargeException>()),
-      );
-      final rows = await DB.table('media').get();
-      expect(rows, hasLength(1), reason: 'the row stays');
-      final row = rows.single;
-      final id = row['id']! as int;
-      expect(stored('$id/a.jpg').existsSync(), isTrue, reason: 'original');
-      expect(
-        stored('$id/conversions/a-thumb.jpg').existsSync(),
-        isTrue,
-        reason: 'the conversion before the refused one was written',
-      );
-      expect(
-        jsonDecode(row['generated_conversions']! as String),
-        anyOf(isEmpty, <String, Object?>{}),
-        reason: 'but not recorded: the row was not saved again',
-      );
-    });
-  });
+  test(
+    'a refused conversion in the request: thrown to the caller, the row '
+    'and the original stay, a conversion made before it is recorded',
+    () async {
+      await app.run(() async {
+        final gallery = await Gallery.definition.query().create({'title': 'g'});
+        await expectLater(
+          gallery
+              .addMediaFromBytes(jpeg(600, 400), fileName: 'a.jpg')
+              .toMediaCollection(),
+          throwsA(isA<ImageTooLargeException>()),
+        );
+        final rows = await DB.table('media').get();
+        expect(rows, hasLength(1), reason: 'the row stays');
+        final row = rows.single;
+        final id = row['id']! as int;
+        expect(stored('$id/a.jpg').existsSync(), isTrue, reason: 'original');
+        expect(
+          stored('$id/conversions/a-thumb.jpg').existsSync(),
+          isTrue,
+          reason: 'the conversion before the refused one was written',
+        );
+        expect(
+          jsonDecode(row['generated_conversions']! as String),
+          {'thumb': true},
+          reason: 'and recorded: the row is saved before the refusal is thrown',
+        );
+      });
+    },
+  );
+
+  test(
+    'when saving that record fails too, the refusal is what is thrown',
+    () async {
+      await app.run(() async {
+        // The row is inserted; any later update of it fails.
+        await DB.statement(
+          'CREATE TRIGGER media_no_update BEFORE UPDATE ON media '
+          "BEGIN SELECT RAISE(ABORT, 'no update'); END",
+        );
+        final gallery = await Gallery.definition.query().create({'title': 'g'});
+        await expectLater(
+          gallery
+              .addMediaFromBytes(jpeg(600, 400), fileName: 'a.jpg')
+              .toMediaCollection(),
+          throwsA(isA<ImageTooLargeException>()),
+        );
+        expect(await DB.table('media').get(), hasLength(1));
+      });
+    },
+  );
 
   test('through HTTP: a 500, the row and the original stay', () async {
     final response = await app.handle(

@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:daravel_medialibrary/daravel_medialibrary.dart';
 // The conversion's own boundary with the image library; not exported.
 import 'package:daravel_medialibrary/src/image_guard.dart';
@@ -46,15 +48,63 @@ void main() {
     );
   });
 
-  test('running out of memory or stack is thrown as it is', () {
+  test('running out of memory is thrown as it is', () {
     expect(
       () => guardImageCall<void>(() => throw OutOfMemoryError()),
       throwsA(isA<OutOfMemoryError>()),
     );
+  });
+
+  test("a stack overflow is the file's (a conversion runs in an isolate of "
+      'its own): an ImageLibraryException, so its job fails once', () {
     expect(
       () => guardImageCall<void>(() => throw StackOverflowError()),
-      throwsA(isA<StackOverflowError>()),
+      throwsA(
+        isA<ImageLibraryException>().having(
+          (e) => e.errorType,
+          'errorType',
+          'StackOverflowError',
+        ),
+      ),
     );
+  });
+
+  test('a real stack overflow in a conversion isolate reaches the caller as '
+      'an ImageLibraryException', () async {
+    await expectLater(
+      Isolate.run(() => guardImageCall(() => _deep(1 << 30))),
+      throwsA(
+        isA<ImageLibraryException>().having(
+          (e) => e.errorType,
+          'errorType',
+          'StackOverflowError',
+        ),
+      ),
+    );
+  });
+
+  test('the type of an Error is named without runtimeType: a known core '
+      'type by its name, any other as Error', () {
+    for (final (error, name) in <(Error, String)>[
+      (RangeError('x'), 'RangeError'),
+      (ArgumentError('x'), 'ArgumentError'),
+      (StateError('x'), 'StateError'),
+      (UnsupportedError('x'), 'UnsupportedError'),
+      (StackOverflowError(), 'StackOverflowError'),
+      (_OddError(), 'Error'),
+    ]) {
+      expect(
+        () => guardImageCall<void>(() => throw error),
+        throwsA(
+          isA<ImageLibraryException>().having(
+            (e) => e.errorType,
+            'errorType',
+            name,
+          ),
+        ),
+        reason: name,
+      );
+    }
   });
 
   test("the library's own exceptions keep their meaning", () {
@@ -115,3 +165,7 @@ void main() {
     );
   });
 }
+
+int _deep(int n) => n == 0 ? 0 : 1 + _deep(n - 1);
+
+final class _OddError extends Error {}

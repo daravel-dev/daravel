@@ -483,6 +483,26 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
       ),
     );
   });
+
+  test('pixels without a measured cost are named by their format, not by a '
+      'class name (an obfuscated build renames those)', () {
+    // A BMP whose header says 16 bits per pixel: no measured cost.
+    final bmp = img.encodeBmp(img.Image(width: 4, height: 4, numChannels: 4));
+    bmp[28] = 16;
+    bmp[29] = 0;
+    expect(
+      () => convertImageSync(bmp, {
+        'width': [2],
+      }),
+      throwsA(
+        isA<ImageConversionException>().having(
+          (e) => e.message,
+          'message',
+          allOf(contains('pixels (BMP'), isNot(contains('Info'))),
+        ),
+      ),
+    );
+  });
 }
 
 /// An 8 x 8 progressive (`SOF2`) JPEG of [components] components with no
