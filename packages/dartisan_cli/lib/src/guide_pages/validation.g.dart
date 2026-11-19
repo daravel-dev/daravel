@@ -60,7 +60,13 @@ upstream file). Indonesian ships as the second locale: set
   `sometimes` validates only when the key is present.
 - `confirmed` looks for `{field}_confirmation`.
 - `bail` stops at the first failure of a field.
-- Nested data uses dot paths and `*` wildcards.
+- Nested data uses dot paths and `*` wildcards. A `*` also matches an
+  empty key, reported as an empty segment (`.role` for `{"": {"role": …}}`).
+- `validated()` keeps each level as it was sent: a JSON object stays a map
+  with its keys (also when they are numbers), a list stays a list. Under an
+  `array` rule, `list()` reads a map keyed `"0"`, `"1"`, ... in order as a
+  list; any other map makes `list()` throw (a `500`), so give the field
+  the `list` rule, which takes only a list, to answer `422`.
 
 ## More rules
 

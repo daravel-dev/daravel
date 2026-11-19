@@ -28,6 +28,23 @@ abstract final class LaravelContract {
   /// `ValidationException::summarize` with no messages.
   static const String invalidData = 'The given data was invalid.';
 
+  /// The error key of a failure under a top-level wildcard whose data key
+  /// is empty (`{"": {"role": "admin"}}` against `*.role`): `Arr::dot`
+  /// joins the empty key into `.role` (`$prefix.$key`, then `.`), and
+  /// `ValidationData::extractValuesForWildcards` matches it, since a `*`
+  /// becomes `[^\.]*`, which matches nothing as well (`laravel/framework`
+  /// 12.x `src/Illuminate/Collections/Arr.php` :184-206,
+  /// `src/Illuminate/Validation/ValidationData.php` :54-75).
+  static const String emptyKeyErrorKey = '.role';
+
+  /// The data path `in_array` gives a value under an empty top-level key
+  /// (`{"": {"allowed": [{"code": "ADMIN"}]}}`): `.allowed.0.code`, which
+  /// `in_array:allowed.*.code` does not match (`Str::is`, anchored at the
+  /// start; `ValidatesAttributes::validateInArray`, `laravel/framework`
+  /// 12.x `src/Illuminate/Validation/Concerns/ValidatesAttributes.php`
+  /// :1547-1560, `src/Illuminate/Support/Str.php` :519-551).
+  static const String emptyKeyDotPath = '.allowed.0.code';
+
   /// `AbstractRouteCollection::handleMatchedRoute` (404).
   static String routeNotFound(String path) =>
       'The route $path could not be found.';
