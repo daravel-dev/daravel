@@ -4,4 +4,4 @@
 
 ### Upgrade notes
 
-- `distinct` now answers `422` for duplicates it used to pass: values in a JSON object or a sparse form, under a fixed level before the wildcard (`a.b.*`) and under a top-level wildcard (`*.id`). Lists are compared as before. With two or more wildcards (`a.*.items.*.id`), the same value under two different parents still passes in 1.27.x.
+- `distinct` now answers `422` for duplicates it used to pass: values in a JSON object or a sparse form, under a fixed level before the wildcard (`a.b.*`) and under a top-level wildcard (`*.id`). Lists are compared as before, with one exception: `distinct` no longer counts an item that lacks the field, so `[{}, {"id": null}]` against `items.*.id` passes where it failed (the missing `id` was read as `null`), as in Laravel. With two or more wildcards (`a.*.items.*.id`), the same value under two different parents still passes in 1.27.x.

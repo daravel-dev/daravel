@@ -376,8 +376,8 @@ void main() {
     expect(compared, 900);
     expect(failing, greaterThan(60));
     // The inputs whose answer changed: an item without `id` next to a
-    // `null` or `"null"` one, which failed before.
-    expect(changed, -1);
+    // `null` or `"null"` one, which failed before (7 of these 300).
+    expect(changed, 7);
   });
 
   group('through HTTP', () {

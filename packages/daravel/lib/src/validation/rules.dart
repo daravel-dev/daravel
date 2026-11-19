@@ -1159,7 +1159,9 @@ final class DistinctRule extends Rule {
     // one `*`, the whole pattern, as Laravel's `extractDistinctValues`;
     // with more, the items of one parent, as this version did). An empty
     // key at a `*` is not among the values compared, as Laravel's `[^.]+`
-    // never matches it, but its own value is compared with the others.
+    // never matches it, but its own value is compared with the others. An
+    // item that lacks the field is not compared either (`Arr::dot` has no
+    // such key): its absence is not the text `null`.
     final patternSegments = c.pattern.split('.');
     final own = _groupOf(c.attribute, patternSegments);
     if (own == null) {
@@ -1169,7 +1171,9 @@ final class DistinctRule extends Rule {
       final groups = <String, Map<String, int>>{};
       for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
         final group = _groupOf(attribute, patternSegments);
-        if (group == null || !group.counted) {
+        if (group == null ||
+            !group.counted ||
+            !ValidationContext.exists(c.data, attribute)) {
           continue;
         }
         final counts = groups.putIfAbsent(group.key, () => {});
