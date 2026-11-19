@@ -1,4 +1,4 @@
-<!-- source: README.md sha256:19f39df8b295 -->
+<!-- source: README.md sha256:5c0add3cc2d6 -->
 <img src="https://raw.githubusercontent.com/daravel-dev/daravel/main/docs/brand/png/daravel-icon-128.png" alt="Daravel" width="64" align="right">
 
 # daravel_horizon
@@ -164,6 +164,32 @@ Tidak tertutup: worker di proses atau host lain yang jamnya lebih cepat
 (margin hanya menutupnya selama selisihnya lebih kecil dari margin), proses
 yang ditangguhkan melewati reservasi, dan engine stream Redis pada jam server
 yang berjalan cepat atau melompat maju.
+
+## Worker yang menganggur
+
+Worker menganggur yang tidak mengirim heartbeat selama empat heartbeat
+dibunuh dan diganti. Pada queue berkas SQLite ia diberi `busy_timeout`-nya
+ditambah dua heartbeat bila itu lebih lama (7 dtk pada bawaan): worker yang
+menunggu kunci tulis menunggu di dalam satu panggilan yang memblok dan tidak
+mengirim apa pun, dan kill di sana memaksa proses dimulai ulang. Job hanya
+direklamasi bila worker sudah melaporkannya; worker melaporkan job saat itu
+juga ketika me-reserve-nya, dan job yang sudah di-reserve tetapi belum
+dilaporkan kembali sesudah `retry_after`.
+
+Bila master sendiri terlambat (prosesnya sibuk), ia tidak menilai worker
+menganggur pada putaran itu, yang bisa datang sebelum heartbeat mereka:
+paling banyak tiga putaran berturut-turut, dicatat sebagai peringatan,
+sehingga worker yang benar-benar hilang tetap dibunuh paling lambat tiga
+putaran lease kemudian. Putaran master yang terus terlambat lebih panjang
+dari satu heartbeat, jadi itu bisa lebih dari tiga heartbeat (sekitar 7 dtk
+pada heartbeat 500 ms dengan putaran 1,4 dtk). Putaran dihitung terlambat
+bila lewat setengah heartbeat, dan tidak pernah di bawah 50 ms, jitter timer
+mesin yang senggang; `HORIZON_HEARTBEAT_MS` di bawah 50 ditolak saat boot.
+Pada antrean berkas SQLite, lease mengikuti `busy_timeout` yang benar-benar
+berlaku di koneksi (tidak ada pada URI `file:`) dan paling lama 10 menit:
+worker yang menunggu kunci tulis lebih lama dari itu dibunuh. Supervisor
+tertanam mencatat catatan SQLite yang sama dengan yang ditulis
+`dartisan horizon` ke stderr.
 
 ## Lisensi
 

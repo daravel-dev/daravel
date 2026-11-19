@@ -241,11 +241,23 @@ Future<int> runHorizon(
   }
   final queues = app.container.make<QueueManager>();
   final policy = await horizonKillPolicy(app);
+  final busy = HorizonConfig.sqliteBusyTimeout(app.config);
+  if (busy != null) {
+    // As `dartisan horizon` writes it to stderr.
+    app.logger.warning(
+      '${HorizonConfig.sqliteWarning} '
+      '${HorizonConfig.sqliteLeaseNote(config.heartbeat, busy)}',
+    );
+  }
   final master = HorizonMaster(
     createApp,
     config,
     terminateSession: policy.terminate,
     workerIdleTransactionTimeout: policy.idleTransactionTimeout,
+    idleLease: HorizonConfig.idleLease(
+      config.heartbeat,
+      sqliteBusyTimeout: busy,
+    ),
     driver: queues.connection,
     logger: app.logger,
     coordinator: control.coordinator,

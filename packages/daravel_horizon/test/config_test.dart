@@ -74,6 +74,36 @@ void main() {
     },
   );
 
+  test(
+    'check: a heartbeat under 50 ms is an error in every environment',
+    () async {
+      for (final millis in [0, 1, 20, 49]) {
+        final horizon = HorizonConfig(
+          heartbeat: Duration(milliseconds: millis),
+        );
+        for (final env in [
+          const <String, String>{},
+          const {'APP_ENV': 'testing'},
+        ]) {
+          final found = await issues(horizon, env: env);
+          expect(found.single.level, ConfigIssueLevel.error, reason: '$millis');
+          expect(
+            found.single.message,
+            contains('HORIZON_HEARTBEAT_MS=$millis'),
+          );
+        }
+      }
+      expect(
+        await issues(
+          const HorizonConfig(heartbeat: Duration(milliseconds: 50)),
+          env: const {'APP_ENV': 'testing'},
+        ),
+        isEmpty,
+      );
+      expect(HorizonConfig.leastHeartbeat, const Duration(milliseconds: 50));
+    },
+  );
+
   test('check: bounds, names, waits and the store', () async {
     expect(await issues(const HorizonConfig()), isEmpty);
     final bad = await issues(
@@ -263,6 +293,260 @@ void main() {
       expect(
         HorizonConfig.onSqliteFile(repo(const HorizonConfig(), db: ':memory:')),
         isFalse,
+      );
+    });
+  });
+
+  group('the lease of an idle worker', () {
+    const ms = Duration(milliseconds: 1);
+
+    test('four heartbeats, and on a SQLite file busy_timeout + 2 heartbeats '
+        'when longer', () {
+      // heartbeat -> busy_timeout (null: not a SQLite file) -> lease.
+      final table = <(int, int?, int)>[
+        (250, null, 1000),
+        (250, 0, 1000),
+        (250, 1000, 1500),
+        (250, 5000, 5500),
+        (250, 30000, 30500),
+        (1000, null, 4000),
+        (1000, 0, 4000),
+        (1000, 1000, 4000),
+        (1000, 5000, 7000),
+        (1000, 30000, 32000),
+        (5000, null, 20000),
+        (5000, 0, 20000),
+        (5000, 1000, 20000),
+        (5000, 5000, 20000),
+        (5000, 30000, 40000),
+      ];
+      for (final (beat, busy, lease) in table) {
+        expect(
+          HorizonConfig.idleLease(
+            ms * beat,
+            sqliteBusyTimeout: busy == null ? null : ms * busy,
+          ),
+          ms * lease,
+          reason: 'heartbeat $beat ms, busy_timeout $busy ms',
+        );
+      }
+    });
+
+    ConfigRepository repo(
+      String driver, {
+      String queue = 'database',
+      Map<String, Object?> options = const {},
+    }) => ConfigRepository()
+      ..register<HorizonConfig>(const HorizonConfig())
+      ..register<QueueConfig>(QueueConfig(defaultConnection: queue))
+      ..register<DatabaseConfig>(
+        DatabaseConfig(
+          defaultConnection: 'main',
+          connections: {
+            'main': ConnectionConfig(
+              driver: driver,
+              database: 'app.sqlite',
+              options: options,
+            ),
+          },
+        ),
+      );
+
+    test("the SQLite file's busy_timeout: 5 s unset, as set, 0 as 0", () {
+      expect(
+        HorizonConfig.sqliteBusyTimeout(repo('sqlite')),
+        const Duration(seconds: 5),
+      );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(
+          repo('sqlite', options: {'busy_timeout': 30000}),
+        ),
+        const Duration(seconds: 30),
+      );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(
+          repo('sqlite', options: {'busy_timeout': '0'}),
+        ),
+        Duration.zero,
+      );
+    });
+
+    test('other queues keep four heartbeats', () {
+      for (final driver in ['pgsql', 'mysql', 'mariadb']) {
+        expect(
+          HorizonConfig.sqliteBusyTimeout(repo(driver)),
+          isNull,
+          reason: driver,
+        );
+      }
+      expect(
+        HorizonConfig.sqliteBusyTimeout(repo('sqlite', queue: 'redis')),
+        isNull,
+        reason: 'redis queue beside a SQLite database',
+      );
+    });
+
+    test('a late round is deferred at most three times in a row; an on-time '
+        'one is never', () {
+      const beat = Duration(milliseconds: 500);
+      bool defer(Duration late, int deferred) => HorizonConfig.deferLeaseRound(
+        late: late,
+        deferred: deferred,
+        heartbeat: beat,
+      );
+      expect(defer(const Duration(milliseconds: 250), 0), isFalse);
+      expect(defer(const Duration(milliseconds: 251), 0), isTrue);
+      // A master late on every round: three deferred, the fourth kills.
+      var deferred = 0;
+      final decisions = <bool>[];
+      for (var round = 0; round < 6; round++) {
+        final d = defer(const Duration(seconds: 3), deferred);
+        decisions.add(d);
+        if (d) {
+          deferred++;
+        }
+      }
+      expect(decisions, [true, true, true, false, false, false]);
+      expect(HorizonConfig.maxDeferredLeaseRounds, 3);
+    });
+
+    test('the SQLite warning says the lease it computes', () {
+      expect(
+        HorizonConfig.sqliteLeaseNote(
+          const Duration(seconds: 1),
+          const Duration(seconds: 5),
+        ),
+        'An idle worker is given busy_timeout (5000 ms) plus two '
+        'heartbeats, 7000 ms, before it counts as gone.',
+      );
+    });
+
+    test('the busy_timeout is the one the connection applies: none on a '
+        'file: URI, none past 32 bits or negative', () {
+      ConfigRepository at(String database, [Object? busy]) => ConfigRepository()
+        ..register<HorizonConfig>(const HorizonConfig())
+        ..register<QueueConfig>(
+          const QueueConfig(defaultConnection: 'database'),
+        )
+        ..register<DatabaseConfig>(
+          DatabaseConfig(
+            defaultConnection: 'main',
+            connections: {
+              'main': ConnectionConfig(
+                driver: 'sqlite',
+                database: database,
+                options: {'busy_timeout': ?busy},
+              ),
+            },
+          ),
+        );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(at('file:app.sqlite?mode=rwc', 30000)),
+        Duration.zero,
+      );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(at('app.sqlite', 0x7fffffff)),
+        const Duration(milliseconds: 0x7fffffff),
+      );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(at('app.sqlite', 0x80000000)),
+        Duration.zero,
+      );
+      expect(
+        HorizonConfig.sqliteBusyTimeout(at('app.sqlite', '4294967296')),
+        Duration.zero,
+      );
+      // What it says is what the driver sets.
+      for (final busy in <Object>[0, 1, 5000, 0x80000000, -1, 'x']) {
+        final repo = at('app.sqlite', busy);
+        final db = repo.section<DatabaseConfig>();
+        expect(
+          HorizonConfig.sqliteBusyTimeout(repo),
+          SqliteDriver.fromConfig(
+            'main',
+            db.connections['main']!,
+          ).appliedBusyTimeout,
+          reason: '$busy',
+        );
+      }
+    });
+
+    test('the SQLite part of the lease is at most 10 minutes; four '
+        'heartbeats can still be longer', () {
+      const second = Duration(seconds: 1);
+      expect(
+        HorizonConfig.idleLease(second, sqliteBusyTimeout: second * 3600),
+        HorizonConfig.maxSqliteLease,
+      );
+      expect(
+        HorizonConfig.idleLease(
+          second,
+          sqliteBusyTimeout: const Duration(milliseconds: 0x7fffffff),
+        ),
+        HorizonConfig.maxSqliteLease,
+      );
+      expect(
+        HorizonConfig.idleLease(
+          second,
+          sqliteBusyTimeout: const Duration(minutes: 9),
+        ),
+        const Duration(minutes: 9, seconds: 2),
+      );
+      expect(
+        HorizonConfig.idleLease(
+          const Duration(minutes: 5),
+          sqliteBusyTimeout: second * 3600,
+        ),
+        const Duration(minutes: 20),
+      );
+      expect(HorizonConfig.maxSqliteLease, const Duration(minutes: 10));
+    });
+
+    test('the warning says when there is no busy_timeout, and when the '
+        'lease cuts it short', () {
+      expect(
+        HorizonConfig.sqliteLeaseNote(
+          const Duration(seconds: 1),
+          Duration.zero,
+        ),
+        contains('no busy_timeout'),
+      );
+      expect(
+        HorizonConfig.sqliteLeaseNote(
+          const Duration(seconds: 1),
+          const Duration(hours: 1),
+        ),
+        allOf(
+          contains('longer than the longest idle lease'),
+          contains('600000 ms'),
+        ),
+      );
+    });
+
+    test('a round late by less than 50 ms is on time, whatever the '
+        'heartbeat', () {
+      expect(HorizonConfig.lateness(const Duration(milliseconds: 20)), ms * 50);
+      expect(
+        HorizonConfig.lateness(const Duration(milliseconds: 100)),
+        ms * 50,
+      );
+      expect(HorizonConfig.lateness(const Duration(seconds: 1)), ms * 500);
+      // 20 ms heartbeat, timers 15 ms late: not deferred, not logged.
+      expect(
+        HorizonConfig.deferLeaseRound(
+          late: ms * 15,
+          deferred: 0,
+          heartbeat: ms * 20,
+        ),
+        isFalse,
+      );
+      expect(
+        HorizonConfig.deferLeaseRound(
+          late: ms * 51,
+          deferred: 0,
+          heartbeat: ms * 20,
+        ),
+        isTrue,
       );
     });
   });

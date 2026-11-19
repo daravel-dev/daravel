@@ -158,6 +158,29 @@ whose clock runs ahead (the margin covers it only while the difference stays
 below it), a process suspended past a reservation, and the Redis stream engine
 on a server clock that runs fast or jumps ahead.
 
+## Idle workers
+
+An idle worker that sends no heartbeat for four heartbeats is killed and
+replaced. On a SQLite file queue it is given its `busy_timeout` plus two
+heartbeats when that is longer (7 s at the defaults): a worker waiting for
+the write lock waits inside one blocking call and sends nothing, and a kill
+there forces a restart of the process. A job is reclaimed only when the
+worker reported it; a worker reports a job the moment it reserves it, and
+one reserved but not reported yet comes back after `retry_after`.
+
+When the master itself runs late (its process busy), it does not judge idle
+workers on that round, which may come before their heartbeats: at most three
+rounds in a row, logged as a warning, so a worker that is really gone is
+still killed at most three lease rounds later. The rounds of a master that
+stays late are longer than a heartbeat, so that can be more than three
+heartbeats (about 7 s at a 500 ms heartbeat with rounds of 1.4 s). A round
+counts as late past half a heartbeat, and never under 50 ms, the jitter of
+an idle machine's timers; `HORIZON_HEARTBEAT_MS` below 50 is refused at boot.
+On a SQLite file queue the lease follows the `busy_timeout` the connection
+really has (none on a `file:` URI) and is at most 10 minutes: a worker
+waiting longer for the write lock is killed. The embedded supervisor logs
+the same SQLite note `dartisan horizon` writes to stderr.
+
 ## License
 
 MIT.
