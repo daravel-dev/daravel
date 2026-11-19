@@ -190,9 +190,11 @@ final class _FakeRequest extends Stream<Uint8List> implements HttpRequest {
       ..set('sec-websocket-key', 'dGhlIHNhbXBsZSBub25jZQ==');
   }
 
+  // ignore: close_sinks (each test destroys it)
   final _FakeSocket socket = _FakeSocket();
 
   @override
+  // ignore: close_sinks (a fake: it holds nothing to close)
   late final HttpResponse response = _FakeResponse(socket);
 
   @override
