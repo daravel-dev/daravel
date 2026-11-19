@@ -1297,7 +1297,11 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
   /// frame included, still goes out; the socket then ends with the graces,
   /// at most 11 seconds after the server's close (the WebSocket's close
   /// gives up after 10 seconds, then the guard's 1 second). Once the
-  /// session ended, nothing is left to send: the socket is destroyed.
+  /// session ended reading stops too, and the grace its end started
+  /// destroys the socket: the session's last bytes are handed to the
+  /// system by then (the socket reports its writes done) but the client
+  /// may not have read them, and destroying the socket at once dropped
+  /// them.
   int _readSinceDone = 0;
 
   /// Reading was stopped at the bound ([_overBound]).
@@ -1362,19 +1366,20 @@ final class _GuardedSocket extends Stream<Uint8List> implements Socket {
     }
   }
 
-  /// Past the bound of [_readSinceDone]: once the session ended the socket
-  /// is destroyed; before (closing, a violation) reading stops, a pause of
-  /// its own which no resume from the WebSocket undoes.
+  /// Past the bound of [_readSinceDone]: reading stops, a pause of its own
+  /// which no resume from the WebSocket undoes, and the count is kept.
+  /// Once the session ended, the grace its end started destroys the
+  /// socket (started here too, should none be under way; the earliest
+  /// stands).
   void _overBound() {
-    if (!_stoppedAtBound) {
-      _stoppedAtBound = true;
-      WebSocketGuardStats.boundStop();
-      if (!_sessionOver) {
-        _reading?.pause();
-      }
+    if (_stoppedAtBound) {
+      return;
     }
+    _stoppedAtBound = true;
+    WebSocketGuardStats.boundStop();
+    _reading?.pause();
     if (_sessionOver) {
-      destroy();
+      _guard._startGrace(this);
     }
   }
 

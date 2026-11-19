@@ -76,45 +76,94 @@ void main() {
     );
   });
 
-  test('the session over, a client that sends past the bound before it '
-      'reads: reading stops, the socket lives until the grace, then '
-      'goes', () async {
-    // What the session wrote is handed to the system (Socket.close and
-    // done complete) but the client has not read it: destroying the socket
-    // then drops it (seen on Windows with a small receive buffer).
-    final (socket, webSocket) = await connect(
-      closeGrace: const Duration(milliseconds: 300),
-    );
+  // What the session wrote is handed to the system (Socket.close and done
+  // complete) before the client read it: destroying the socket then drops
+  // it (seen on Windows with a small receive buffer). Only time bounds it:
+  // past the bound reading stops and the grace ends the socket.
+  const grace = Duration(milliseconds: 300);
+
+  /// A session that wrote 768 KiB and closed; with [clientCloses], the
+  /// client's CLOSE came first, sent before it read anything of ours.
+  Future<_FakeSocket> sessionOver({required bool clientCloses}) async {
+    final (socket, webSocket) = await connect(closeGrace: grace);
     webSocket.add(Uint8List(768 << 10));
+    if (clientCloses) {
+      socket.feed(RawWsClient.frame(0x8, const [0x03, 0xE8]));
+      await pumpEventQueue();
+    }
     await webSocket
         .close(1000, 'bye')
         .timeout(const Duration(seconds: 2), onTimeout: () {});
     await pumpEventQueue();
     expect(socket.closed, isTrue, reason: 'the session wrote and closed');
     expect(socket.written, greaterThan(768 << 10));
-    for (var i = 0; i < 80; i++) {
-      socket.feed(frames(1));
-    }
+    return socket;
+  }
+
+  Uint8List pieces(int total) => Uint8List(total);
+
+  for (final (name, clientCloses, send) in [
+    ('past the bound', false, () => frames(80)),
+    ('exactly the bound', false, () => pieces(bound)),
+    ('past the bound, both sides closing at once', true, () => frames(80)),
+  ]) {
+    test('the session over, a client that sends $name before it reads: '
+        'reading stops, the socket lives until the grace, then goes', () async {
+      // ignore: close_sinks (the grace destroys it, as asserted below)
+      final socket = await sessionOver(clientCloses: clientCloses);
+      final before = readSinceDone();
+      final bytes = send();
+      for (var at = 0; at < bytes.length; at += 64 << 10) {
+        socket.feed(
+          Uint8List.sublistView(
+            bytes,
+            at,
+            at + (64 << 10) > bytes.length ? bytes.length : at + (64 << 10),
+          ),
+        );
+      }
+      await pumpEventQueue();
+      expect(readSinceDone(), lessThanOrEqualTo(bound));
+      expect(readSinceDone() - before, greaterThan(0));
+      expect(
+        socket.destroyed,
+        isFalse,
+        reason:
+            'what was written still reaches a client that reads within '
+            'the grace',
+      );
+      expect(socket.paused, isTrue, reason: 'nothing more is read');
+      final read = readSinceDone();
+      await Future<void>.delayed(grace * 2);
+      expect(readSinceDone(), read, reason: 'the count is not reset');
+      expect(
+        socket.destroyed,
+        isTrue,
+        reason:
+            'a client that never reads does not hold the socket past the '
+            'grace',
+      );
+    });
+  }
+
+  test('the session over, a client that never reads and sends under the '
+      'bound: read on and dropped, the grace from the session end ends '
+      'the socket', () async {
+    // The grace the session's end starts (WebSocketGuard._dispose) bounds
+    // every socket after its session, under the bound too; what the client
+    // has not read by then is lost (a known limit, as for a slow client).
+    int graces() => WebSocketGuardStats.toJson()['graces']!;
+    final gracesBefore = graces();
+    // ignore: close_sinks (the grace destroys it, as asserted below)
+    final socket = await sessionOver(clientCloses: false);
+    expect(graces() - gracesBefore, 1, reason: 'the session end started one');
+    socket.feed(frames(16));
     await pumpEventQueue();
-    expect(readSinceDone(), bound);
-    expect(
-      socket.destroyed,
-      isFalse,
-      reason:
-          'what was written still reaches a client that reads within '
-          'the grace',
-    );
-    expect(socket.paused, isTrue, reason: 'nothing more is read');
-    final read = readSinceDone();
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-    expect(readSinceDone(), read, reason: 'the count is not reset');
-    expect(
-      socket.destroyed,
-      isTrue,
-      reason:
-          'a client that never reads does not hold the socket past the '
-          'grace',
-    );
+    expect(socket.destroyed, isFalse);
+    expect(socket.paused, isFalse, reason: 'read on, dropped');
+    await Future<void>.delayed(grace * 2);
+    expect(socket.destroyed, isTrue);
+    expect(graces() - gracesBefore, 0);
   });
 }
 
