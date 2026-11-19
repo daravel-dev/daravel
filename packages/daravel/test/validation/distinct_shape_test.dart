@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:collection/collection.dart';
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -219,6 +220,57 @@ void main() {
       },
       {'k.a.0', 'k.a.1'},
     ),
+    // An item that lacks the field is not among the values compared, as
+    // `Arr::dot` has no such key: its absence is not the text `null`.
+    (
+      'two items without the field and one "null"',
+      'items.*.id',
+      {
+        'items': [
+          <String, Object?>{},
+          <String, Object?>{},
+          {'id': 'null'},
+        ],
+      },
+      <String>{},
+    ),
+    (
+      'one item without the field and one null',
+      'items.*.id',
+      {
+        'items': [
+          <String, Object?>{},
+          {'id': null},
+        ],
+      },
+      <String>{},
+    ),
+    (
+      'items without the field and one "null", in a map',
+      'items.*.id',
+      {
+        'items': {
+          'a': <String, Object?>{},
+          'b': <String, Object?>{},
+          'c': {'id': 'null'},
+        },
+      },
+      <String>{},
+    ),
+    // Known limit of this version: a key holding a `.` is read as levels,
+    // so that item is not compared, and the item beside it loses it as a
+    // value to compare with (1.28.0 reads such keys as keys).
+    (
+      'known limit: a dotted key is not compared, nor compared with',
+      'items.*.id',
+      {
+        'items': {
+          'a.b': {'id': 1},
+          'c': {'id': 1},
+        },
+      },
+      <String>{},
+    ),
   ];
 
   for (final (name, pattern, data, expected) in cases) {
@@ -245,78 +297,88 @@ void main() {
     });
   }
 
-  test(
-    '300 seeded inputs of lists: the same failures as the rule before '
-    'this change, for distinct, distinct:strict and distinct:ignore_case',
-    () async {
-      final random = Random(20261119);
-      const values = <Object?>[1, 2, '1', '2', 'a', 'A', null, true, 1.0, ''];
-      Object? value() => values[random.nextInt(values.length)];
-      var compared = 0;
-      var failing = 0;
-      for (var i = 0; i < 300; i++) {
-        final n = 1 + random.nextInt(5);
-        final (Map<String, Object?> data, String pattern) = switch (i % 3) {
-          0 => (
-            {
-              'items': [for (var j = 0; j < n; j++) value()],
-            },
-            'items.*',
-          ),
-          1 => (
-            {
-              'items': [
-                for (var j = 0; j < n; j++)
-                  random.nextInt(5) == 0
-                      ? <String, Object?>{}
-                      : <String, Object?>{'id': value()},
-              ],
-            },
-            'items.*.id',
-          ),
-          _ => (
-            {
-              'a': [
-                for (var j = 0; j < n; j++)
-                  {
-                    'items': [
-                      for (var k = random.nextInt(3); k >= 0; k--)
-                        <String, Object?>{'id': value()},
-                    ],
-                  },
-              ],
-            },
-            'a.*.items.*.id',
-          ),
-        };
-        final expected = <String>{
-          for (final attribute in Validator.expandPattern(data, pattern))
-            if (ValidationContext.exists(data, attribute) &&
-                !_blank(ValidationContext.dig(data, attribute)) &&
-                _failedBefore(data, attribute))
-              attribute,
-        };
-        for (final rule in [
-          'distinct',
-          'distinct:strict',
-          'distinct:ignore_case',
-        ]) {
-          final errors = await Validator(data, {pattern: rule}).run();
-          expect(
-            errors.keys.toSet(),
-            expected,
-            reason: '$rule ${jsonEncode(data)}',
-          );
-          compared++;
-        }
-        if (expected.isNotEmpty) {
-          failing++;
-        }
+  test('300 seeded inputs of lists: the same failures as the rule before '
+      'this change, for distinct, distinct:strict and distinct:ignore_case, '
+      'but for an item that lacks the field (counted)', () async {
+    final random = Random(20261119);
+    const values = <Object?>[1, 2, '1', '2', 'a', 'A', null, true, 1.0, ''];
+    Object? value() => values[random.nextInt(values.length)];
+    var compared = 0;
+    var failing = 0;
+    var changed = 0;
+    for (var i = 0; i < 300; i++) {
+      final n = 1 + random.nextInt(5);
+      final (Map<String, Object?> data, String pattern) = switch (i % 3) {
+        0 => (
+          {
+            'items': [for (var j = 0; j < n; j++) value()],
+          },
+          'items.*',
+        ),
+        1 => (
+          {
+            'items': [
+              for (var j = 0; j < n; j++)
+                random.nextInt(5) == 0
+                    ? <String, Object?>{}
+                    : <String, Object?>{'id': value()},
+            ],
+          },
+          'items.*.id',
+        ),
+        _ => (
+          {
+            'a': [
+              for (var j = 0; j < n; j++)
+                {
+                  'items': [
+                    for (var k = random.nextInt(3); k >= 0; k--)
+                      <String, Object?>{'id': value()},
+                  ],
+                },
+            ],
+          },
+          'a.*.items.*.id',
+        ),
+      };
+      Set<String> failedBefore({required bool skipMissing}) => {
+        for (final attribute in Validator.expandPattern(data, pattern))
+          if (ValidationContext.exists(data, attribute) &&
+              !_blank(ValidationContext.dig(data, attribute)) &&
+              _failedBefore(data, attribute, skipMissing: skipMissing))
+            attribute,
+      };
+      // The rule before, but an item that lacks the field is not counted.
+      final expected = failedBefore(skipMissing: true);
+      if (!const SetEquality<String>().equals(
+        expected,
+        failedBefore(skipMissing: false),
+      )) {
+        changed++;
       }
-      expect(compared, 900);
-      expect(failing, greaterThan(60));
-    },
-  );
+      for (final rule in [
+        'distinct',
+        'distinct:strict',
+        'distinct:ignore_case',
+      ]) {
+        final errors = await Validator(data, {pattern: rule}).run();
+        expect(
+          errors.keys.toSet(),
+          expected,
+          reason: '$rule ${jsonEncode(data)}',
+        );
+        compared++;
+      }
+      if (expected.isNotEmpty) {
+        failing++;
+      }
+    }
+    expect(compared, 900);
+    expect(failing, greaterThan(60));
+    // The inputs whose answer changed: an item without `id` next to a
+    // `null` or `"null"` one, which failed before.
+    expect(changed, -1);
+  });
 
   group('through HTTP', () {
     late Application app;
@@ -457,8 +519,13 @@ bool _blank(Object? value) => value is String && value.trim().isEmpty;
 
 /// Whether `distinct` failed [attribute] before this change, as it was
 /// written: the parent found from the attribute's depth, a list only, the
-/// items' text counted.
-bool _failedBefore(Map<String, Object?> data, String attribute) {
+/// items' text counted; with [skipMissing], an item that lacks the field
+/// is not counted (what this change makes of it).
+bool _failedBefore(
+  Map<String, Object?> data,
+  String attribute, {
+  bool skipMissing = false,
+}) {
   final lastDot = attribute.lastIndexOf('.');
   if (lastDot == -1) {
     return false;
@@ -474,6 +541,11 @@ bool _failedBefore(Map<String, Object?> data, String attribute) {
   final value = '${ValidationContext.dig(data, attribute)}';
   var seen = 0;
   for (final item in list) {
+    if (skipMissing &&
+        listPath != null &&
+        !ValidationContext.exists(item, leaf)) {
+      continue;
+    }
     final text =
         '${listPath == null ? item : ValidationContext.dig(item, leaf)}';
     if (text == value) {
