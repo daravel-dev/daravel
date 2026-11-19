@@ -1774,18 +1774,30 @@ final class DatabaseFailedJobProvider
 
   @override
   Future<FailedJob?> find(Object id) async {
-    final row = await _query().where((QueryBuilder q) {
-      q.where('id', id).orWhere('uuid', '$id');
-    }).first();
+    final row = await _named(id).first();
     return row == null ? null : _fromRow(row);
   }
 
   @override
-  Future<bool> forget(Object id) async =>
-      await _query().where((QueryBuilder q) {
-        q.where('id', id).orWhere('uuid', '$id');
-      }).delete() >
-      0;
+  Future<bool> forget(Object id) async => await _named(id).delete() > 0;
+
+  /// The failed job [id] names: by its `uuid` (Laravel's
+  /// `DatabaseUuidFailedJobProvider` looks up only that), and by its row
+  /// id as well when [id] is a row id: an `int`, or a string an `int`
+  /// writes back exactly (`'12'`; not `'012'`, `'+12'`, `' 12'` or a value
+  /// past 64 bits). Any other value is never compared with the integer
+  /// `id` column, where a database would reject it or read its leading
+  /// digits.
+  QueryBuilder _named(Object id) {
+    final rowId = _failedJobRowId(id);
+    return _query().where((QueryBuilder q) {
+      if (rowId == null) {
+        q.where('uuid', '$id');
+      } else {
+        q.where('id', rowId).orWhere('uuid', '$rowId');
+      }
+    });
+  }
 
   @override
   Future<int> flush() => _query().delete();
@@ -1880,3 +1892,15 @@ final class _Cursor {
   /// The id through which the rows read were foreign.
   Object through = 0;
 }
+
+/// [id] as a row id of `failed_jobs`: an `int`, or a string an `int`
+/// writes back exactly (no sign, no leading zero, no space, within 64
+/// bits); otherwise null.
+int? _failedJobRowId(Object id) => switch (id) {
+  final int value => value,
+  final String text => switch (int.tryParse(text)) {
+    final int value when value >= 0 && '$value' == text => value,
+    _ => null,
+  },
+  _ => null,
+};

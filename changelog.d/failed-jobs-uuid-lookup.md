@@ -1,0 +1,3 @@
+### Fixed
+
+- `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`, Horizon's failed job page and its forget command) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
