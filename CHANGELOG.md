@@ -17,7 +17,15 @@ match Laravel more closely.
 
 **Upgrading can change what an application sees:**
 
+- A personal access token whose `abilities` column is `NULL` or empty, which only another writer than Daravel or Sanctum could have left, now has no ability instead of every one. Find such tokens with `SELECT id, name FROM personal_access_tokens WHERE abilities IS NULL OR abilities = ''`; give them `["*"]` (`UPDATE personal_access_tokens SET abilities = '["*"]' WHERE abilities IS NULL OR abilities = ''`) if they should keep every ability, or revoke them. Sanctum itself fails on such a row (its `PersonalAccessToken::can` reads the column as a JSON list).
+- A JWT whose `kid`, `jti` or `iss` is not a string, or whose time claim no date holds, is now refused with a `401` instead of failing with a `500`.
+- New public name: `PersonalAccessToken.abilitiesOf` (a static method; an application extending `PersonalAccessToken` with a member of that name gets a conflict).
+
 ### Fixed
+
+- Security: a personal access token whose `abilities` column is `NULL`, empty or not a JSON list of strings has no ability (`PersonalAccessToken.abilitiesOf`), where `NULL` or an empty value read as every ability (`["*"]`); elements that are not strings are left out, and a row with a `NULL` name, owner type or hash reads without an error. Daravel and Sanctum always write a JSON list (`["*"]` for every ability).
+- Security: `JwtGuard.invalidate(token)` verifies the token's signature against the key ring before revoking its `jti` (an expired but signed token may still be revoked; `JwtCodec.verify(token, checkTimes: false)`), and throws `JwtException` for a `jti` that is not a string or an `exp` no date holds. Before, it read the `jti` of the token unverified, so a forged token could revoke someone else's.
+- A JWT whose `kid`, `jti` or `iss` is not a string, or whose `exp`, `nbf` or `iat` no date holds (`1e308`), is refused with `JwtException` (a `401`) instead of a type error (a `500`); the `JwtClaims` getters return null for such values and never throw.
 
 ## 1.27.6
 

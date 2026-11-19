@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import '../foundation/clock.dart';
 
@@ -39,24 +40,46 @@ final class PersonalAccessToken {
 
   /// The token in a `personal_access_tokens` row.
   factory PersonalAccessToken.fromRow(Map<String, Object?> row) {
-    final rawAbilities = row['abilities'];
-    final abilities = switch (rawAbilities) {
-      String() when rawAbilities.isNotEmpty =>
-        (jsonDecode(rawAbilities) as List<Object?>).cast<String>(),
-      List<Object?>() => rawAbilities.cast<String>(),
-      _ => const <String>['*'],
-    };
     return PersonalAccessToken(
       id: row['id']!,
-      tokenableType: row['tokenable_type'] as String,
-      tokenableId: row['tokenable_id']!,
-      name: row['name'] as String,
-      tokenHash: row['token'] as String,
-      abilities: abilities,
+      tokenableType: row['tokenable_type'] as String? ?? '',
+      tokenableId: row['tokenable_id'] ?? '',
+      name: row['name'] as String? ?? '',
+      // No hash matches no secret.
+      tokenHash: row['token'] as String? ?? '',
+      abilities: abilitiesOf(row['abilities']),
       lastUsedAt: parseDbDateTime(row['last_used_at']),
       expiresAt: parseDbDateTime(row['expires_at']),
       createdAt: parseDbDateTime(row['created_at']),
     );
+  }
+
+  /// The abilities in a token row's `abilities` column, failing closed: a
+  /// JSON list of strings as Daravel and Sanctum write it (`["*"]` for a
+  /// token with every ability); anything else (`NULL`, empty, not JSON,
+  /// not a list) is none at all, and elements that are not strings are
+  /// left out. Before, `NULL` or an empty value read as `["*"]`. Sanctum
+  /// throws on `NULL`; neither ever writes it.
+  static List<String> abilitiesOf(Object? raw) {
+    final text = switch (raw) {
+      final String s => s,
+      final Uint8List bytes => utf8.decode(bytes, allowMalformed: true),
+      _ => null,
+    };
+    Object? decoded = raw is List<Object?> && raw is! Uint8List ? raw : null;
+    if (text != null && text.isNotEmpty) {
+      try {
+        decoded = jsonDecode(text);
+      } on FormatException {
+        decoded = null;
+      }
+    }
+    return decoded is List
+        ? List<String>.unmodifiable([
+            for (final ability in decoded)
+              if (ability is String) ability,
+          ])
+        : const <String>[];
   }
 
   /// The row id, the number before `|` in the plain text token.
