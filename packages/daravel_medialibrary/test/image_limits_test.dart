@@ -423,7 +423,6 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
     for (final webp in [
       _animatedWebp(frame: 2, bitstream: 2),
       _animatedWebp(frame: 2, bitstream: 1),
-      _animatedWebp(frame: 2, bitstream: 2, canvas: 1),
     ]) {
       expect(
         () => convertImageSync(webp, {
@@ -432,6 +431,23 @@ void containerTests(Future<(String, int)> Function(List<int>) convert) {
         notConverted(),
       );
     }
+    // A frame larger than its canvas: refused, by this check or, with
+    // image 4.13 and later, by the decoder before it (its own message).
+    expect(
+      () => convertImageSync(_animatedWebp(frame: 2, bitstream: 2, canvas: 1), {
+        'width': [1],
+      }),
+      throwsA(
+        isA<ImageConversionException>().having(
+          (e) => e.message,
+          'message',
+          anyOf(
+            contains('Animated images (PNG, WebP) are not converted'),
+            contains('outside the 1x1 canvas'),
+          ),
+        ),
+      ),
+    );
   });
 
   test('a still PNG, WebP and GIF, and an animated GIF, still convert', () {
