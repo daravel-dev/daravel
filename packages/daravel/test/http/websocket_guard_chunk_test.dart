@@ -18,12 +18,14 @@ void main() {
   int readSinceDone() => WebSocketGuardStats.toJson()['readWhileEnding'] ?? 0;
   const bound = 4 << 20;
 
-  Future<(_FakeSocket, WebSocket)> connect() async {
+  Future<(_FakeSocket, WebSocket)> connect({
+    Duration closeGrace = const Duration(seconds: 30),
+  }) async {
     final guard = WebSocketGuard(
-      const WebSocketGuardLimits(
+      WebSocketGuardLimits(
         maxMessageBytes: 16 << 20,
         maxBufferedBytes: 16 << 20,
-        closeGrace: Duration(seconds: 30),
+        closeGrace: closeGrace,
       ),
     );
     final request = _FakeRequest();
@@ -73,6 +75,47 @@ void main() {
       onTimeout: () {},
     );
   });
+
+  test('the session over, a client that sends past the bound before it '
+      'reads: reading stops, the socket lives until the grace, then '
+      'goes', () async {
+    // What the session wrote is handed to the system (Socket.close and
+    // done complete) but the client has not read it: destroying the socket
+    // then drops it (seen on Windows with a small receive buffer).
+    final (socket, webSocket) = await connect(
+      closeGrace: const Duration(milliseconds: 300),
+    );
+    webSocket.add(Uint8List(768 << 10));
+    await webSocket
+        .close(1000, 'bye')
+        .timeout(const Duration(seconds: 2), onTimeout: () {});
+    await pumpEventQueue();
+    expect(socket.closed, isTrue, reason: 'the session wrote and closed');
+    expect(socket.written, greaterThan(768 << 10));
+    for (var i = 0; i < 80; i++) {
+      socket.feed(frames(1));
+    }
+    await pumpEventQueue();
+    expect(readSinceDone(), bound);
+    expect(
+      socket.destroyed,
+      isFalse,
+      reason:
+          'what was written still reaches a client that reads within '
+          'the grace',
+    );
+    expect(socket.paused, isTrue, reason: 'nothing more is read');
+    final read = readSinceDone();
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(readSinceDone(), read, reason: 'the count is not reset');
+    expect(
+      socket.destroyed,
+      isTrue,
+      reason:
+          'a client that never reads does not hold the socket past the '
+          'grace',
+    );
+  });
 }
 
 /// A socket whose bytes a test hands over in chunks of its choosing.
@@ -82,7 +125,17 @@ final class _FakeSocket extends Stream<Uint8List> implements Socket {
 
   bool get paused => _in.isPaused;
 
-  void feed(Uint8List chunk) => _in.add(chunk);
+  /// Bytes handed over for writing; [closed] once the writing side was
+  /// closed, [destroyed] once destroyed.
+  int written = 0;
+  bool closed = false;
+  bool destroyed = false;
+
+  void feed(Uint8List chunk) {
+    if (!_in.isClosed) {
+      _in.add(chunk);
+    }
+  }
 
   @override
   StreamSubscription<Uint8List> listen(
@@ -98,14 +151,16 @@ final class _FakeSocket extends Stream<Uint8List> implements Socket {
   );
 
   @override
-  void add(List<int> data) {}
+  void add(List<int> data) => written += data.length;
 
   @override
   void addError(Object error, [StackTrace? stackTrace]) {}
 
   @override
   Future<void> addStream(Stream<List<int>> stream) async {
-    await stream.drain<void>();
+    await for (final data in stream) {
+      written += data.length;
+    }
   }
 
   @override
@@ -114,6 +169,7 @@ final class _FakeSocket extends Stream<Uint8List> implements Socket {
   @override
   Future<void> close() async {
     // As a socket's close: the writing side only; reading goes on.
+    closed = true;
     if (!_done.isCompleted) {
       _done.complete();
     }
@@ -121,6 +177,7 @@ final class _FakeSocket extends Stream<Uint8List> implements Socket {
 
   @override
   void destroy() {
+    destroyed = true;
     if (!_done.isCompleted) {
       _done.complete();
     }
