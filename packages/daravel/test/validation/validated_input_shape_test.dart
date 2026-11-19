@@ -254,6 +254,16 @@ void main() {
                   'items.01.secret': 'exclude',
                   'items.*.secret': 'required|string',
                 })).toMap(),
+              )
+              ..post(
+                '/array',
+                (request) async =>
+                    (await request.validate({'items': 'array'})).toMap(),
+              )
+              ..post(
+                '/list',
+                (request) async =>
+                    (await request.validate({'items': 'list'})).toMap(),
               ),
           )
           .create();
@@ -283,6 +293,29 @@ void main() {
           'items': {key: 'a'},
         }, reason: key);
       }
+    });
+
+    test('a sparse form index is a map: array takes it, list answers '
+        '422', () async {
+      // `items[1][name]` alone: the form parser gives a map keyed `1`
+      // (only `0`, `1`, ... in order become a list); `validated()` used
+      // to pad it into `[null, {...}]`.
+      Request form(String path) => Request.fake(
+        method: 'POST',
+        path: path,
+        form: {'items[1][name]': 'a'},
+        headers: {'accept': 'application/json'},
+      );
+      final (arrayStatus, arrayBody) = await send(form('/array'));
+      expect(arrayStatus, 200);
+      expect(arrayBody, {
+        'items': {
+          '1': {'name': 'a'},
+        },
+      });
+      final (listStatus, listBody) = await send(form('/list'));
+      expect(listStatus, 422);
+      expect(((listBody! as Map)['errors'] as Map).keys, ['items']);
     });
 
     test('form and multipart: the key stays a key', () async {
