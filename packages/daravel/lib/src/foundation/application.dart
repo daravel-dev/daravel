@@ -620,6 +620,7 @@ final class Application {
       middleware: middleware,
       exceptions: exceptions,
       logger: logger,
+      maxInputVars: Request.maxInputVarsFromEnv(env),
     );
     container.instance<HttpKernel>(kernel);
     final upstream = _builder._upstream;
