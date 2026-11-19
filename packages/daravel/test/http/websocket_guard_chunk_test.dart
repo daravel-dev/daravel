@@ -113,13 +113,18 @@ final class _FakeSocket extends Stream<Uint8List> implements Socket {
 
   @override
   Future<void> close() async {
-    destroy();
+    // As a socket's close: the writing side only; reading goes on.
+    if (!_done.isCompleted) {
+      _done.complete();
+    }
   }
 
   @override
   void destroy() {
     if (!_done.isCompleted) {
       _done.complete();
+    }
+    if (!_in.isClosed) {
       unawaited(_in.close());
     }
   }
