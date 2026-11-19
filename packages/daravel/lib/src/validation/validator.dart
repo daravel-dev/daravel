@@ -147,7 +147,10 @@ final class Validator {
     return validated();
   }
 
-  /// The subset of [data] covered by rules, keeping nested structure.
+  /// The subset of [data] covered by rules, keeping nested structure: each
+  /// level has the shape it has in [data] (a map stays a map, its keys as
+  /// sent; a list stays a list), so a key the client sent never decides
+  /// the length of a list.
   ValidatedData validated() {
     final result = <String, Object?>{};
     for (final pattern in [...rules.keys, ..._nestedPatterns]) {
@@ -156,11 +159,7 @@ final class Validator {
             !ValidationContext.exists(_input, attribute)) {
           continue;
         }
-        _assign(
-          result,
-          attribute.split('.'),
-          ValidationContext.dig(_input, attribute),
-        );
+        _assign(result, _input, attribute.split('.'));
       }
     }
     return ValidatedData(result);
@@ -285,13 +284,11 @@ final class Validator {
       }
       return copy;
     }
-    final index = int.tryParse(key);
-    if (source is List<Object?> &&
-        path.length > 1 &&
-        index != null &&
-        index >= 0 &&
-        index < source.length) {
-      return [...source]..[index] = _without(source[index], path.sublist(1));
+    if (source is List<Object?> && path.length > 1) {
+      final index = ValidationContext.listIndex(key, source.length);
+      if (index != null) {
+        return [...source]..[index] = _without(source[index], path.sublist(1));
+      }
     }
     return source;
   }
@@ -386,42 +383,61 @@ final class Validator {
     );
   }
 
+  /// Puts the value at [path] of [input] into [target], building each level
+  /// as it is in [input]: where [input] has a map, [target] gets a map with
+  /// the key as sent; where it has a list, a list, at an index that exists
+  /// in it (the gaps of what was not validated are `null`, as before).
+  /// Nothing here reads a map key as a number: a list is never longer than
+  /// the list it comes from.
   static void _assign(
     Map<String, Object?> target,
+    Map<String, Object?> input,
     List<String> path,
-    Object? value,
   ) {
     Object current = target;
+    Object? source = input;
     for (var i = 0; i < path.length; i++) {
       final segment = path[i];
       final last = i == path.length - 1;
-      final index = int.tryParse(segment);
-      if (current is Map<String, Object?>) {
-        if (last) {
-          current[segment] = value;
+      final Object? child;
+      final int? index;
+      switch (source) {
+        case final Map<Object?, Object?> map:
+          child = map[segment];
+          index = null;
+        case final List<Object?> list:
+          index = ValidationContext.listIndex(segment, list.length);
+          if (index == null) {
+            return;
+          }
+          child = list[index];
+        default:
           return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[segment] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else if (current is List<Object?> && index != null) {
-        while (current.length <= index) {
-          current.add(null);
-        }
-        if (last) {
-          current[index] = value;
-          return;
-        }
-        final nextIsIndex = int.tryParse(path[i + 1]) != null;
-        final next = current[index] ??= nextIsIndex
-            ? <Object?>[]
-            : <String, Object?>{};
-        current = next;
-      } else {
-        return;
       }
+      Object? put(Object? existing) => last
+          ? child
+          : existing ??
+                (child is List<Object?> ? <Object?>[] : <String, Object?>{});
+      switch (current) {
+        case final Map<String, Object?> map when index == null:
+          final next = map[segment] = put(map[segment]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        case final List<Object?> list when index != null:
+          while (list.length <= index) {
+            list.add(null);
+          }
+          final next = list[index] = put(list[index]);
+          if (last || next == null) {
+            return;
+          }
+          current = next;
+        default:
+          return;
+      }
+      source = child;
     }
   }
 
@@ -433,13 +449,17 @@ final class Validator {
     }
     final segments = pattern.split('.');
     final results = <String>[];
-    void walk(Object? current, int index, String prefix) {
+    // [prefix] is null before the first segment: an empty key is a key
+    // (`{"": {"role": …}}` against `*.role` is `.role`, as Laravel's
+    // `Arr::dot` writes it, `Arr.php` 12.x :184-206), not the absence of a
+    // prefix.
+    void walk(Object? current, int index, String? prefix) {
       if (index == segments.length) {
-        results.add(prefix);
+        results.add(prefix ?? '');
         return;
       }
       final segment = segments[index];
-      final next = prefix.isEmpty ? '' : '$prefix.';
+      final next = prefix == null ? '' : '$prefix.';
       if (segment == '*') {
         if (current is List<Object?>) {
           for (var i = 0; i < current.length; i++) {
@@ -454,16 +474,19 @@ final class Validator {
       }
       final child = switch (current) {
         Map<Object?, Object?>() => current[segment],
-        List<Object?>()
-            when int.tryParse(segment) != null &&
-                int.parse(segment) < current.length =>
-          current[int.parse(segment)],
+        List<Object?>() => switch (ValidationContext.listIndex(
+          segment,
+          current.length,
+        )) {
+          final int at => current[at],
+          null => null,
+        },
         _ => null,
       };
       walk(child, index + 1, '$next$segment');
     }
 
-    walk(data, 0, '');
+    walk(data, 0, null);
     return results;
   }
 }

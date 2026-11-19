@@ -423,17 +423,13 @@ void main() {
       });
       expect(status, 422);
       expect(((body! as Map)['errors'] as Map).keys, ['.role']);
-      expect(
-        await post('/top-wild-role', {
-          '': {'role': 'user'},
-        }),
-        (
-          200,
-          {
-            '': {'role': 'user'},
-          },
-        ),
-      );
+      final (okStatus, okBody) = await post('/top-wild-role', {
+        '': {'role': 'user'},
+      });
+      expect(okStatus, 200);
+      expect(okBody, {
+        '': {'role': 'user'},
+      });
     });
 
     test('in_array cannot be fed from under an empty key', () async {

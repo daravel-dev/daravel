@@ -1791,24 +1791,28 @@ Map<String, Object?> _leavesMatching(
   // quadratically on a long key, which the client writes ([KeyPattern]).
   final keys = KeyPattern(pattern, crossDots: crossDots);
   final leaves = <String, Object?>{};
-  void walk(Object? node, String path) {
+  // [path] is null at the root only: an empty key is joined like any other
+  // (`$prefix.$key`, `Arr.php` 12.x :188-193), so `{"": {"a": 1}}` is
+  // `.a` and never stands in for the field `a`.
+  void walk(Object? node, String? path) {
     switch (node) {
       case Map<Object?, Object?>() when node.isNotEmpty:
         for (final MapEntry(:key, :value) in node.entries) {
-          walk(value, path.isEmpty ? '$key' : '$path.$key');
+          walk(value, path == null ? '$key' : '$path.$key');
         }
       case List<Object?>() when node.isNotEmpty:
         for (var i = 0; i < node.length; i++) {
-          walk(node[i], path.isEmpty ? '$i' : '$path.$i');
+          walk(node[i], path == null ? '$i' : '$path.$i');
         }
       default:
-        if (keys.matches(path)) {
-          leaves[path] = node;
+        final key = path ?? '';
+        if (keys.matches(key)) {
+          leaves[key] = node;
         }
     }
   }
 
-  walk(data, '');
+  walk(data, null);
   return leaves;
 }
 
@@ -2571,10 +2575,7 @@ final class RequiredArrayKeysRule extends Rule {
       Map<Object?, Object?>() => value.containsKey(key),
       // `array_key_exists` on a list: only the canonical integer form of an
       // index matches ('1', not '01' or '+1').
-      List<Object?>() => switch (int.tryParse(key)) {
-        final int i => '$i' == key && i >= 0 && i < value.length,
-        null => false,
-      },
+      List<Object?>() => ValidationContext.listIndex(key, value.length) != null,
       _ => false,
     };
     final isArray = value is Map<Object?, Object?> || value is List<Object?>;
