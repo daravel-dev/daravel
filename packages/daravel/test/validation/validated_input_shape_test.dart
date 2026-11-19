@@ -548,14 +548,17 @@ void main() {
   group('work grows linearly with the input (n against 4n)', () {
     // The work is counted (reads of the input's maps and lists), not timed:
     // a count does not vary with a shared CI machine.
-    Future<int> reads(Object? Function(Counter) build, String pattern) async {
-      final counter = Counter();
+    Future<int> reads(
+      Object? Function(ReadCounter) build,
+      String pattern,
+    ) async {
+      final counter = ReadCounter();
       final data = build(counter)! as Map<String, Object?>;
       await Validator(data, {pattern: 'nullable'}).validate();
       return counter.reads;
     }
 
-    final shapes = <String, (Object? Function(Counter, int), String)>{
+    final shapes = <String, (Object? Function(ReadCounter, int), String)>{
       'a map of n number keys': (
         (c, n) => c.map({
           'items': c.map({for (var i = 0; i < n; i++) '${i * 7}': 'a'}),
@@ -606,7 +609,7 @@ void main() {
 }
 
 /// Counts the reads of the maps and lists it builds.
-final class Counter {
+final class ReadCounter {
   int reads = 0;
 
   Map<String, Object?> map(Map<String, Object?> source) =>
@@ -619,7 +622,7 @@ final class _CountingMap extends MapBase<String, Object?> {
   _CountingMap(this._source, this._counter);
 
   final Map<String, Object?> _source;
-  final Counter _counter;
+  final ReadCounter _counter;
 
   @override
   Object? operator [](Object? key) {
@@ -653,7 +656,7 @@ final class _CountingList extends ListBase<Object?> {
   _CountingList(this._source, this._counter);
 
   final List<Object?> _source;
-  final Counter _counter;
+  final ReadCounter _counter;
 
   @override
   int get length => _source.length;

@@ -116,6 +116,33 @@ void main() {
         '': {'role': 'admin'},
       });
     });
+
+    test('a dependent rule finds its sibling under the empty key', () async {
+      // resolve('*.type') from `.role` of `*.role` is `.type`; sibling and
+      // confirmed build on the same path.
+      final rules = <String, Object>{
+        '*.role': 'required_if:*.type,admin',
+        '*.pin': 'confirmed',
+      };
+      expect(
+        (await errors({
+          '': {'type': 'admin', 'pin': '1', 'pin_confirmation': '2'},
+          'x': {'type': 'user'},
+        }, rules)).keys.toSet(),
+        {'.role', '.pin'},
+      );
+      expect(
+        await errors({
+          '': {
+            'type': 'admin',
+            'role': 'r',
+            'pin': '1',
+            'pin_confirmation': '1',
+          },
+        }, rules),
+        isEmpty,
+      );
+    });
   });
 
   group('KeyPattern is the pattern Laravel writes', () {
