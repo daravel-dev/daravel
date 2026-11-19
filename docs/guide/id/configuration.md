@@ -1,4 +1,4 @@
-<!-- source: configuration.md sha256:6c94bc2a52fc -->
+<!-- source: configuration.md sha256:8d8132d75b73 -->
 # Konfigurasi
 
 ## File environment
@@ -112,6 +112,7 @@ setelah boot.
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
 | `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas); `BodyLimitsMiddleware` memperketatnya ke 1 MiB untuk JSON dan form |
+| `HTTP_MAX_INPUT_VARS` | `1000` | Jumlah maksimum pasangan tidak kosong pada query string dan form URL-encoded, dihitung terpisah; input berlebih ditolak dengan `400` saat dibaca. `0` berarti tanpa batas; nilai negatif adalah galat saat boot. Body multipart punya batasnya sendiri, 1 000 bagian |
 | `HTTP_MAX_QUEUE_DELAY`, `HTTP_MAX_IN_FLIGHT` | mati (`200ms` di proyek baru), mati | [Load shedding](deployment.md#load-shedding): `503` selama event loop worker terlambat sebanyak ini, atau di atas sekian request sekaligus |
 | `SERVER_EMBED_QUEUE`, `SERVER_EMBED_SCHEDULER` | `false` | Queue worker dan scheduler di dalam proses server |
 

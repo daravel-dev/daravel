@@ -41,6 +41,7 @@ final class HttpKernel {
     required this.middleware,
     required this.exceptions,
     this.logger,
+    this.maxInputVars = Request.defaultMaxInputVars,
   });
 
   /// The routes.
@@ -54,6 +55,11 @@ final class HttpKernel {
 
   /// Logs requests and failures.
   final Logger? logger;
+
+  /// The most query or URL-encoded form pairs per request
+  /// ([Request.maxInputVars]): the application's `HTTP_MAX_INPUT_VARS`;
+  /// `null` for no limit.
+  final int? maxInputVars;
 
   /// Default handler timeout applied when a route sets none (`null` = none).
   Duration? defaultTimeout;
@@ -72,6 +78,7 @@ final class HttpKernel {
   /// Handles a single request and always yields a response.
   Future<Response> handle(Request request) async {
     _bindLogContext(request);
+    request.maxInputVars = maxInputVars;
     Response response;
     try {
       response = await MiddlewarePipeline.run(
