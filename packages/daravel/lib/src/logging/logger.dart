@@ -11,6 +11,7 @@ import 'context.dart';
 import '../foundation/container.dart';
 import '../foundation/env.dart';
 import '../foundation/exceptions.dart';
+import '../foundation/loggable.dart';
 
 /// RFC 5424 levels (ordered by severity).
 enum LogLevel {
@@ -612,14 +613,23 @@ final class LoggingConfig implements ConfigSection {
   );
 
   /// Context keys whose values are replaced by `[REDACTED]` (substring,
-  /// case-insensitive) — BLUEPRINT_V2 §7.6.5.
+  /// whatever the case and `-`/`_`) — BLUEPRINT_V2 §7.6.5.
   static const List<String> defaultRedactedKeys = <String>[
     'password',
+    'passwd',
+    'pwd',
     'token',
     'authorization',
+    'bearer',
     'cookie',
     'secret',
     'api_key',
+    'apikey',
+    'jwt',
+    'session_id',
+    'private_key',
+    'credentials',
+    'dsn',
   ];
 
   /// Default channel (`stack`, `console`, `json`, `daily`, `null`).
@@ -671,7 +681,7 @@ final class Logger {
   }) : _handlers = handlers == null
            ? <LogHandler>[ConsoleHandler(out: out, err: err)]
            : List<LogHandler>.of(handlers),
-       _redact = redact.map((k) => k.toLowerCase()).toList();
+       _redact = redact.map(_normalizeKey).toList();
 
   /// Builds the default channel and every named channel from [config].
   factory Logger.fromConfig(
@@ -869,24 +879,94 @@ final class Logger {
     }
   }
 
-  /// Replaces values of sensitive keys (recursively) with `[REDACTED]`.
-  Map<String, Object?> redact(Map<String, Object?> context) => {
-    for (final entry in context.entries)
-      entry.key: _isSensitive(entry.key)
-          ? '[REDACTED]'
-          : _redactValue(entry.value),
-  };
+  /// Replaces values of sensitive keys (recursively) with `[REDACTED]`:
+  /// in every map whatever its key type (keys written with `toString`), in
+  /// every list, set and other iterable, and in a [Loggable] such as
+  /// `Headers`. Keys match whatever their case and `-` or `_` (`X-Api-Key`
+  /// matches `api_key`).
+  ///
+  /// It never throws and always ends, since logging must not fail the code
+  /// that logs: nesting past 32 levels is written as `[DEPTH]`; past 10 000
+  /// values per call (an endless `sync*` iterable, a structure that holds
+  /// itself twice) the rest is `[TRUNCATED]`; and a value whose iteration,
+  /// `toLogValue()` or key `toString()` throws is written as
+  /// `[UNLOGGABLE: <type>]`.
+  Map<String, Object?> redact(Map<String, Object?> context) =>
+      _redactMap(context, 0, _RedactBudget());
 
-  Object? _redactValue(Object? value) => switch (value) {
-    Map<String, Object?>() => redact(value),
-    List<Object?>() => [for (final v in value) _redactValue(v)],
-    _ => value,
-  };
+  Map<String, Object?> _redactMap(
+    Map<Object?, Object?> map,
+    int depth,
+    _RedactBudget budget,
+  ) {
+    final out = <String, Object?>{};
+    for (final MapEntry(:key, :value) in map.entries) {
+      if (budget.spent) {
+        out['[TRUNCATED]'] = '[TRUNCATED]';
+        break;
+      }
+      final String name;
+      try {
+        name = '$key';
+      } catch (_) {
+        out['[UNLOGGABLE: ${key.runtimeType}]'] = '[REDACTED]';
+        continue;
+      }
+      out[name] = _isSensitive(name)
+          ? '[REDACTED]'
+          : _redactValue(value, depth + 1, budget);
+    }
+    return out;
+  }
+
+  Object? _redactValue(Object? value, int depth, _RedactBudget budget) {
+    if (depth > _maxDepth) {
+      return '[DEPTH]';
+    }
+    if (!budget.take()) {
+      return '[TRUNCATED]';
+    }
+    try {
+      return switch (value) {
+        Loggable() => _redactValue(value.toLogValue(), depth + 1, budget),
+        Map<Object?, Object?>() => _redactMap(value, depth, budget),
+        // Bytes stay as they are (not a structure that holds keys).
+        Uint8List() => value,
+        Iterable<Object?>() => _redactIterable(value, depth, budget),
+        _ => value,
+      };
+    } catch (_) {
+      return '[UNLOGGABLE: ${value.runtimeType}]';
+    }
+  }
+
+  List<Object?> _redactIterable(
+    Iterable<Object?> values,
+    int depth,
+    _RedactBudget budget,
+  ) {
+    final out = <Object?>[];
+    for (final v in values) {
+      if (budget.spent) {
+        out.add('[TRUNCATED]');
+        break;
+      }
+      out.add(_redactValue(v, depth + 1, budget));
+    }
+    return out;
+  }
+
+  static const int _maxDepth = 32;
 
   bool _isSensitive(String key) {
-    final lower = key.toLowerCase();
-    return _redact.any(lower.contains);
+    final normalized = _normalizeKey(key);
+    return _redact.any(normalized.contains);
   }
+
+  /// Lower case without `-` and `_`, so `X-API-KEY`, `api_key` and `apiKey`
+  /// are one name.
+  static String _normalizeKey(String key) =>
+      key.toLowerCase().replaceAll('-', '').replaceAll('_', '');
 
   /// Flushes and closes every handler of this logger and its channels.
   Future<void> close() async {
@@ -905,4 +985,15 @@ final class Logger {
       return null;
     }
   }
+}
+
+/// How many values one [Logger.redact] call may walk.
+final class _RedactBudget {
+  int _left = 10000;
+
+  /// Whether the budget is used up.
+  bool get spent => _left <= 0;
+
+  /// Takes one value; false when none is left.
+  bool take() => _left-- > 0;
 }

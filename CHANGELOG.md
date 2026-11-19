@@ -20,6 +20,9 @@ match Laravel more closely.
 - A personal access token whose `abilities` column is `NULL` or empty, which only another writer than Daravel or Sanctum could have left, now has no ability instead of every one. Find such tokens with `SELECT id, name FROM personal_access_tokens WHERE abilities IS NULL OR abilities = ''`; give them `["*"]` (`UPDATE personal_access_tokens SET abilities = '["*"]' WHERE abilities IS NULL OR abilities = ''`) if they should keep every ability, or revoke them. Sanctum itself fails on such a row (its `PersonalAccessToken::can` reads the column as a JSON list).
 - A JWT whose `kid`, `jti` or `iss` is not a string, or whose time claim no date holds, is now refused with a `401` instead of failing with a `500`.
 - New public name: `PersonalAccessToken.abilitiesOf` (a static method; an application extending `PersonalAccessToken` with a member of that name gets a conflict).
+- Without `APP_DEBUG`, a failing check of `/up/ready` no longer puts its error text in the body (only its name, `ok` and time); the error is logged as a warning, at most once a second per worker. A monitor that read the error from the body reads the log instead.
+- Log redaction matches more keys by default (`passwd`, `pwd`, `bearer`, `apikey`, `jwt`, `session_id`, `private_key`, `credentials`, `dsn`) and matches keys whatever their case and `-`/`_` (`X-Api-Key` matches `api_key`), so more context values are written as `[REDACTED]`.
+- New public name: `Loggable` (in `package:daravel` and `package:daravel/foundation.dart`), the interface `Headers` now implements so that the logger redacts it. An application class or import of that name gives an ambiguous-import error; `hide` it or rename yours.
 
 ### Fixed
 
@@ -27,6 +30,8 @@ match Laravel more closely.
 - Security: `JwtGuard.invalidate(token)` verifies the token's signature against the key ring before revoking its `jti` (an expired but signed token may still be revoked; `JwtCodec.verify(token, checkTimes: false)`), and throws `JwtException` for a `jti` that is not a string or an `exp` no date holds. Before, it read the `jti` of the token unverified, so a forged token could revoke someone else's.
 - A JWT whose `kid`, `jti` or `iss` is not a string, or whose `exp`, `nbf` or `iat` no date holds (`1e308`), is refused with `JwtException` (a `401`) instead of a type error (a `500`); the `JwtClaims` getters return null for such values and never throw.
 - A database connection that failed to open while several requests waited for it reached only the request that opened it: the others, waiting on the same open from their own request, never got the error and hung until their request timeout. Every request waiting for that connection now gets the error.
+- Security: `/up/ready` answered anyone with a failing check's error text, also without `APP_DEBUG` (a connection URL with its password, a host); the body now leaves it out unless `APP_DEBUG` is on.
+- Security: log redaction looked only into maps with `String` keys and lists, and matched keys by lower case only: a secret under `X-API-Key`, in a map of another key type, in a set or in a `Headers` object (`authorization`, `cookie`) was written as it was. Every map, iterable and `Loggable` (`Headers` is one) is redacted now, keys matched whatever their case and `-`/`_`. Redaction never throws and always ends: past 32 levels it writes `[DEPTH]`, past 10 000 values per record `[TRUNCATED]` (an endless iterable, a structure that holds itself), and a value whose iteration or key fails `[UNLOGGABLE: <type>]`.
 
 ## 1.27.6
 
