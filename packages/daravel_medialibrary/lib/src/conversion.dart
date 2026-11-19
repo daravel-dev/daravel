@@ -437,8 +437,8 @@ Uint8List convertImageSync(
   final kind = _kindOfInfo(info, decoder, bytes);
   if (container == null || kind == null) {
     throw ImageConversionException(
-      'The image\'s pixels (${_describeInfo(info)}) are not converted in '
-      'this version.',
+      'The image\'s pixels (${_describeInfo(info, decoder, bytes)}) are not '
+      'converted in this version.',
     );
   }
   final growth = math.max(1, maxPixels ~/ _growthDivisor);
@@ -719,10 +719,21 @@ PixelKind? _kindOfInfo(
   };
 }
 
-String _describeInfo(img.DecodeInfo info) => switch (info) {
+/// The pixels of [info] for a message, by format: written out, not
+/// `runtimeType`, which an obfuscated build renames.
+String _describeInfo(
+  img.DecodeInfo info,
+  img.Decoder decoder,
+  Uint8List bytes,
+) => switch (info) {
+  _ when decoder is img.BmpDecoder =>
+    'BMP, ${_bmpBitsPerPixel(bytes)} bits per pixel',
   img.PngInfo(:final bits, :final colorType) =>
     'PNG color type $colorType, $bits bits',
-  _ => info.runtimeType.toString(),
+  img.JpegInfo() => 'JPEG',
+  img.GifInfo() => 'GIF',
+  img.WebPInfo() => 'WebP',
+  _ => 'another format',
 };
 
 /// The decoder of [bytes] among the formats [canConvert] names (JPEG, PNG,

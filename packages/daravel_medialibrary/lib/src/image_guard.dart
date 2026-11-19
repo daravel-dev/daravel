@@ -8,9 +8,11 @@ import 'conversion.dart';
 /// [ImageTooLargeException], another one into [ImageConversionException],
 /// and an [Error] (a defect of the image library for this file) into
 /// [ImageLibraryException], so the file fails once instead of being tried
-/// again. [OutOfMemoryError] and [StackOverflowError] are about the process,
-/// not the file: thrown as they are. Not exported: the conversion's own
-/// boundary, tested by its own tests.
+/// again. A [StackOverflowError] is one of those: a conversion runs in an
+/// isolate of its own, so the same file overflows the same stack on every
+/// try. [OutOfMemoryError] is about the process (an isolate shares its
+/// memory), not the file: thrown as it is. Not exported: the conversion's
+/// own boundary, tested by its own tests.
 ///
 /// The pixel budget error (checked per frame and over all frames or pages,
 /// with our limit) is told by its message, which `package:image` does not
@@ -27,15 +29,23 @@ T guardImageCall<T>(T Function() body) {
         : ImageConversionException(error.message);
   } on OutOfMemoryError {
     rethrow;
-  } on StackOverflowError {
-    rethrow;
     // ignore: avoid_catching_errors
   } on Error catch (error) {
     // Only here, at the call into the image library: the Error is its
     // defect, met on one file; our own code outside throws as it is.
-    throw ImageLibraryException(
-      '${error.runtimeType}',
-      '$error'.split('\n').first,
-    );
+    throw ImageLibraryException(_errorName(error), '$error'.split('\n').first);
   }
 }
+
+/// The type of [error] for the log, written out: `runtimeType` is renamed
+/// in an obfuscated build. A core type the library is known to throw by its
+/// name, any other as `Error`.
+String _errorName(Error error) => switch (error) {
+  RangeError() => 'RangeError',
+  ArgumentError() => 'ArgumentError',
+  StateError() => 'StateError',
+  UnsupportedError() => 'UnsupportedError',
+  TypeError() => 'TypeError',
+  StackOverflowError() => 'StackOverflowError',
+  _ => 'Error',
+};

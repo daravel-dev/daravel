@@ -6,7 +6,8 @@
 - `Fit.fill` and `Fit.fillMax` on an animated GIF keep every frame, each with its duration, on the white canvas; they kept only the first.
 - The JPEG scan count before decoding skips what the segments before the first scan carry (an EXIF thumbnail, a comment), as a decoder does, so bytes there are no longer counted as scans.
 - A manipulated 16-bit image is made 8-bit first, as GD (laravel-medialibrary's default driver) holds it; one only written in another format keeps its 16 bits, and a 16-bit image is written as a GIF through 8 bits, which the GIF encoder could not take. A 1, 2 or 4-bit image is made 8-bit before greyscale or blur.
-- An `Error` the image library throws reading, decoding or encoding a file becomes an `ImageLibraryException` (an `ImageConversionException`) with the error's type, logged as a warning: the conversion job fails once instead of decoding the same file three times. Running out of memory or stack is thrown as it is.
+- An `Error` the image library throws reading, decoding or encoding a file becomes an `ImageLibraryException` (an `ImageConversionException`) with the error's type, logged as a warning: the conversion job fails once instead of decoding the same file three times. A stack overflow is one of those (a conversion runs in an isolate of its own, so the same file overflows on every try); running out of memory is thrown as it is.
+- A conversion that runs in the request (`nonQueued()`, or with queueing off) and fails no longer leaves the conversions made before it unrecorded: they are saved to the media row, then the failure is thrown (a `500` unless the application catches it). Should saving that record fail as well, the conversion's failure is still the one thrown, and the second is logged.
 
 ### Upgrade notes
 

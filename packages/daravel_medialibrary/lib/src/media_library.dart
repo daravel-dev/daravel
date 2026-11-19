@@ -135,23 +135,40 @@ abstract final class MediaLibrary {
     }
     final target = Storage.disk(media.conversionsDisk);
     Uint8List? original;
-    for (final conversion in conversions) {
-      final path = media.path(conversion.name);
-      if (onlyMissing &&
-          media.hasGeneratedConversion(conversion.name) &&
-          await target.exists(path)) {
-        continue;
+    try {
+      for (final conversion in conversions) {
+        final path = media.path(conversion.name);
+        if (onlyMissing &&
+            media.hasGeneratedConversion(conversion.name) &&
+            await target.exists(path)) {
+          continue;
+        }
+        original ??= await Storage.disk(media.disk).getBytes(media.path());
+        final converted = await convertImage(
+          original,
+          conversion.manipulations,
+          maxPixels: config.maxImagePixels,
+          maxFrames: config.maxImageFrames,
+          maxWork: config.maxConversionWork,
+        );
+        await target.put(path, converted);
+        media.markAsConversionGenerated(conversion.name);
       }
-      original ??= await Storage.disk(media.disk).getBytes(media.path());
-      final converted = await convertImage(
-        original,
-        conversion.manipulations,
-        maxPixels: config.maxImagePixels,
-        maxFrames: config.maxImageFrames,
-        maxWork: config.maxConversionWork,
-      );
-      await target.put(path, converted);
-      media.markAsConversionGenerated(conversion.name);
+    } on Object {
+      // A conversion failed: the ones made before it are on disk and are
+      // recorded, and that failure is what is thrown, even should the
+      // record fail too (that second failure is logged).
+      if (media.isDirty()) {
+        try {
+          await media.save();
+        } on Object catch (error) {
+          Log.warning(
+            'Recording the conversions made before a failed one failed',
+            {'media_id': media.id, 'error': '$error'.split('\n').first},
+          );
+        }
+      }
+      rethrow;
     }
     if (media.isDirty()) {
       await media.save();
