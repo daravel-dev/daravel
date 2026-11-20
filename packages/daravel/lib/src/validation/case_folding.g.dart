@@ -2,6 +2,9 @@
 //
 // Generator: tool/validation/generate_case_folding.dart
 // Source: https://www.unicode.org/Public/15.0.0/ucd/CaseFolding.txt
+// © 2022 Unicode®, Inc.
+// Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
+// For terms of use, see https://www.unicode.org/terms_of_use.html
 // Unicode version: 15.0.0 (status C and S, 1454 rules)
 // Matches PCRE2 bundled with PHP 8.2-8.4 (Unicode 14.0-15.0).
 

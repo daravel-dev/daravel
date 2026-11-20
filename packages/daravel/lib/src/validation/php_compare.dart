@@ -24,7 +24,10 @@ import 'case_folding.g.dart';
 /// `StackOverflowError` from about 4 200 000 (`distinct` and `in_array`
 /// read every value through here).
 num? phpNumeric(String value) {
-  PhpValueIndex.debugNumericCalls++;
+  assert(() {
+    PhpValueIndex.debugNumericCalls++;
+    return true;
+  }());
   final text = _phpNumericText(value);
   if (text == null) {
     return null;
@@ -299,7 +302,10 @@ Map<String, Object?> _entries(Object? array) => switch (array) {
 ///
 /// Uses a zero-allocation fast path for already-lowercase ASCII strings.
 String phpCaseFold(String value) {
-  PhpValueIndex.debugCaseFoldCalls++;
+  assert(() {
+    PhpValueIndex.debugCaseFoldCalls++;
+    return true;
+  }());
   final length = value.length;
   var hasUpper = false;
   var ascii = true;

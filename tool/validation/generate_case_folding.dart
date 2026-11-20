@@ -48,6 +48,14 @@ void main(List<String> args) {
     ..writeln('//')
     ..writeln('// Generator: tool/validation/generate_case_folding.dart')
     ..writeln('// Source: $sourceUrl')
+    ..writeln('// © 2022 Unicode®, Inc.')
+    ..writeln(
+      '// Unicode and the Unicode Logo are registered trademarks of '
+      'Unicode, Inc. in the U.S. and other countries.',
+    )
+    ..writeln(
+      '// For terms of use, see https://www.unicode.org/terms_of_use.html',
+    )
     ..writeln(
       '// Unicode version: 15.0.0 (status C and S, ${entries.length} rules)',
     )
