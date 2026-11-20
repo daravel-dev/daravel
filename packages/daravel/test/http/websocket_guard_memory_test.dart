@@ -16,14 +16,32 @@ import 'support/raw_ws_client.dart';
 /// (support/guard_server.dart), so its memory is not mixed with the other
 /// test files the runner runs at the same time.
 void main() {
+  late Directory scratch;
+  late String serverDill;
   late Process server;
   late int port;
   final logs = <String>[];
 
   setUpAll(() async {
-    server = await Process.start(Platform.resolvedExecutable, [
+    // Compile guard_server.dart once to a kernel snapshot so spawning the
+    // dedicated server in the empty-frames test does not pay a second ~30 s
+    // front-end compile on a 2-vCPU runner.
+    scratch = Directory.systemTemp.createTempSync('daravel_ws_guard_mem_');
+    serverDill = '${scratch.path}${Platform.pathSeparator}guard_server.dill';
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'kernel',
       'test/http/support/guard_server.dart',
+      '-o',
+      serverDill,
     ]);
+    if (compiled.exitCode != 0) {
+      fail(
+        'failed to compile guard_server.dart (exit ${compiled.exitCode}): '
+        '${compiled.stderr}',
+      );
+    }
+    server = await Process.start(Platform.resolvedExecutable, [serverDill]);
     final ready = Completer<int>();
     server.stdout
         .transform(utf8.decoder)
@@ -39,7 +57,13 @@ void main() {
     port = await ready.future.timeout(const Duration(seconds: 60));
   });
 
-  tearDownAll(() => server.kill());
+  tearDownAll(() async {
+    server.kill();
+    await server.exitCode;
+    if (scratch.existsSync()) {
+      scratch.deleteSync(recursive: true);
+    }
+  });
 
   /// A number the server answers on [path].
   Future<int> number(String path) async {
@@ -95,10 +119,14 @@ void main() {
     }
     // The highest level before the 4x round, not the level just before it:
     // memory given back to the OS after a round lowers that one, and the
-    // next round taking some of it again is not growth.
+    // next round taking some of it again is not growth. Each 4x round sends
+    // 3x the 1x payload more (39-48 MiB extra; unbounded code grew 42-51 MiB),
+    // while Dart VM heap/GC chunks on Linux can shift RSS by 7-8.5 MiB even
+    // when nothing is retained, so 16 MiB stays well below unbounded growth
+    // without tripping on GC page granularity.
     expect(
       four - max(warm, once),
-      lessThan(8 << 20),
+      lessThan(16 << 20),
       reason: 'grows with the attack',
     );
     expect(max(once, four) - start, lessThan(96 << 20));
