@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/releases.md`.
 const String pageIdReleases =
-    r'''<!-- source: releases.md sha256:e2031583e943 -->
+    r'''<!-- source: releases.md sha256:c4b3fa836f41 -->
 # Rilis dan versioning
 
 Daravel `1.x` adalah lini rilis stabil. Paket-paketnya (didaftar
@@ -15,6 +15,7 @@ terverifikasi `framework.daravel.dev`.
 
 | Versi | Sorotan |
 | :-- | :-- |
+| `1.27.7` | Perbaikan: validated() mempertahankan bentuk masukan, indeks list kanonik dan key kosong di validator; distinct membandingkan semua yang cocok dengan polanya; ability token gagal tertutup dan JWT diverifikasi sebelum dicabut; kegagalan membuka koneksi database sampai ke setiap request yang menunggu; log menyamarkan setiap map dan iterable, galat readiness tidak masuk body; jumlah variabel query dan form dibatasi |
 | `1.27.6` | Perbaikan: referensi sel xlsx dibatasi sampai XFD dan ditulis di kolomnya; notifikasi Midtrans dikonfirmasi lewat API status, jumlah dan mata uang dibandingkan, pengenal dibatasi; upgrade WebSocket yang ditolak dijawab lewat siklus respons biasa; method override form membaca badan hanya bila ada route yang cocok |
 | `1.27.5` | Perbaikan keamanan: pesan WebSocket dibatasi sebagai satu kesatuan dan bingkai kontrol dibatasi lajunya per koneksi; Encrypter memeriksa tipe kolom payload; RedisEventStream membaca Last-Event-ID dengan aman; mass assignment mencocokkan kolom guarded seperti Laravel |
 | `1.27.4` | Perbaikan keamanan: mail Markdown dan alamat mail dibaca dalam satu lintasan; aturan validasi numerik dalam waktu linear |

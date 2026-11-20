@@ -44,6 +44,48 @@ match Laravel more closely.
 
 ### Fixed
 
+## 1.27.7
+
+A patch: fixes only, with the API they need. Upgrade every application
+that validates nested input or uses `distinct`, that accepts personal
+access tokens or JWTs, that exposes `/up/ready`, or that writes headers or
+other secrets into its logs. Query strings and URL-encoded forms are now
+limited to 1 000 pairs by default (`HTTP_MAX_INPUT_VARS`).
+
+### Security
+
+- A personal access token whose `abilities` column is `NULL`, empty or not a JSON list of strings has no ability (`PersonalAccessToken.abilitiesOf`), where `NULL` or an empty value read as every ability (`["*"]`); elements that are not strings are left out, and a row with a `NULL` name, owner type or hash reads without an error. Daravel and Sanctum always write a JSON list (`["*"]` for every ability).
+- `JwtGuard.invalidate(token)` verifies the token's signature against the key ring before revoking its `jti` (an expired but signed token may still be revoked; `JwtCodec.verify(token, checkTimes: false)`), and throws `JwtException` for a `jti` that is not a string or an `exp` no date holds. Before, it read the `jti` of the token unverified, so a forged token could revoke someone else's.
+- `/up/ready` answered anyone with a failing check's error text, also without `APP_DEBUG` (a connection URL with its password, a host); the body now leaves it out unless `APP_DEBUG` is on.
+- Log redaction looked only into maps with `String` keys and lists, and matched keys by lower case only: a secret under `X-API-Key`, in a map of another key type, in a set or in a `Headers` object (`authorization`, `cookie`) was written as it was. Every map, iterable and `Loggable` (`Headers` is one) is redacted now, keys matched whatever their case and `-`/`_`. Redaction never throws and always ends: past 32 levels it writes `[DEPTH]`, past 10 000 values per record `[TRUNCATED]` (an endless iterable, a structure that holds itself), and a value whose iteration or key fails `[UNLOGGABLE: <type>]`.
+- The number of query and URL-encoded form pairs was not bounded, so one request could build nested input from hundreds of thousands of pairs (a form up to the 50 MiB body limit). They are now bounded (`HTTP_MAX_INPUT_VARS`, 1 000 by default, each source counted on its own) before any nested input is built; a form body is counted on its bytes, before it is decoded, and the query once per request.
+- `validated()` read a map key from the client as a list index when it looked like a number. `{"items": {"20000000": "a"}}` (or the form `items[20000000]=a`) against `items.*` built a list of 20 000 001 entries. Each level of `validated()` now has the shape it has in the input: a map stays a map with its keys as sent, a list stays a list, and no key decides the length of a list.
+- An empty key was dropped from the paths the validator builds. `{"": {"role": "admin"}}` passed `*.role` against `in:user` without the rule running. An empty key is now an empty segment, as Laravel's `Arr::dot` writes it: the error is reported under `.role`.
+- `distinct` compared values only when their parent was a list, found from the attribute's depth. Duplicates in a JSON object (`{"items": {"a": {"id": 1}, "b": {"id": 1}}}`), in a form with sparse or out-of-order indexes (`items[1][id]=7&items[3][id]=7`), under `a.b.*` and under `*.id` passed, and so did duplicates in a list at the third level or under a field after a wildcard (`items.*.tags.*`, `org.*.teams.*.tags.*`, `a.*.b.id`), which were never compared. `distinct` now compares every value its pattern matches, whatever holds them: with one `*`, all of them, as Laravel does; with more, the values that share every `*` but the last (the items of one parent). A value under an empty key is compared with the others, and theirs not with it, as in Laravel.
+
+### Fixed
+
+- A JWT whose `kid`, `jti` or `iss` is not a string, or whose `exp`, `nbf` or `iat` no date holds (`1e308`), is refused with `JwtException` (a `401`) instead of a type error (a `500`); the `JwtClaims` getters return null for such values and never throw.
+- A database connection that failed to open while several requests waited for it reached only the request that opened it: the others, waiting on the same open from their own request, never got the error and hung until their request timeout. Every request waiting for that connection now gets the error.
+- A list index is read only in its canonical form, in every lookup, in `validated()` and in `exclude`: `items.-1.*` no longer fails with a `500`, and `items.01.name` (or `items.+1.name`) names the key `01`, as in PHP, not the element at index 1.
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+- A personal access token whose `abilities` column is `NULL` or empty, which only another writer than Daravel or Sanctum could have left, now has no ability instead of every one. Find such tokens with `SELECT id, name FROM personal_access_tokens WHERE abilities IS NULL OR abilities = ''`; give them `["*"]` (`UPDATE personal_access_tokens SET abilities = '["*"]' WHERE abilities IS NULL OR abilities = ''`) if they should keep every ability, or revoke them. Sanctum itself fails on such a row (its `PersonalAccessToken::can` reads the column as a JSON list).
+- A JWT whose `kid`, `jti` or `iss` is not a string, or whose time claim no date holds, is now refused with a `401` instead of failing with a `500`.
+- New public name: `PersonalAccessToken.abilitiesOf` (a static method; an application extending `PersonalAccessToken` with a member of that name gets a conflict).
+- Without `APP_DEBUG`, a failing check of `/up/ready` no longer puts its error text in the body (only its name, `ok` and time); the error is logged as a warning, at most once a second per worker. A monitor that read the error from the body reads the log instead.
+- Log redaction matches more keys by default (`passwd`, `pwd`, `bearer`, `apikey`, `jwt`, `session_id`, `private_key`, `credentials`, `dsn`) and matches keys whatever their case and `-`/`_` (`X-Api-Key` matches `api_key`), so more context values are written as `[REDACTED]`.
+- New public name: `Loggable` (in `package:daravel` and `package:daravel/foundation.dart`), the interface `Headers` now implements so that the logger redacts it. An application class or import of that name gives an ambiguous-import error; `hide` it or rename yours.
+- Query strings and URL-encoded forms with more than 1,000 nonempty pairs now return `400` when read instead of accepting all input. Set `HTTP_MAX_INPUT_VARS` to a limit appropriate for the application, or `0` for none (a negative value is an error at boot); PHP instead warns and truncates excess input. Multipart keeps its own part limit.
+- New public names: `Request.maxInputVars` (`int?`, `null` for no limit), `Request.defaultMaxInputVars`, `Request.maxInputVarsFromEnv`, `HttpKernel.maxInputVars`, and an optional `maxInputVars` on `parseQueryString`, which sets no limit unless given (a query string an application builds or parses itself is not limited).
+- New public name: `LaravelContract.emptyKeyErrorKey` (in `package:daravel_test`).
+- On 1.27.x a query string is bounded only by its number of pairs and by the HTTP server's own request-line limit: one pair with a very long value is still parsed in time proportional to its length.
+- `validated()` keeps a JSON object as a map also when its keys are numbers: `{"items": {"0": "a", "1": "b"}}` used to come out as the list `["a", "b"]` and now comes out as that map. JSON lists are unchanged. Form fields keep the shape the form parser gives them: `items[0]`, `items[1]`, ... in order are a list, as before; sparse or out-of-order indexes (`items[1]` alone, `items[]` with `items[3]`) are a map, which `validated()` used to turn into a list padded with `null`s under a wildcard rule (`items.*.name`) and now keeps as that map, so `list()` throws for it: give the field the `list` rule to answer `422`. Under an `array` rule, `ValidatedData.list()` still reads a map keyed `"0"`, `"1"`, ... in order as a list; any other map throws a `StateError` (a `500`), so give the field the `list` rule to answer `422` (it takes only a list).
+- `distinct` now answers `422` for duplicates it used to pass without comparing them: values in a JSON object or a sparse form, under a fixed level before the wildcard (`a.b.*`), under a top-level wildcard (`*.id`), and in a list at the third level or under a field after a wildcard (`items.*.tags.*`, `org.*.teams.*.tags.*`, `a.*.b.id`). Only `items.*` and `items.*.id` over a list, and `a.*.items.*.id` within one parent, are compared as before, with one exception: `distinct` no longer counts an item that lacks the field, so `[{}, {"id": null}]` against `items.*.id` passes where it failed (the missing `id` was read as `null`), as in Laravel. With two or more wildcards (`a.*.items.*.id`), the same value under two different parents still passes in 1.27.x.
+
 ## 1.27.6
 
 A patch: fixes only, with the API two of them need. Upgrade every
