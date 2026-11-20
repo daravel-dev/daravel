@@ -174,6 +174,32 @@ List<String> addedExportsIn(String diff) {
   return added;
 }
 
+/// Unknown `### ` headers under `## Unreleased` in [changelog], each with its
+/// 1-based line number in `CHANGELOG.md`. Recognised headers are
+/// `### Security`, `### Added`, `### Changed` and `### Fixed`.
+List<String> unknownUnreleasedHeaders(String changelog) {
+  final lines = changelog.split('\n');
+  final start = lines.indexOf('## Unreleased');
+  if (start == -1) {
+    return const [];
+  }
+  const known = {'### Security', '### Added', '### Changed', '### Fixed'};
+  final problems = <String>[];
+  for (var i = start + 1; i < lines.length; i++) {
+    final line = lines[i];
+    if (line.startsWith('## ')) {
+      break;
+    }
+    if (line.startsWith('### ') && !known.contains(line)) {
+      problems.add(
+        'CHANGELOG.md:${i + 1}: unknown header "$line" under "## Unreleased" '
+        '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
+      );
+    }
+  }
+  return problems;
+}
+
 /// [changelog] with `## Unreleased` released as [version]: the section's
 /// notes with those of [fragments], arranged by [assembleRelease], under
 /// `## <version>`, without the sub-headers (and the upgrade label) that
@@ -186,6 +212,10 @@ String releaseChangelog(
   final match = _unreleased.firstMatch(changelog);
   if (match == null) {
     throw StateError('CHANGELOG.md has no "## Unreleased" section.');
+  }
+  final unknown = unknownUnreleasedHeaders(changelog);
+  if (unknown.isNotEmpty) {
+    throw StateError(unknown.join('\n'));
   }
   final body = assembleRelease(match[1]!, fragments);
   if (!hasNotes(body)) {
@@ -391,7 +421,9 @@ String assembleRelease(String body, List<Fragment> fragments) {
   };
   // Adds note [line] of [section] where it belongs; returns that list.
   List<String> add(String section, String line) {
-    if (section != 'Upgrade notes' && line.startsWith('- $securityPrefix')) {
+    if (section != 'Upgrade notes' &&
+        section != 'Security' &&
+        line.startsWith('- $securityPrefix')) {
       final rest = line.substring(2 + securityPrefix.length);
       final security = notes['Security']!;
       return security..add(
@@ -403,8 +435,11 @@ String assembleRelease(String body, List<Fragment> fragments) {
 
   String? section;
   List<String>? last;
-  for (final line in body.split('\n')) {
+  final bodyLines = body.split('\n');
+  for (var i = 0; i < bodyLines.length; i++) {
+    final line = bodyLines[i];
     final header = switch (line) {
+      '### Security' => 'Security',
       '### Added' => 'Added',
       '### Changed' => 'Changed',
       upgradeLabel => 'Upgrade notes',
@@ -414,6 +449,11 @@ String assembleRelease(String body, List<Fragment> fragments) {
     if (header != null) {
       section = header;
       last = null;
+    } else if (line.startsWith('### ')) {
+      throw StateError(
+        'line ${i + 1}: unknown header "$line" under "## Unreleased" '
+        '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
+      );
     } else if (line.startsWith('#')) {
       section = null;
       last = null;
@@ -458,7 +498,7 @@ void main(List<String> args) {
     return;
   }
   final changelog = File('CHANGELOG.md').readAsStringSync();
-  final problems = <String>[];
+  final problems = <String>[...unknownUnreleasedHeaders(changelog)];
   final fragments = readFragments(
     Directory(fragmentsDirectory),
     problems: problems,
@@ -466,9 +506,10 @@ void main(List<String> args) {
   for (final problem in problems) {
     stderr.writeln(problem);
   }
-  final body = assembleRelease(unreleasedBody(changelog) ?? '', fragments);
-  stdout.write('## <next>\n\n${_withoutEmptyParts(body)}');
   if (problems.isNotEmpty) {
     exitCode = 1;
+    return;
   }
+  final body = assembleRelease(unreleasedBody(changelog) ?? '', fragments);
+  stdout.write('## <next>\n\n${_withoutEmptyParts(body)}');
 }

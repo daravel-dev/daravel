@@ -326,6 +326,39 @@ void _fragmentChecks(
     1,
   );
 
+  // A `### Security` section written by hand under `## Unreleased` is kept
+  // as `### Security` verbatim (first letter unchanged), and any other
+  // unknown `### ` header is refused with its name and line number.
+  final withSecurityHeader = empty.replaceFirst(
+    '### Added\n\n',
+    '### Security\n\n- `foo` rejects bad input.\n\n### Added\n\n- X.\n\n',
+  );
+  check(
+    'hand-written ### Security under ## Unreleased is preserved verbatim',
+    releaseChangelog(withSecurityHeader, '1.1.0'),
+    '$head$unreleasedTemplate'
+        '## 1.1.0\n\n### Security\n\n- `foo` rejects bad input.\n\n'
+        '### Added\n\n- X.\n\n$older',
+  );
+
+  final withUnknownHeader = empty.replaceFirst(
+    '### Added\n\n',
+    '### Removed\n\n- Old thing.\n\n### Added\n\n- X.\n\n',
+  );
+  String? unknownError;
+  try {
+    releaseChangelog(withUnknownHeader, '1.1.0');
+  } on StateError catch (e) {
+    unknownError = '$e';
+  }
+  check(
+    'unknown ### header under ## Unreleased is refused with name and line',
+    unknownError != null &&
+        unknownError.contains('### Removed') &&
+        RegExp(r'\b7\b').hasMatch(unknownError),
+    true,
+  );
+
   // The released patches, rebuilt: their notes as fragments (Security
   // notes as "Security: " notes under Fixed) and their opening paragraph
   // by hand give back the section as released.

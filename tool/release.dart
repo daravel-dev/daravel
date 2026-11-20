@@ -80,6 +80,15 @@ void main(List<String> args) {
     return;
   }
   final changelog = _read('CHANGELOG.md');
+  final unknownHeaders = unknownUnreleasedHeaders(changelog);
+  if (unknownHeaders.isNotEmpty) {
+    stderr.writeln('Fix CHANGELOG.md first:');
+    for (final problem in unknownHeaders) {
+      stderr.writeln('- $problem');
+    }
+    exitCode = 1;
+    return;
+  }
   final unreleased = unreleasedBody(changelog);
   // The notes of each pull request, in changelog.d/ (as on main).
   final fragmentErrors = <String>[];
