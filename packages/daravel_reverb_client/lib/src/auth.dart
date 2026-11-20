@@ -106,11 +106,28 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
       if (token != null && token.isNotEmpty) 'authorization': 'Bearer $token',
     };
     final body = {'socket_id': socketId, 'channel_name': channel};
+    final uri = Uri.parse(endpoint);
+    Future<http.Response> send(http.Client httpClient) => httpClient
+        .post(uri, headers: requestHeaders, body: body)
+        .timeout(timeout);
+
     final http.Response response;
     try {
-      response = await (client ?? (_own ??= http.Client()))
-          .post(Uri.parse(endpoint), headers: requestHeaders, body: body)
-          .timeout(timeout);
+      final first = client ?? (_own ??= http.Client());
+      http.Response? answered;
+      try {
+        answered = await send(first);
+      } on http.ClientException {
+        // A pooled keep-alive socket closed by a draining worker or proxy
+        // fails a POST before any HTTP response; auth is idempotent, so retry
+        // once on a fresh connection (without closing a caller-supplied client
+        // or a replacement client already opened by a concurrent request).
+        if (client == null && identical(_own, first)) {
+          close();
+        }
+        answered = await send(client ?? (_own ??= http.Client()));
+      }
+      response = answered;
     } on TimeoutException {
       throw EchoAuthException(channel, 0, 'timeout');
     } on Object catch (error) {

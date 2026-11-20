@@ -149,6 +149,70 @@ void main() {
         containsPair('auth', 'key:sig'),
       );
     });
+
+    test('a stale keep-alive connection closed before the response is retried '
+        'once on a fresh connection', () async {
+      final raw = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(raw.close);
+      var requests = 0;
+      raw.listen((socket) {
+        final buffer = <int>[];
+        var closed = false;
+        socket.listen((chunk) {
+          if (closed) {
+            return;
+          }
+          buffer.addAll(chunk);
+          if (!utf8.decode(buffer, allowMalformed: true).contains('\r\n\r\n')) {
+            return;
+          }
+          requests++;
+          if (requests == 1) {
+            const body = '{"auth":"key:first"}';
+            socket.write(
+              'HTTP/1.1 200 OK\r\n'
+              'Content-Type: application/json\r\n'
+              'Content-Length: ${body.length}\r\n'
+              'Connection: keep-alive\r\n'
+              '\r\n'
+              '$body',
+            );
+            buffer.clear();
+          } else if (requests == 2) {
+            // Draining worker closes the pooled keep-alive socket before
+            // answering the second POST.
+            closed = true;
+            socket.destroy();
+          } else {
+            closed = true;
+            const body = '{"auth":"key:second"}';
+            socket.write(
+              'HTTP/1.1 200 OK\r\n'
+              'Content-Type: application/json\r\n'
+              'Content-Length: ${body.length}\r\n'
+              'Connection: close\r\n'
+              '\r\n'
+              '$body',
+            );
+            unawaited(socket.close());
+          }
+        });
+      });
+
+      final auth = EchoAuth.bearer(
+        () => 't',
+        endpoint: 'http://127.0.0.1:${raw.port}/broadcasting/auth',
+      );
+      expect(
+        await auth.authorize('1.1', 'private-orders'),
+        containsPair('auth', 'key:first'),
+      );
+      expect(
+        await auth.authorize('2.2', 'private-orders'),
+        containsPair('auth', 'key:second'),
+      );
+      expect(requests, 3);
+    });
   });
 
   group('an authorizer of the application', () {
