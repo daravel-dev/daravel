@@ -174,7 +174,7 @@ List<String> addedExportsIn(String diff) {
   return added;
 }
 
-/// Unknown `### ` headers under `## Unreleased` in [changelog], each with its
+/// Unknown `#` headers under `## Unreleased` in [changelog], each with its
 /// 1-based line number in `CHANGELOG.md`. Recognised headers are
 /// `### Security`, `### Added`, `### Changed` and `### Fixed`.
 List<String> unknownUnreleasedHeaders(String changelog) {
@@ -190,7 +190,7 @@ List<String> unknownUnreleasedHeaders(String changelog) {
     if (line.startsWith('## ')) {
       break;
     }
-    if (line.startsWith('### ') && !known.contains(line)) {
+    if (line.startsWith('#') && !known.contains(line)) {
       problems.add(
         'CHANGELOG.md:${i + 1}: unknown header "$line" under "## Unreleased" '
         '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
@@ -449,14 +449,11 @@ String assembleRelease(String body, List<Fragment> fragments) {
     if (header != null) {
       section = header;
       last = null;
-    } else if (line.startsWith('### ')) {
+    } else if (line.startsWith('#')) {
       throw StateError(
         'line ${i + 1}: unknown header "$line" under "## Unreleased" '
         '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
       );
-    } else if (line.startsWith('#')) {
-      section = null;
-      last = null;
     } else if (line.trim().isEmpty) {
       continue;
     } else if (section == null) {

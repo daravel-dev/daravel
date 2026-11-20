@@ -358,6 +358,23 @@ void _fragmentChecks(
         RegExp(r'\b7\b').hasMatch(unknownError),
     true,
   );
+  for (final bad in ['#### Deep', '###Removed']) {
+    final text = empty.replaceFirst(
+      '### Added\n\n',
+      '$bad\n\n- Note.\n\n### Added\n\n- X.\n\n',
+    );
+    String? err;
+    try {
+      releaseChangelog(text, '1.1.0');
+    } on StateError catch (e) {
+      err = '$e';
+    }
+    check(
+      'unknown header "$bad" under ## Unreleased is refused with name and line',
+      err != null && err.contains(bad) && RegExp(r'\b7\b').hasMatch(err),
+      true,
+    );
+  }
 
   // The released patches, rebuilt: their notes as fragments (Security
   // notes as "Security: " notes under Fixed) and their opening paragraph
