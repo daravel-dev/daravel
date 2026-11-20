@@ -1708,8 +1708,11 @@ final class InRule extends Rule {
 /// each `*` one key, across all the items: `getDistinctValues`), its own
 /// key left out. Loosely as PHP 8's `in_array` does, by `===` with
 /// [strict], and, for a string, ignoring case with [ignoreCase]
-/// (`preg_grep` with `/iu`; a list or map among the values is never equal
-/// there, where Laravel's request fails on PHP's array-to-string warning).
+/// (`preg_grep` with `/iu`, using Unicode 15.0.0 C+S simple case folding as
+/// PCRE2 bundled with PHP 8.2-8.4; PCRE's `$` matching before a trailing
+/// newline is intentionally not imitated; a list or map among the values is
+/// never equal there, where Laravel's request fails on PHP's array-to-string
+/// warning).
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
   const DistinctRule({this.strict = false, this.ignoreCase = false});
@@ -1733,13 +1736,14 @@ final class DistinctRule extends Rule {
     final self = keys.contains(c.attribute);
     final int others;
     if (ignoreCase && value is String && _wellFormed(value)) {
-      others = index.caseInsensitive(value) - (self ? 1 : 0);
+      others = index.caseInsensitiveAt(c.attribute, value) - (self ? 1 : 0);
     } else if (strict) {
       others =
           index.identical(value) - (self && phpIdentical(value, value) ? 1 : 0);
     } else {
-      others =
-          index.loose(value) - (self && phpLooseEquals(value, value) ? 1 : 0);
+      final selfMatches =
+          self && (value is String || phpLooseEquals(value, value));
+      others = index.looseAt(c.attribute, value) - (selfMatches ? 1 : 0);
     }
     return others > 0 ? name : null;
   }
@@ -1747,7 +1751,10 @@ final class DistinctRule extends Rule {
   ({Set<String> keys, PhpValueIndex index}) _valuesOf(ValidationContext c) {
     ({Set<String> keys, PhpValueIndex index}) build() {
       final leaves = _leavesMatching(c.data, c.pattern, crossDots: false);
-      return (keys: leaves.keys.toSet(), index: PhpValueIndex(leaves.values));
+      return (
+        keys: leaves.keys.toSet(),
+        index: PhpValueIndex.fromEntries(leaves),
+      );
     }
 
     final memo = c.memo;

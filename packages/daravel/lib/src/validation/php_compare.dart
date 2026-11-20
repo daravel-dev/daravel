@@ -8,6 +8,10 @@ library;
 
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
+import 'case_folding.g.dart';
+
 /// The number of a PHP 8 numeric string (`'5'`, `' 1.5 '`, `'1e3'`,
 /// `'.5'`), `null` for any other (`'0x1A'`, `'1,5'`, `'abc'`). An integer
 /// beyond 64 bits is a float, as in PHP (`'99999999999999999999'` is
@@ -20,6 +24,7 @@ import 'dart:typed_data';
 /// `StackOverflowError` from about 4 200 000 (`distinct` and `in_array`
 /// read every value through here).
 num? phpNumeric(String value) {
+  PhpValueIndex.debugNumericCalls++;
   final text = _phpNumericText(value);
   if (text == null) {
     return null;
@@ -286,31 +291,82 @@ Map<String, Object?> _entries(Object? array) => switch (array) {
   _ => const {},
 };
 
-/// [value] with each code point case-folded, so two strings are equal when
-/// PCRE's `/iu` would match one with the other: `ſ` is `s`, the Kelvin sign
-/// is `k`, `ß` stays `ß` (simple folding, never `ss`).
-String phpCaseFold(String value) =>
-    String.fromCharCodes([for (final rune in value.runes) _fold(rune)]);
-
-int _fold(int rune) {
-  final char = String.fromCharCode(rune);
-  final upper = char.toUpperCase();
-  final lower = (upper.runes.length == 1 ? upper : char).toLowerCase();
-  return lower.runes.length == 1 ? lower.runes.first : rune;
+/// [value] with each code point case-folded using Unicode 15.0.0 simple case
+/// folding (status C and S), matching PCRE2 bundled with PHP 8.2-8.4 (Unicode
+/// 14-15): `ſ` is `s`, the Kelvin sign is `k`, `ß` stays `ß` (simple folding,
+/// never `ss`), and `İ`/`ı` do not fold to `i`. PHP linked against a newer
+/// external PCRE2 may fold additional code points.
+///
+/// Uses a zero-allocation fast path for already-lowercase ASCII strings.
+String phpCaseFold(String value) {
+  PhpValueIndex.debugCaseFoldCalls++;
+  final length = value.length;
+  var hasUpper = false;
+  var ascii = true;
+  for (var i = 0; i < length; i++) {
+    final unit = value.codeUnitAt(i);
+    if (unit >= 0x80) {
+      ascii = false;
+      break;
+    }
+    if (unit >= 0x41 && unit <= 0x5A) {
+      hasUpper = true;
+    }
+  }
+  if (ascii) {
+    if (!hasUpper) {
+      return value;
+    }
+    final units = Uint8List(length);
+    for (var i = 0; i < length; i++) {
+      final unit = value.codeUnitAt(i);
+      units[i] = (unit >= 0x41 && unit <= 0x5A) ? unit | 0x20 : unit;
+    }
+    return String.fromCharCodes(units);
+  }
+  final out = <int>[];
+  for (final rune in value.runes) {
+    out.add(unicodeCaseFolding[rune] ?? rune);
+  }
+  return String.fromCharCodes(out);
 }
 
 /// How many of a fixed set of input values equal a given one, by PHP's
 /// `==`, `===` or a case-insensitive string comparison, each in constant
-/// time: the values are counted by kind once, as the comparison rules
-/// decide them ([phpLooseEquals], [phpIdentical]).
+/// time: each mode's index is built lazily on first use, so unused modes do
+/// no work.
 final class PhpValueIndex {
   /// An index of [values].
-  PhpValueIndex(Iterable<Object?> values) {
-    for (final value in values) {
-      _add(value);
-    }
+  PhpValueIndex(Iterable<Object?> values)
+    : _values = values.toList(),
+      _entries = null;
+
+  /// An index of attribute-keyed [entries], so [looseAt] and
+  /// [caseInsensitiveAt] reuse per-attribute keys without recomputing
+  /// [phpNumeric] or [phpCaseFold].
+  PhpValueIndex.fromEntries(Map<String, Object?> entries)
+    : _values = entries.values.toList(),
+      _entries = entries;
+
+  /// Calls to [phpCaseFold] (for cost tests).
+  @visibleForTesting
+  static int debugCaseFoldCalls = 0;
+
+  /// Calls to [phpNumeric] (for cost tests).
+  @visibleForTesting
+  static int debugNumericCalls = 0;
+
+  /// Resets [debugCaseFoldCalls] and [debugNumericCalls].
+  @visibleForTesting
+  static void debugResetCounters() {
+    debugCaseFoldCalls = 0;
+    debugNumericCalls = 0;
   }
 
+  final List<Object?> _values;
+  final Map<String, Object?>? _entries;
+
+  bool _looseBuilt = false;
   int _truthy = 0;
   int _falsy = 0;
   int _nulls = 0;
@@ -321,40 +377,106 @@ final class PhpValueIndex {
   final _NumberCounts _numericStrings = _NumberCounts();
   final Map<String, int> _otherStrings = {};
   final Map<String, int> _numberForms = {};
-  final List<Object?> _arrays = [];
-  final Map<Object, int> _identical = {};
-  Map<String, int>? _folded;
-  final List<Object?> _values = [];
+  final List<Object?> _looseArrays = [];
+  Map<String, num?>? _numericByKey;
 
-  void _add(Object? value) {
-    _values.add(value);
-    phpTruthy(value) ? _truthy++ : _falsy++;
-    switch (value) {
-      case null:
-        _nulls++;
-      case true:
-        _trueBools++;
-      case false:
-        _falseBools++;
-      case final num n:
-        _numbers.add(n);
-        _count(_numberForms, phpNumberString(n));
-      case final String s:
-        if (phpNumeric(s) case final n?) {
-          _numericStrings.add(n);
-        } else {
-          _count(_otherStrings, s);
-        }
-      default:
-        if (_isEmptyArray(value)) {
-          _emptyArrays++;
-        } else {
-          _arrays.add(value);
-        }
+  Map<Object, int>? _identical;
+  List<Object?>? _identicalArrays;
+
+  Map<String, int>? _folded;
+  Map<String, String>? _foldedByKey;
+
+  void _ensureLoose() {
+    if (_looseBuilt) {
+      return;
     }
-    if (_identityKey(value) case final key?) {
-      _count(_identical, key);
+    _looseBuilt = true;
+    final entries = _entries;
+    final numericByKey = entries == null ? null : <String, num?>{};
+    _numericByKey = numericByKey;
+    void addValue(String? key, Object? value) {
+      phpTruthy(value) ? _truthy++ : _falsy++;
+      switch (value) {
+        case null:
+          _nulls++;
+        case true:
+          _trueBools++;
+        case false:
+          _falseBools++;
+        case final num n:
+          _numbers.add(n);
+          _count(_numberForms, phpNumberString(n));
+        case final String s:
+          final parsed = phpNumeric(s);
+          if (numericByKey != null && key != null) {
+            numericByKey[key] = parsed;
+          }
+          if (parsed != null) {
+            _numericStrings.add(parsed);
+          } else {
+            _count(_otherStrings, s);
+          }
+        default:
+          if (_isEmptyArray(value)) {
+            _emptyArrays++;
+          } else {
+            _looseArrays.add(value);
+          }
+      }
     }
+
+    if (entries != null) {
+      for (final MapEntry(:key, :value) in entries.entries) {
+        addValue(key, value);
+      }
+    } else {
+      for (final value in _values) {
+        addValue(null, value);
+      }
+    }
+  }
+
+  void _ensureIdentical() {
+    if (_identical != null) {
+      return;
+    }
+    final counts = <Object, int>{};
+    final arrays = <Object?>[];
+    for (final value in _values) {
+      if (_identityKey(value) case final key?) {
+        _count(counts, key);
+      } else if (value is List || value is Map) {
+        arrays.add(value);
+      }
+    }
+    _identical = counts;
+    _identicalArrays = arrays;
+  }
+
+  void _ensureFolded() {
+    if (_folded != null) {
+      return;
+    }
+    final counts = <String, int>{};
+    final entries = _entries;
+    if (entries != null) {
+      final byKey = <String, String>{};
+      for (final MapEntry(:key, :value) in entries.entries) {
+        if (phpStringForm(value) case final form?) {
+          final f = phpCaseFold(form);
+          byKey[key] = f;
+          _count(counts, f);
+        }
+      }
+      _foldedByKey = byKey;
+    } else {
+      for (final other in _values) {
+        if (phpStringForm(other) case final form?) {
+          _count(counts, phpCaseFold(form));
+        }
+      }
+    }
+    _folded = counts;
   }
 
   static void _count<K>(Map<K, int> counts, K key) =>
@@ -373,56 +495,75 @@ final class PhpValueIndex {
   };
 
   /// How many of the values `==` [value].
-  int loose(Object? value) => switch (value) {
-    final bool b => b ? _truthy : _falsy,
-    null =>
-      _nulls +
-          _falseBools +
-          (_otherStrings[''] ?? 0) +
-          _numbers.equal(0) +
-          _emptyArrays,
-    final num n =>
-      (phpTruthy(n) ? _trueBools : _falseBools + _nulls) +
-          _numbers.equal(n) +
-          _numericStrings.equal(n) +
-          (_otherStrings[phpNumberString(n)] ?? 0),
-    final String s => switch (phpNumeric(s)) {
-      final n? =>
-        (phpTruthy(s) ? _trueBools : _falseBools) +
-            _numbers.equal(n) +
-            _numericStrings.equal(n),
+  int loose(Object? value) => _loose(value, null);
+
+  /// Like [loose], reusing the cached [phpNumeric] result for [attribute]
+  /// when present in the index.
+  int looseAt(String attribute, Object? value) => _loose(value, attribute);
+
+  int _loose(Object? value, String? attribute) {
+    _ensureLoose();
+    return switch (value) {
+      final bool b => b ? _truthy : _falsy,
       null =>
-        (phpTruthy(s) ? _trueBools : _falseBools) +
-            (s.isEmpty ? _nulls : 0) +
-            (_otherStrings[s] ?? 0) +
-            (_numberForms[s] ?? 0),
-    },
-    _ when _isEmptyArray(value) => _falseBools + _nulls + _emptyArrays,
-    _ =>
-      _trueBools +
-          _arrays.where((other) => phpLooseEquals(value, other)).length,
-  };
+        _nulls +
+            _falseBools +
+            (_otherStrings[''] ?? 0) +
+            _numbers.equal(0) +
+            _emptyArrays,
+      final num n =>
+        (phpTruthy(n) ? _trueBools : _falseBools + _nulls) +
+            _numbers.equal(n) +
+            _numericStrings.equal(n) +
+            (_otherStrings[phpNumberString(n)] ?? 0),
+      final String s => switch (attribute != null &&
+              _numericByKey != null &&
+              _numericByKey!.containsKey(attribute)
+          ? _numericByKey![attribute]
+          : phpNumeric(s)) {
+        final n? =>
+          (phpTruthy(s) ? _trueBools : _falseBools) +
+              _numbers.equal(n) +
+              _numericStrings.equal(n),
+        null =>
+          (phpTruthy(s) ? _trueBools : _falseBools) +
+              (s.isEmpty ? _nulls : 0) +
+              (_otherStrings[s] ?? 0) +
+              (_numberForms[s] ?? 0),
+      },
+      _ when _isEmptyArray(value) => _falseBools + _nulls + _emptyArrays,
+      _ =>
+        _trueBools +
+            _looseArrays.where((other) => phpLooseEquals(value, other)).length,
+    };
+  }
 
   /// How many of the values `===` [value].
-  int identical(Object? value) => switch (_identityKey(value)) {
-    final key? => _identical[key] ?? 0,
-    _ => _arrays.where((other) => phpIdentical(value, other)).length,
-  };
+  int identical(Object? value) {
+    _ensureIdentical();
+    return switch (_identityKey(value)) {
+      final key? => _identical![key] ?? 0,
+      _ =>
+        _identicalArrays!.where((other) => phpIdentical(value, other)).length,
+    };
+  }
 
   /// How many of the values, as PHP writes them in a string, equal
   /// [value] ignoring case (`preg_grep('/^value$/iu')`). Lists and maps
-  /// are never equal (PHP warns, and Laravel's request fails).
+  /// are never equal (PHP warns, and Laravel's request fails). PCRE's `$`
+  /// matching before a trailing newline (`'a'` vs `'a\n'`) is intentionally
+  /// not imitated.
   int caseInsensitive(String value) {
-    final folded = _folded ??= () {
-      final counts = <String, int>{};
-      for (final other in _values) {
-        if (phpStringForm(other) case final form?) {
-          _count(counts, phpCaseFold(form));
-        }
-      }
-      return counts;
-    }();
-    return folded[phpCaseFold(value)] ?? 0;
+    _ensureFolded();
+    return _folded![phpCaseFold(value)] ?? 0;
+  }
+
+  /// Like [caseInsensitive], reusing the cached folded key for [attribute]
+  /// when present in the index so [value] is folded at most once per run.
+  int caseInsensitiveAt(String attribute, String value) {
+    _ensureFolded();
+    final key = _foldedByKey?[attribute] ?? phpCaseFold(value);
+    return _folded![key] ?? 0;
   }
 }
 
