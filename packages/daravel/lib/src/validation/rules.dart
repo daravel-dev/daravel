@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
 
 import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'case_folding.g.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
 import 'validator.dart' show Validator;
@@ -1152,8 +1156,11 @@ final class InRule extends Rule {
 ///
 /// The parameters are read as Laravel's `validateDistinct` reads them
 /// (12.x `ValidatesAttributes.php` :881-890): with [ignoreCase] the value
-/// and the others are compared as PHP writes them in a string, ignoring
-/// case (`preg_grep('/^value$/iu')`), and [ignoreCase] wins over
+/// and the others are compared as PHP writes them in a string using Unicode
+/// 15.0.0 simple case folding (C+S), matching PCRE2 bundled with PHP 8.2-8.4
+/// (Unicode 14-15); PHP linked against a newer external PCRE2 may fold
+/// additional code points. PCRE's `$` matching before a trailing newline
+/// (`'a'` vs `'a\n'`) is intentionally not imitated. [ignoreCase] wins over
 /// [strict]; with [strict] by PHP's `===`. Without either, by their text,
 /// as before.
 final class DistinctRule extends Rule {
@@ -1166,26 +1173,47 @@ final class DistinctRule extends Rule {
   /// `distinct:ignore_case`: values equal as strings whatever their case.
   final bool ignoreCase;
 
+  /// Calls to [caseFold] (for cost tests).
+  @visibleForTesting
+  static int debugFoldCalls = 0;
+
+  /// Calls to strict identity encoding (for cost tests).
+  @visibleForTesting
+  static int debugIdentityCalls = 0;
+
+  /// Resets [debugFoldCalls] and [debugIdentityCalls].
+  @visibleForTesting
+  static void debugResetCounters() {
+    debugFoldCalls = 0;
+    debugIdentityCalls = 0;
+  }
+
   @override
   String get name => 'distinct';
   @override
   String? passes(ValidationContext c) {
     // The attributes the pattern matches, whatever holds them (a list, a
-    // JSON object, a sparse form), compared by their text within a group:
-    // the attributes that share the key at every `*` but the last (with
-    // one `*`, the whole pattern, as Laravel's `extractDistinctValues`;
-    // with more, the items of one parent, as this version did). An empty
-    // key at a `*` is not among the values compared, as Laravel's `[^.]+`
-    // never matches it, but its own value is compared with the others. An
-    // item that lacks the field is not compared either (`Arr::dot` has no
-    // such key): its absence is not the text `null`.
+    // JSON object, a sparse form), compared within a group: the attributes
+    // that share the key at every `*` but the last (with one `*`, the whole
+    // pattern, as Laravel's `extractDistinctValues`; with more, the items of
+    // one parent, as this version did). An empty key at a `*` is not among
+    // the values compared, as Laravel's `[^.]+` never matches it, but its own
+    // value is compared with the others. An item that lacks the field is not
+    // compared either (`Arr::dot` has no such key): its absence is not the
+    // text `null`.
     final patternSegments = c.pattern.split('.');
     final own = _groupOf(c.attribute, patternSegments);
     if (own == null) {
       return null;
     }
-    Map<String, Map<String, int>> build() {
-      final groups = <String, Map<String, int>>{};
+    final way = ignoreCase
+        ? (strict ? _Way.foldedStrict : _Way.folded)
+        : (strict ? _Way.identical : _Way.text);
+
+    ({Map<String, Map<Object, int>> groups, Map<String, Object>? keys})
+    build() {
+      final groups = <String, Map<Object, int>>{};
+      final keys = way == _Way.text ? null : <String, Object>{};
       for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
         final group = _groupOf(attribute, patternSegments);
         if (group == null ||
@@ -1194,52 +1222,57 @@ final class DistinctRule extends Rule {
           continue;
         }
         final counts = groups.putIfAbsent(group.key, () => {});
-        // Each value once per way of comparing it ([_keyOf]).
-        final value = ValidationContext.dig(c.data, attribute);
-        for (final way in _Way.values) {
-          if (_keyOf(way, value) case final key?) {
-            counts[key] = (counts[key] ?? 0) + 1;
-          }
+        final key = _keyFor(way, ValidationContext.dig(c.data, attribute));
+        if (keys != null) {
+          keys[attribute] = key;
         }
+        counts[key] = (counts[key] ?? 0) + 1;
       }
-      return groups;
+      return (groups: groups, keys: keys);
     }
 
-    // Gathered once per run, not once per item: scanning for every item
-    // took time quadratic in their number (16 000 numbers: 15 s).
+    // Gathered once per run and per comparison mode, not once per item:
+    // scanning for every item took time quadratic in their number (16 000
+    // numbers: 15 s), and computing unused modes slowed plain `distinct`.
     final memo = c.memo;
-    final groups = memo == null
+    final built = memo == null
         ? build()
-        : memo.putIfAbsent(('distinct', c.data, c.pattern), build)!
-              as Map<String, Map<String, int>>;
-    final value = c.value;
-    // `ignore_case` for a value PHP writes in a string; else as below.
-    final key =
-        (ignoreCase ? _keyOf(_Way.folded, value) : null) ??
-        _keyOf(strict ? _Way.identical : _Way.text, value)!;
-    final seen = groups[own.key]?[key] ?? 0;
+        : memo.putIfAbsent(('distinct', c.data, c.pattern, way), build)!
+              as ({
+                Map<String, Map<Object, int>> groups,
+                Map<String, Object>? keys,
+              });
+    final key = built.keys?[c.attribute] ?? _keyFor(way, c.value);
+    final seen = built.groups[own.key]?[key] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
   }
 
-  /// The key under which [value] is counted for [way], or null when [way]
-  /// does not compare it (a list or map, or a malformed string, ignoring
-  /// case: PHP warns, or `/u` matches nothing).
-  static String? _keyOf(_Way way, Object? value) => switch (way) {
-    _Way.text => 't$value',
-    _Way.identical => 'i${jsonEncode(_identity(value))}',
-    _Way.folded => switch (_phpString(value)) {
-      final text? when _wellFormed(text) => 'f${_caseFold(text)}',
-      _ => null,
-    },
+  static Object _keyFor(_Way way, Object? value) => switch (way) {
+    _Way.text => value is String ? value : '$value',
+    _Way.identical => _identicalKey(value),
+    _Way.folded =>
+      _foldedKey(value) ?? (#fallback, value is String ? value : '$value'),
+    _Way.foldedStrict => _foldedKey(value) ?? (#fallback, _identicalKey(value)),
+  };
+
+  static String _identicalKey(Object? value) {
+    debugIdentityCalls++;
+    return jsonEncode(_identity(value));
+  }
+
+  static String? _foldedKey(Object? value) => switch (_phpString(value)) {
+    final text? => _tryFold(text),
+    _ => null,
   };
 
   // A value tagged with its type, so that equal tags are PHP's `===`:
-  // `1` is not `1.0` nor `'1'`; a list or map by its keys in order.
+  // `1` is not `1.0` nor `'1'`, `-0.0` equals `0.0`; a list or map by its
+  // keys in order.
   static Object? _identity(Object? value) => switch (value) {
     null => 'n',
     final bool b => ['b', b],
     final int i => ['i', '$i'],
-    final double d => ['d', '$d'],
+    final double d => ['d', '${d == 0 ? 0.0 : d}'],
     final String s => ['s', s],
     final List<Object?> list => [
       'a',
@@ -1262,39 +1295,67 @@ final class DistinctRule extends Rule {
     true => '1',
     final double d when d == d.truncateToDouble() && d.abs() < 1e15 =>
       '${d.toInt()}',
-    num() || String() => '$value',
+    final String s => s,
+    final num n => '$n',
     _ => null,
   };
 
-  // mb_check_encoding($value, 'UTF-8'): no lone surrogate.
-  static bool _wellFormed(String value) {
-    for (var i = 0; i < value.length; i++) {
+  // Single-pass UTF-8 well-formedness check + Unicode 15.0.0 C+S case folding.
+  // Returns null if [value] contains a lone surrogate (mb_check_encoding).
+  static String? _tryFold(String value) {
+    debugFoldCalls++;
+    final length = value.length;
+    var hasUpper = false;
+    var ascii = true;
+    for (var i = 0; i < length; i++) {
       final unit = value.codeUnitAt(i);
-      if (unit >= 0xD800 && unit <= 0xDBFF) {
-        if (i + 1 >= value.length ||
-            value.codeUnitAt(i + 1) < 0xDC00 ||
-            value.codeUnitAt(i + 1) > 0xDFFF) {
-          return false;
-        }
-        i++;
-      } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
-        return false;
+      if (unit >= 0x80) {
+        ascii = false;
+        break;
+      }
+      if (unit >= 0x41 && unit <= 0x5A) {
+        hasUpper = true;
       }
     }
-    return true;
+    if (ascii) {
+      if (!hasUpper) {
+        return value;
+      }
+      final units = Uint8List(length);
+      for (var i = 0; i < length; i++) {
+        final unit = value.codeUnitAt(i);
+        units[i] = (unit >= 0x41 && unit <= 0x5A) ? unit | 0x20 : unit;
+      }
+      return String.fromCharCodes(units);
+    }
+    final out = <int>[];
+    for (var i = 0; i < length; i++) {
+      final unit = value.codeUnitAt(i);
+      final int rune;
+      if (unit >= 0xD800 && unit <= 0xDBFF) {
+        if (i + 1 >= length) {
+          return null;
+        }
+        final low = value.codeUnitAt(i + 1);
+        if (low < 0xDC00 || low > 0xDFFF) {
+          return null;
+        }
+        i++;
+        rune = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+      } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+        return null;
+      } else {
+        rune = unit;
+      }
+      out.add(unicodeCaseFolding[rune] ?? rune);
+    }
+    return String.fromCharCodes(out);
   }
 
-  // [value] with each code point case-folded, as PCRE's `/iu` compares
-  // them: `ſ` is `s`, the Kelvin sign is `k`, `ß` stays `ß`.
-  static String _caseFold(String value) =>
-      String.fromCharCodes([for (final rune in value.runes) _fold(rune)]);
-
-  static int _fold(int rune) {
-    final char = String.fromCharCode(rune);
-    final upper = char.toUpperCase();
-    final lower = (upper.runes.length == 1 ? upper : char).toLowerCase();
-    return lower.runes.length == 1 ? lower.runes.first : rune;
-  }
+  /// Simple Unicode 15.0.0 case folding (status C and S), with an ASCII fast
+  /// path that allocates nothing for already-lowercase ASCII strings.
+  @visibleForTesting
+  static String caseFold(String value) => _tryFold(value) ?? value;
 
   /// The group of [attribute] under [patternSegments] (its keys at every
   /// `*` but the last), and whether it is counted (no `*` takes an empty
@@ -1323,7 +1384,7 @@ final class DistinctRule extends Rule {
 
 /// How [DistinctRule] compares values: by their text, by PHP's `===`, or
 /// as strings ignoring case.
-enum _Way { text, identical, folded }
+enum _Way { text, identical, folded, foldedStrict }
 
 /// `confirmed`: see [Rules.confirmed].
 final class ConfirmedRule extends Rule {
