@@ -124,6 +124,22 @@ void main() {
       },
       <String, Object>{'items.*.id': 'distinct'},
     ),
+    (
+      'strict, lists as items',
+      (int n) => <String, Object?>{
+        'items': [
+          for (var i = 0; i < n; i++) [i, '$i'],
+        ],
+      },
+      <String, Object>{'items.*': 'distinct:strict'},
+    ),
+    (
+      'ignore_case, strings',
+      (int n) => <String, Object?>{
+        'items': [for (var i = 0; i < n; i++) 'Straße-$i'],
+      },
+      <String, Object>{'items.*': 'distinct:ignore_case'},
+    ),
   ]) {
     test('linear in the list length: $name', () async {
       await fastest(data(100), rules);

@@ -17,7 +17,12 @@ match Laravel more closely.
 
 **Upgrading can change what an application sees:**
 
+- `distinct:strict` and `distinct:ignore_case` now do what they say, where they were read as `distinct`. With `strict`, `1` and `"1"` are different, as are `1` and `1.0`. With `ignore_case`, `"a"` and `"A"` are duplicates, and so are `1`, `"1"`, `1.0` and `true`, which PHP writes as `"1"`. `ignore_case` wins when both are given, and any other parameter is ignored, as in Laravel. `distinct` without a parameter still compares the values' text, so `1` and `1.0` stay different there. PHP's loose comparison comes in 1.28.0.
+- New public parameters: `Rules.distinct({bool strict, bool ignoreCase})` and `DistinctRule.strict` / `DistinctRule.ignoreCase`.
+
 ### Fixed
+
+- `distinct` ignored its parameters: `distinct:strict` failed `1` beside `"1"`, and `distinct:ignore_case` passed `"a"` beside `"A"`. Both are now read as Laravel 12.x `validateDistinct` reads them. As in 1.27.7, items under two wildcards are compared within their parent, and a key with a dot is not compared.
 
 ## 1.27.7
 

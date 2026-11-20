@@ -6,6 +6,7 @@ import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'case_folding.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
 import 'validator.dart' show Validator;
@@ -268,8 +269,11 @@ abstract final class Rules {
   static Rule enumValues<E extends Enum>(List<E> values) =>
       InRule(values.map((v) => v.name).toList());
 
-  /// `distinct`: no duplicates among the list's items (`items.*`).
-  static Rule distinct() => const DistinctRule();
+  /// `distinct`: no duplicates among the list's items (`items.*`), by
+  /// PHP's `===` with [strict] (`distinct:strict`), and as strings
+  /// whatever their case with [ignoreCase] (`distinct:ignore_case`).
+  static Rule distinct({bool strict = false, bool ignoreCase = false}) =>
+      DistinctRule(strict: strict, ignoreCase: ignoreCase);
 
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
@@ -1146,29 +1150,80 @@ final class InRule extends Rule {
 }
 
 /// `distinct`: see [Rules.distinct].
+///
+/// The parameters are read as Laravel's `validateDistinct` reads them
+/// (12.x `ValidatesAttributes.php` :881-890): with [ignoreCase] the value
+/// and the others are compared as PHP writes them in a string using Unicode
+/// 15.0.0 simple case folding (C+S), matching PCRE2 bundled with PHP 8.2-8.4
+/// (Unicode 14-15); PHP linked against a newer external PCRE2 may fold
+/// additional code points. PCRE's `$` matching before a trailing newline
+/// (`'a'` vs `'a\n'`) is intentionally not imitated. [ignoreCase] wins over
+/// [strict]; with [strict] by PHP's `===`. Without either, by their text,
+/// as before.
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
-  const DistinctRule();
+  const DistinctRule({this.strict = false, this.ignoreCase = false});
+
+  /// `distinct:strict`: values equal only by `===` (`1` is not `'1'`).
+  final bool strict;
+
+  /// `distinct:ignore_case`: values equal as strings whatever their case.
+  final bool ignoreCase;
+
   @override
   String get name => 'distinct';
   @override
   String? passes(ValidationContext c) {
     // The attributes the pattern matches, whatever holds them (a list, a
-    // JSON object, a sparse form), compared by their text within a group:
-    // the attributes that share the key at every `*` but the last (with
-    // one `*`, the whole pattern, as Laravel's `extractDistinctValues`;
-    // with more, the items of one parent, as this version did). An empty
-    // key at a `*` is not among the values compared, as Laravel's `[^.]+`
-    // never matches it, but its own value is compared with the others. An
-    // item that lacks the field is not compared either (`Arr::dot` has no
-    // such key): its absence is not the text `null`.
+    // JSON object, a sparse form), compared within a group: the attributes
+    // that share the key at every `*` but the last (with one `*`, the whole
+    // pattern, as Laravel's `extractDistinctValues`; with more, the items of
+    // one parent, as this version did). An empty key at a `*` is not among
+    // the values compared, as Laravel's `[^.]+` never matches it, but its own
+    // value is compared with the others. An item that lacks the field is not
+    // compared either (`Arr::dot` has no such key): its absence is not the
+    // text `null`.
     final patternSegments = c.pattern.split('.');
     final own = _groupOf(c.attribute, patternSegments);
     if (own == null) {
       return null;
     }
-    Map<String, Map<String, int>> build() {
-      final groups = <String, Map<String, int>>{};
+    final memo = c.memo;
+    if (!ignoreCase && !strict) {
+      // Dedicated fast path for plain `distinct`: keeps `Map<String, int>`
+      // and the 3-element memo key so unparameterized runs pay no boxing or
+      // mode-dispatch overhead.
+      Map<String, Map<String, int>> buildText() {
+        final groups = <String, Map<String, int>>{};
+        for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
+          final group = _groupOf(attribute, patternSegments);
+          if (group == null ||
+              !group.counted ||
+              !ValidationContext.exists(c.data, attribute)) {
+            continue;
+          }
+          final counts = groups.putIfAbsent(group.key, () => {});
+          final key = '${ValidationContext.dig(c.data, attribute)}';
+          counts[key] = (counts[key] ?? 0) + 1;
+        }
+        return groups;
+      }
+
+      final groups = memo == null
+          ? buildText()
+          : memo.putIfAbsent(('distinct', c.data, c.pattern), buildText)!
+                as Map<String, Map<String, int>>;
+      final seen = groups[own.key]?['${c.value}'] ?? 0;
+      return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+    }
+
+    final way = ignoreCase
+        ? (strict ? _Way.foldedStrict : _Way.folded)
+        : _Way.identical;
+
+    ({Map<String, Map<Object, int>> groups, Map<String, Object> keys}) build() {
+      final groups = <String, Map<Object, int>>{};
+      final keys = <String, Object>{};
       for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
         final group = _groupOf(attribute, patternSegments);
         if (group == null ||
@@ -1177,22 +1232,82 @@ final class DistinctRule extends Rule {
           continue;
         }
         final counts = groups.putIfAbsent(group.key, () => {});
-        final text = '${ValidationContext.dig(c.data, attribute)}';
-        counts[text] = (counts[text] ?? 0) + 1;
+        final key = _keyFor(way, ValidationContext.dig(c.data, attribute));
+        keys[attribute] = key;
+        counts[key] = (counts[key] ?? 0) + 1;
       }
-      return groups;
+      return (groups: groups, keys: keys);
     }
 
-    // Gathered once per run, not once per item: scanning for every item
-    // took time quadratic in their number (16 000 numbers: 15 s).
-    final memo = c.memo;
-    final groups = memo == null
+    // Gathered once per run and per comparison mode, not once per item:
+    // scanning for every item took time quadratic in their number (16 000
+    // numbers: 15 s), and computing unused modes slowed plain `distinct`.
+    final built = memo == null
         ? build()
-        : memo.putIfAbsent(('distinct', c.data, c.pattern), build)!
-              as Map<String, Map<String, int>>;
-    final seen = groups[own.key]?['${c.value}'] ?? 0;
+        : memo.putIfAbsent(('distinct', c.data, c.pattern, way), build)!
+              as ({
+                Map<String, Map<Object, int>> groups,
+                Map<String, Object> keys,
+              });
+    final key = built.keys[c.attribute] ?? _keyFor(way, c.value);
+    final seen = built.groups[own.key]?[key] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
   }
+
+  static Object _keyFor(_Way way, Object? value) => switch (way) {
+    _Way.identical => _identicalKey(value),
+    _Way.folded =>
+      _foldedKey(value) ?? (#fallback, value is String ? value : '$value'),
+    _Way.foldedStrict => _foldedKey(value) ?? (#fallback, _identicalKey(value)),
+  };
+
+  static String _identicalKey(Object? value) {
+    assert(() {
+      debugDistinctIdentityCalls++;
+      return true;
+    }());
+    return jsonEncode(_identity(value));
+  }
+
+  static String? _foldedKey(Object? value) => switch (_phpString(value)) {
+    final text? => tryCaseFold(text),
+    _ => null,
+  };
+
+  // A value tagged with its type, so that equal tags are PHP's `===`:
+  // `1` is not `1.0` nor `'1'`, `-0.0` equals `0.0`; a list or map by its
+  // keys in order.
+  static Object? _identity(Object? value) => switch (value) {
+    null => 'n',
+    final bool b => ['b', b],
+    final int i => ['i', '$i'],
+    final double d => ['d', '${d == 0 ? 0.0 : d}'],
+    final String s => ['s', s],
+    final List<Object?> list => [
+      'a',
+      for (var i = 0; i < list.length; i++) ['$i', _identity(list[i])],
+    ],
+    final Map<Object?, Object?> map => [
+      'a',
+      for (final MapEntry(:key, :value) in map.entries)
+        ['$key', _identity(value)],
+    ],
+    _ => ['o', '$value'],
+  };
+
+  // How PHP writes [value] in a string (`(string)`), or null for a list or
+  // map. A float with an integral value under 1e15 is written without a
+  // fraction (`1.0` is `"1"`); others as Dart writes them, which differs
+  // from PHP's 14 significant digits only beyond them or with an exponent.
+  static String? _phpString(Object? value) => switch (value) {
+    null || false => '',
+    true => '1',
+    final double d when d == d.truncateToDouble() && d.abs() < 1e15 =>
+      '${d.toInt()}',
+    final String s => s,
+    final num n => '$n',
+    _ => null,
+  };
 
   /// The group of [attribute] under [patternSegments] (its keys at every
   /// `*` but the last), and whether it is counted (no `*` takes an empty
@@ -1218,6 +1333,10 @@ final class DistinctRule extends Rule {
     );
   }
 }
+
+/// How parameterized [DistinctRule] compares values: by PHP's `===`, or as
+/// strings ignoring case.
+enum _Way { identical, folded, foldedStrict }
 
 /// `confirmed`: see [Rules.confirmed].
 final class ConfirmedRule extends Rule {
