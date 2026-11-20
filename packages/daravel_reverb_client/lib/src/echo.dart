@@ -378,6 +378,11 @@ final class Echo {
         .._subscribed = false
         .._pending = false;
     }
+    // Drop any idle keep-alive HTTP connections to the worker that just went
+    // away so the next reconnect's channel authorizations open fresh ones.
+    if (auth case final ClosableEchoAuth closable) {
+      closable.close();
+    }
     if (_closing) {
       return;
     }
@@ -590,6 +595,10 @@ base class EchoChannel {
     try {
       authorization = await _authorization();
     } on Object catch (error) {
+      // The connection changed while authorizing: the next one subscribes.
+      if (_echo.socketId != socketId) {
+        return;
+      }
       _pending = false;
       if (_cancelled) {
         _echo.leaveChannel(name);
