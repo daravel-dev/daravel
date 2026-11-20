@@ -1,15 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-
-import 'package:meta/meta.dart';
 
 import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
-import 'case_folding.g.dart';
+import 'case_folding.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
 import 'validator.dart' show Validator;
@@ -1173,21 +1170,6 @@ final class DistinctRule extends Rule {
   /// `distinct:ignore_case`: values equal as strings whatever their case.
   final bool ignoreCase;
 
-  /// Calls to [caseFold] (for cost tests).
-  @visibleForTesting
-  static int debugFoldCalls = 0;
-
-  /// Calls to strict identity encoding (for cost tests).
-  @visibleForTesting
-  static int debugIdentityCalls = 0;
-
-  /// Resets [debugFoldCalls] and [debugIdentityCalls].
-  @visibleForTesting
-  static void debugResetCounters() {
-    debugFoldCalls = 0;
-    debugIdentityCalls = 0;
-  }
-
   @override
   String get name => 'distinct';
   @override
@@ -1206,14 +1188,42 @@ final class DistinctRule extends Rule {
     if (own == null) {
       return null;
     }
+    final memo = c.memo;
+    if (!ignoreCase && !strict) {
+      // Dedicated fast path for plain `distinct`: keeps `Map<String, int>`
+      // and the 3-element memo key so unparameterized runs pay no boxing or
+      // mode-dispatch overhead.
+      Map<String, Map<String, int>> buildText() {
+        final groups = <String, Map<String, int>>{};
+        for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
+          final group = _groupOf(attribute, patternSegments);
+          if (group == null ||
+              !group.counted ||
+              !ValidationContext.exists(c.data, attribute)) {
+            continue;
+          }
+          final counts = groups.putIfAbsent(group.key, () => {});
+          final key = '${ValidationContext.dig(c.data, attribute)}';
+          counts[key] = (counts[key] ?? 0) + 1;
+        }
+        return groups;
+      }
+
+      final groups = memo == null
+          ? buildText()
+          : memo.putIfAbsent(('distinct', c.data, c.pattern), buildText)!
+                as Map<String, Map<String, int>>;
+      final seen = groups[own.key]?['${c.value}'] ?? 0;
+      return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+    }
+
     final way = ignoreCase
         ? (strict ? _Way.foldedStrict : _Way.folded)
-        : (strict ? _Way.identical : _Way.text);
+        : _Way.identical;
 
-    ({Map<String, Map<Object, int>> groups, Map<String, Object>? keys})
-    build() {
+    ({Map<String, Map<Object, int>> groups, Map<String, Object> keys}) build() {
       final groups = <String, Map<Object, int>>{};
-      final keys = way == _Way.text ? null : <String, Object>{};
+      final keys = <String, Object>{};
       for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
         final group = _groupOf(attribute, patternSegments);
         if (group == null ||
@@ -1223,9 +1233,7 @@ final class DistinctRule extends Rule {
         }
         final counts = groups.putIfAbsent(group.key, () => {});
         final key = _keyFor(way, ValidationContext.dig(c.data, attribute));
-        if (keys != null) {
-          keys[attribute] = key;
-        }
+        keys[attribute] = key;
         counts[key] = (counts[key] ?? 0) + 1;
       }
       return (groups: groups, keys: keys);
@@ -1234,21 +1242,19 @@ final class DistinctRule extends Rule {
     // Gathered once per run and per comparison mode, not once per item:
     // scanning for every item took time quadratic in their number (16 000
     // numbers: 15 s), and computing unused modes slowed plain `distinct`.
-    final memo = c.memo;
     final built = memo == null
         ? build()
         : memo.putIfAbsent(('distinct', c.data, c.pattern, way), build)!
               as ({
                 Map<String, Map<Object, int>> groups,
-                Map<String, Object>? keys,
+                Map<String, Object> keys,
               });
-    final key = built.keys?[c.attribute] ?? _keyFor(way, c.value);
+    final key = built.keys[c.attribute] ?? _keyFor(way, c.value);
     final seen = built.groups[own.key]?[key] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
   }
 
   static Object _keyFor(_Way way, Object? value) => switch (way) {
-    _Way.text => value is String ? value : '$value',
     _Way.identical => _identicalKey(value),
     _Way.folded =>
       _foldedKey(value) ?? (#fallback, value is String ? value : '$value'),
@@ -1256,12 +1262,15 @@ final class DistinctRule extends Rule {
   };
 
   static String _identicalKey(Object? value) {
-    debugIdentityCalls++;
+    assert(() {
+      debugDistinctIdentityCalls++;
+      return true;
+    }());
     return jsonEncode(_identity(value));
   }
 
   static String? _foldedKey(Object? value) => switch (_phpString(value)) {
-    final text? => _tryFold(text),
+    final text? => tryCaseFold(text),
     _ => null,
   };
 
@@ -1300,63 +1309,6 @@ final class DistinctRule extends Rule {
     _ => null,
   };
 
-  // Single-pass UTF-8 well-formedness check + Unicode 15.0.0 C+S case folding.
-  // Returns null if [value] contains a lone surrogate (mb_check_encoding).
-  static String? _tryFold(String value) {
-    debugFoldCalls++;
-    final length = value.length;
-    var hasUpper = false;
-    var ascii = true;
-    for (var i = 0; i < length; i++) {
-      final unit = value.codeUnitAt(i);
-      if (unit >= 0x80) {
-        ascii = false;
-        break;
-      }
-      if (unit >= 0x41 && unit <= 0x5A) {
-        hasUpper = true;
-      }
-    }
-    if (ascii) {
-      if (!hasUpper) {
-        return value;
-      }
-      final units = Uint8List(length);
-      for (var i = 0; i < length; i++) {
-        final unit = value.codeUnitAt(i);
-        units[i] = (unit >= 0x41 && unit <= 0x5A) ? unit | 0x20 : unit;
-      }
-      return String.fromCharCodes(units);
-    }
-    final out = <int>[];
-    for (var i = 0; i < length; i++) {
-      final unit = value.codeUnitAt(i);
-      final int rune;
-      if (unit >= 0xD800 && unit <= 0xDBFF) {
-        if (i + 1 >= length) {
-          return null;
-        }
-        final low = value.codeUnitAt(i + 1);
-        if (low < 0xDC00 || low > 0xDFFF) {
-          return null;
-        }
-        i++;
-        rune = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
-      } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
-        return null;
-      } else {
-        rune = unit;
-      }
-      out.add(unicodeCaseFolding[rune] ?? rune);
-    }
-    return String.fromCharCodes(out);
-  }
-
-  /// Simple Unicode 15.0.0 case folding (status C and S), with an ASCII fast
-  /// path that allocates nothing for already-lowercase ASCII strings.
-  @visibleForTesting
-  static String caseFold(String value) => _tryFold(value) ?? value;
-
   /// The group of [attribute] under [patternSegments] (its keys at every
   /// `*` but the last), and whether it is counted (no `*` takes an empty
   /// key); null when it has no `*` or another depth.
@@ -1382,9 +1334,9 @@ final class DistinctRule extends Rule {
   }
 }
 
-/// How [DistinctRule] compares values: by their text, by PHP's `===`, or
-/// as strings ignoring case.
-enum _Way { text, identical, folded, foldedStrict }
+/// How parameterized [DistinctRule] compares values: by PHP's `===`, or as
+/// strings ignoring case.
+enum _Way { identical, folded, foldedStrict }
 
 /// `confirmed`: see [Rules.confirmed].
 final class ConfirmedRule extends Rule {

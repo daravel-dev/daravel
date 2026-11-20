@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
+import 'package:daravel/src/validation/case_folding.dart';
 import 'package:daravel/src/validation/case_folding.g.dart';
 import 'package:test/test.dart';
 
@@ -323,7 +324,7 @@ void main() {
       final from = int.parse(parts[0], radix: 16);
       final to = int.parse(parts[2], radix: 16);
       expect(
-        DistinctRule.caseFold(String.fromCharCode(from)),
+        caseFold(String.fromCharCode(from)),
         String.fromCharCode(to),
         reason: 'U+${parts[0]} -> U+${parts[2]}',
       );
@@ -335,7 +336,7 @@ void main() {
     for (var cp = 0; cp < 128; cp++) {
       final expected = unicodeCaseFolding[cp] ?? cp;
       expect(
-        DistinctRule.caseFold(String.fromCharCode(cp)),
+        caseFold(String.fromCharCode(cp)),
         String.fromCharCode(expected),
         reason: 'ASCII $cp',
       );
@@ -346,23 +347,23 @@ void main() {
       'folds each value at most once per run', () async {
     final items = [for (var i = 0; i < 100; i++) 'Item_$i'];
 
-    DistinctRule.debugResetCounters();
+    debugResetDistinctCounters();
     expect(
       await Validator({'items': items}, {'items.*': 'distinct'}).run(),
       isEmpty,
     );
-    expect(DistinctRule.debugFoldCalls, 0);
-    expect(DistinctRule.debugIdentityCalls, 0);
+    expect(debugDistinctFoldCalls, 0);
+    expect(debugDistinctIdentityCalls, 0);
 
-    DistinctRule.debugResetCounters();
+    debugResetDistinctCounters();
     expect(
       await Validator({'items': items}, {'items.*': 'distinct:strict'}).run(),
       isEmpty,
     );
-    expect(DistinctRule.debugFoldCalls, 0);
-    expect(DistinctRule.debugIdentityCalls, 100);
+    expect(debugDistinctFoldCalls, 0);
+    expect(debugDistinctIdentityCalls, 100);
 
-    DistinctRule.debugResetCounters();
+    debugResetDistinctCounters();
     expect(
       await Validator(
         {'items': items},
@@ -370,7 +371,7 @@ void main() {
       ).run(),
       isEmpty,
     );
-    expect(DistinctRule.debugFoldCalls, 100);
-    expect(DistinctRule.debugIdentityCalls, 0);
+    expect(debugDistinctFoldCalls, 100);
+    expect(debugDistinctIdentityCalls, 0);
   });
 }
