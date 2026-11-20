@@ -16,14 +16,32 @@ import 'support/raw_ws_client.dart';
 /// (support/guard_server.dart), so its memory is not mixed with the other
 /// test files the runner runs at the same time.
 void main() {
+  late Directory scratch;
+  late String serverDill;
   late Process server;
   late int port;
   final logs = <String>[];
 
   setUpAll(() async {
-    server = await Process.start(Platform.resolvedExecutable, [
+    // Compile guard_server.dart once to a kernel snapshot so spawning the
+    // dedicated server in the empty-frames test does not pay a second ~30 s
+    // front-end compile on a 2-vCPU runner.
+    scratch = Directory.systemTemp.createTempSync('daravel_ws_guard_mem_');
+    serverDill = '${scratch.path}${Platform.pathSeparator}guard_server.dill';
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'kernel',
       'test/http/support/guard_server.dart',
+      '-o',
+      serverDill,
     ]);
+    if (compiled.exitCode != 0) {
+      fail(
+        'failed to compile guard_server.dart (exit ${compiled.exitCode}): '
+        '${compiled.stderr}',
+      );
+    }
+    server = await Process.start(Platform.resolvedExecutable, [serverDill]);
     final ready = Completer<int>();
     server.stdout
         .transform(utf8.decoder)
@@ -39,7 +57,13 @@ void main() {
     port = await ready.future.timeout(const Duration(seconds: 60));
   });
 
-  tearDownAll(() => server.kill());
+  tearDownAll(() async {
+    server.kill();
+    await server.exitCode;
+    if (scratch.existsSync()) {
+      scratch.deleteSync(recursive: true);
+    }
+  });
 
   /// A number the server answers on [path].
   Future<int> number(String path) async {
@@ -312,10 +336,7 @@ void main() {
     }
     final bytes = frames.takeBytes();
     // A server of its own, whose resident memory only this test moves.
-
-    final own = await Process.start(Platform.resolvedExecutable, [
-      'test/http/support/guard_server.dart',
-    ]);
+    final own = await Process.start(Platform.resolvedExecutable, [serverDill]);
     addTearDown(own.kill);
     own.stderr.drain<void>().ignore();
     final ownPort = await own.stdout
@@ -359,5 +380,5 @@ void main() {
     for (final client in [warm, ...clients]) {
       client.socket.destroy();
     }
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
