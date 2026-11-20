@@ -119,14 +119,10 @@ void main() {
     }
     // The highest level before the 4x round, not the level just before it:
     // memory given back to the OS after a round lowers that one, and the
-    // next round taking some of it again is not growth. Each 4x round sends
-    // 3x the 1x payload more (39-48 MiB extra; unbounded code grew 42-51 MiB),
-    // while Dart VM heap/GC chunks on Linux can shift RSS by 7-8.5 MiB even
-    // when nothing is retained, so 16 MiB stays well below unbounded growth
-    // without tripping on GC page granularity.
+    // next round taking some of it again is not growth.
     expect(
       four - max(warm, once),
-      lessThan(16 << 20),
+      lessThan(8 << 20),
       reason: 'grows with the attack',
     );
     expect(max(once, four) - start, lessThan(96 << 20));
