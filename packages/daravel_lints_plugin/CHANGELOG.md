@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.7
+
+- Version number aligned with Daravel 1.27.7 (a security patch of the core); this package was not published at this version. See the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
 ## 1.27.6
 
 - Version aligned with Daravel 1.27.6; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
