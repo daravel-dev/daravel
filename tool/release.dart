@@ -19,10 +19,16 @@ import 'publish_checks.dart';
 /// each package's CHANGELOG.md or else adds the version there (unless it
 /// already has an entry), and adds
 /// the summary to the release table of the guide in both languages. The
-/// release notes themselves are written by hand under `## Unreleased`
-/// before; the tool refuses to run without them. Sub-headers left empty
-/// are dropped from the version's notes, and a fresh empty
-/// `## Unreleased` (tool/changelog.dart) goes back on top.
+/// release notes themselves are written by hand under `## Unreleased`, or
+/// one fragment per pull request in `changelog.d/` (assembled into the
+/// version and removed with `git rm`), before; the tool refuses to run
+/// without them. The version's notes follow the 1.27.x patches: the
+/// opening paragraph (text above the first sub-header of
+/// `## Unreleased`, written by hand; `--summary` is only the release
+/// table's line), then `### Security` (notes that start with
+/// `Security: `), `### Fixed`, `### Added`, `### Changed`. Sub-headers
+/// left empty are dropped, and a fresh empty `## Unreleased`
+/// (tool/changelog.dart) goes back on top.
 ///
 /// Afterwards: review `git diff`, commit `Release <version>`, push, wait for
 /// CI, then `git tag -a v<version>` and push the tag (publish.yml).
@@ -74,10 +80,34 @@ void main(List<String> args) {
     return;
   }
   final changelog = _read('CHANGELOG.md');
+  final unknownHeaders = unknownUnreleasedHeaders(changelog);
+  if (unknownHeaders.isNotEmpty) {
+    stderr.writeln('Fix CHANGELOG.md first:');
+    for (final problem in unknownHeaders) {
+      stderr.writeln('- $problem');
+    }
+    exitCode = 1;
+    return;
+  }
   final unreleased = unreleasedBody(changelog);
-  if (unreleased == null || !hasNotes(unreleased)) {
+  // The notes of each pull request, in changelog.d/ (as on main).
+  final fragmentErrors = <String>[];
+  final fragments = readFragments(
+    Directory(fragmentsDirectory),
+    problems: fragmentErrors,
+  );
+  if (fragmentErrors.isNotEmpty) {
+    stderr.writeln('Fix the fragments first:');
+    for (final problem in fragmentErrors) {
+      stderr.writeln('- $problem');
+    }
+    exitCode = 1;
+    return;
+  }
+  if (unreleased == null || (!hasNotes(unreleased) && fragments.isEmpty)) {
     stderr.writeln(
-      'CHANGELOG.md has no notes under "## Unreleased"; write them first.',
+      'CHANGELOG.md has no notes under "## Unreleased" and changelog.d/ no '
+      'fragment; write them first.',
     );
     exitCode = 1;
     return;
@@ -114,7 +144,24 @@ void main(List<String> args) {
     'placeholder: $version',
   );
   // The notes become the version's; an empty `## Unreleased` stays on top.
-  _write('CHANGELOG.md', releaseChangelog(changelog, version));
+  _write(
+    'CHANGELOG.md',
+    releaseChangelog(changelog, version, fragments: fragments),
+  );
+  // The fragments are now the version's notes: they leave with the release
+  // commit.
+  if (fragments.isNotEmpty) {
+    final removed = Process.runSync('git', [
+      'rm',
+      '-q',
+      for (final f in fragments) '$fragmentsDirectory/${f.name}.md',
+    ]);
+    if (removed.exitCode != 0) {
+      stderr.writeln('git rm of the fragments failed: ${removed.stderr}');
+      exitCode = 1;
+      return;
+    }
+  }
 
   for (final member in members.where((m) => m.startsWith('packages/'))) {
     final path = '$member/CHANGELOG.md';
