@@ -10,12 +10,12 @@
 
 ### Fixed
 
-- `distinct` on a nested wildcard (`items.*.tags.*`) never failed, not even for a tag repeated within one item. It now compares the tags of all items, as Laravel's `getDistinctValues` does.
+- With two or more wildcards (`items.*.tags.*`), `distinct` now compares values across different parents too, as Laravel's `getDistinctValues` does (1.27.x compared within one parent).
 - A numeric string beyond the 64-bit integer range (30 digits, say) compared by `required_if` and the other rules that compare another field's value gave a 500 (`FormatException`); it is now read as a float, as PHP reads it. The fault came with a change on `main` that no release has.
 - `in_array` with two or more `*` matched a key in time growing with the square of the key's length (the cube with three `*`), on keys the client writes; keys are now matched in one pass. `in_array` is in no release yet.
 
 ### Upgrade notes
 
 - Requests that `distinct` or `in_array` passed can now fail (rules unchanged): a repeated tag under `items.*.tags.*`; `distinct` over values equal as PHP compares them, such as `[1, 1.0]`, `['1', '1.0']`, `[true, 1]` or `[null, '']`; `distinct:ignore_case` over `['a', 'A']`; `in_array` where the value equals one of the others only as a number (`1` against `1.0`). Where a list must accept equal numbers in different forms, validate with `distinct:strict`; where `in_array` must accept `1.0` for `1`, cast the input before validating.
-- Where a list or map is among the values of `distinct:ignore_case`, Laravel 13 throws (PHP's array-to-string warning, a 500); Daravel validates the request.
+- Where a list or map is among the values of `distinct:ignore_case`, Laravel 13 throws (PHP's array-to-string warning, a 500); Daravel validates the request. A map item under `items.*` is not compared by `distinct` in 1.28.0 (1.27.x compared map items by text).
 - New public names in `package:daravel/daravel.dart`: `DistinctRule.strict`, `DistinctRule.ignoreCase`, and the parameters `strict` and `ignoreCase` of `Rules.distinct` and `RuleBuilder.distinct`.
