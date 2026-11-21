@@ -13,13 +13,20 @@ import 'contracts.dart';
 import 'hashing.dart' show constantTimeBytesEquals;
 import 'tokens.dart' show bearerTokenOf;
 
-/// Signing algorithms (BLUEPRINT_V2 §7.6.2): HMAC-SHA256 and Ed25519.
+/// Signing algorithms (BLUEPRINT_V2 §7.6.2): HMAC-SHA256 and Ed25519, and
+/// RS256 to verify tokens of identity providers.
 enum JwtAlgorithm {
   /// HMAC with SHA-256, with a shared secret.
   hs256('HS256'),
 
   /// Ed25519 signatures, with a key pair.
-  eddsa('EdDSA');
+  eddsa('EdDSA'),
+
+  /// RSASSA-PKCS1-v1_5 with SHA-256 (RFC 7518 §3.3), verification only:
+  /// the tokens of Google, Firebase, Auth0, Keycloak and other identity
+  /// providers, checked with the keys they publish ([RsaJwtKey],
+  /// [JsonWebKeySet], `JwksVerifier`).
+  rs256('RS256');
 
   /// The algorithm written as [header] in the JWT header.
   const JwtAlgorithm(this.header);
@@ -27,11 +34,11 @@ enum JwtAlgorithm {
   /// Value of the `alg` header.
   final String header;
 
-  /// The algorithm named [value] (`HS256`, `EdDSA`).
+  /// The algorithm named [value] (`HS256`, `EdDSA`, `RS256`).
   static JwtAlgorithm parse(String value) => values.firstWhere(
     (a) => a.header == value || a.name == value.toLowerCase(),
     orElse: () => throw ConfigException(
-      'Unsupported JWT algorithm [$value]; use HS256 or EdDSA.',
+      'Unsupported JWT algorithm [$value]; use HS256, EdDSA or RS256.',
     ),
   );
 }
@@ -102,6 +109,73 @@ final class Ed25519JwtKey extends JwtKey {
     final pair = await cg.Ed25519().newKeyPairFromSeed(seed);
     final public = await pair.extractPublicKey();
     return Ed25519JwtKey(publicKey: public.bytes, seed: seed, kid: kid);
+  }
+}
+
+/// RSA public key for RS256 (RFC 7518 §3.3). It only verifies: Daravel
+/// signs its own tokens with HS256 or EdDSA, and RS256 keys are those an
+/// identity provider publishes, usually read from its JSON Web Key Set
+/// ([RsaJwtKey.fromJwk], [JsonWebKeySet]).
+final class RsaJwtKey extends JwtKey {
+  /// A key from its [modulus] (`n`) and public [exponent] (`e`). A modulus
+  /// under 2048 bits is refused, as RFC 7518 §3.3 requires, and so is an
+  /// exponent that is even, under 3 or not under the modulus.
+  RsaJwtKey({required this.modulus, required this.exponent, super.kid}) {
+    if (modulus.bitLength < 2048) {
+      throw ArgumentError.value(
+        modulus.bitLength,
+        'modulus',
+        'an RS256 key must be at least 2048 bits (RFC 7518 §3.3)',
+      );
+    }
+    if (exponent < BigInt.from(3) || exponent.isEven || exponent >= modulus) {
+      throw ArgumentError.value(
+        exponent,
+        'exponent',
+        'not an RSA public exponent',
+      );
+    }
+  }
+
+  /// A key from an RSA JWK (RFC 7518 §6.3: `kty` `RSA`, base64url `n` and
+  /// `e`, optional `kid`). Throws [FormatException] for anything else and
+  /// [ArgumentError] for a key [RsaJwtKey.new] refuses.
+  factory RsaJwtKey.fromJwk(Map<String, Object?> jwk) {
+    final n = jwk['n'];
+    final e = jwk['e'];
+    final kid = jwk['kid'];
+    if (jwk['kty'] != 'RSA' || n is! String || e is! String) {
+      throw const FormatException('Not an RSA JSON Web Key.');
+    }
+    if (kid != null && kid is! String) {
+      throw const FormatException('The JWK kid is not a string.');
+    }
+    return RsaJwtKey(
+      modulus: _unsigned(JwtCodec._decode(n)),
+      exponent: _unsigned(JwtCodec._decode(e)),
+      kid: kid as String?,
+    );
+  }
+
+  /// The modulus `n`.
+  final BigInt modulus;
+
+  /// The public exponent `e`.
+  final BigInt exponent;
+
+  /// The length of the modulus and of every signature, in bytes.
+  int get length => (modulus.bitLength + 7) ~/ 8;
+
+  @override
+  JwtAlgorithm get algorithm => JwtAlgorithm.rs256;
+
+  /// The big-endian unsigned integer in [bytes] (OS2IP, RFC 8017 §4.2).
+  static BigInt _unsigned(List<int> bytes) {
+    var value = BigInt.zero;
+    for (final byte in bytes) {
+      value = (value << 8) | BigInt.from(byte);
+    }
+    return value;
   }
 }
 
@@ -395,6 +469,10 @@ final class JwtCodec {
         }
         final pair = await cg.Ed25519().newKeyPairFromSeed(seed);
         return (await cg.Ed25519().sign(input, keyPair: pair)).bytes;
+      case RsaJwtKey():
+        throw const ConfigException(
+          'RS256 keys only verify; Daravel signs with HS256 or EdDSA.',
+        );
     }
   }
 
@@ -420,8 +498,54 @@ final class JwtCodec {
             ),
           ),
         );
+      case RsaJwtKey():
+        return Future<bool>.value(_verifyRs256(key, input, signature));
     }
   }
+
+  /// DER prefix of a SHA-256 `DigestInfo` (RFC 8017 §9.2, note 1).
+  static const List<int> _sha256DigestInfo = <int>[
+    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, //
+    0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
+  ];
+
+  /// RSASSA-PKCS1-V1_5-VERIFY (RFC 8017 §8.2.2) with SHA-256. The expected
+  /// encoded message is built and compared whole (EMSA-PKCS1-v1_5,
+  /// §9.2): the padding is never parsed, which is how the 2006
+  /// Bleichenbacher forgery for small exponents got through verifiers.
+  static bool _verifyRs256(
+    RsaJwtKey key,
+    List<int> input,
+    List<int> signature,
+  ) {
+    final k = key.length;
+    if (signature.length != k) {
+      return false;
+    }
+    final s = RsaJwtKey._unsigned(signature);
+    if (s >= key.modulus) {
+      return false;
+    }
+    final m = s.modPow(key.exponent, key.modulus);
+    final em = Uint8List(k);
+    var rest = m;
+    for (var i = k - 1; i >= 0 && rest > BigInt.zero; i--) {
+      em[i] = (rest & _byteMask).toInt();
+      rest >>= 8;
+    }
+    final t = <int>[
+      ..._sha256DigestInfo,
+      ...crypto.sha256.convert(input).bytes,
+    ];
+    // k >= 256 (2048 bits), so there is room for t and 8+ bytes of 0xff.
+    final expected = Uint8List(k)
+      ..[1] = 0x01
+      ..fillRange(2, k - t.length - 1, 0xff)
+      ..setRange(k - t.length, k, t);
+    return constantTimeBytesEquals(expected, em);
+  }
+
+  static final BigInt _byteMask = BigInt.from(0xff);
 
   static Map<String, Object?> _json(String segment) {
     final decoded = jsonDecode(utf8.decode(_decode(segment)));

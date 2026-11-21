@@ -432,6 +432,8 @@ Laravel 12.x on the left, Daravel 1.x on the right. Every Daravel symbol below i
 | `Auth::viaRemember()` | `guard.viaRemember` |  |
 | `$user->createToken($name, $abilities)` | `await Auth.issueToken(user, name, abilities: [...])` | **async** |
 | `$user->currentAccessToken()->delete()` | `await Auth.tokenGuard().revokeCurrent()` | **async** |
+| `JWT::decode($jwt, JWK::parseKeySet($jwks)) (firebase/php-jwt)` | `JwtCodec(keys: JsonWebKeySet.parse(jwks).keys).verify(jwt)` | **async**; RS256 (RSA, 2048 bits or more) and EdDSA (OKP Ed25519) keys verify; RS256 keys never sign. Keys for encryption, other algorithms and malformed entries are skipped. |
+| `new CachedKeySet($jwksUri, ...) (firebase/php-jwt)` | `JwksVerifier(uri, issuers: {...}, audience: ...)` | **async**; Fetches the provider's key set on first use, keeps it for its Cache-Control max-age, refetches for an unknown kid at most once a minute; presets JwksVerifier.firebase(projectId) and JwksVerifier.google(clientId). |
 | `config('jwt.required_claims') (tymon/jwt-auth)` | `JWT_REQUIRED_CLAIMS=exp,... / JwtCodec(requiredClaims: [...])` | The JWT guard requires exp by default (jwt-auth requires iss, iat, exp, nbf, sub and jti); empty requires nothing. A token without a required claim is refused like any invalid one, and an exp, nbf or iat outside the finite NumericDate range DateTime can hold always is. |
 | `$user->tokenCan('posts:read')` | `await Auth.tokenGuard().tokenCan('posts:read')` | **async** |
 | `Hash::make / check / needsRehash` | `await Hash.make / check, Hash.needsRehash` |  |

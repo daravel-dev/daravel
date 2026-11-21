@@ -87,6 +87,39 @@ JWT_LEEWAY=0                        # seconds, tymon's leeway
 A token Laravel issued then signs the same user in on Daravel and the
 other way round; a `prv` for another model class is refused.
 
+### Tokens of an identity provider (RS256, JWKS)
+
+Google, Firebase Authentication, Auth0, Okta, Keycloak and the like sign
+their ID tokens with RS256 and publish the public keys as a JSON Web Key
+Set. `JwksVerifier` checks such a token with those keys:
+
+```dart
+// Firebase Authentication (Google, email, ...): the Admin SDK's checks.
+final firebase = JwksVerifier.firebase('my-project');
+final claims = await firebase.verify(idToken); // JwtException otherwise
+final uid = claims.subject;
+
+// Google Sign-In ID tokens for an OAuth client.
+final google = JwksVerifier.google('123.apps.googleusercontent.com');
+
+// Any provider.
+final auth0 = JwksVerifier(
+  Uri.parse('https://tenant.eu.auth0.com/.well-known/jwks.json'),
+  issuers: {'https://tenant.eu.auth0.com/'},
+  audience: 'https://api.example.com',
+);
+```
+
+The key set is fetched on first use and kept for its `Cache-Control:
+max-age`; a token whose `kid` is unknown fetches it again (providers rotate
+keys), at most once a minute, and a failed fetch keeps the keys already
+held. Keep one verifier per provider, e.g. a container singleton. RS256 keys
+(`RsaJwtKey`, at least 2048 bits) only verify: `JwtCodec` refuses to sign
+with them, and `JWT_ALGO=RS256` is refused for the JWT guard, which signs
+its own tokens with HS256 or EdDSA. `JsonWebKeySet.parse` reads a JWKS
+document on its own (RSA and OKP Ed25519 signature keys; others are
+skipped), for keys you load yourself.
+
 ## Hashing
 
 `Hash.make` / `Hash.check` run in compute isolates. Drivers: `bcrypt`
