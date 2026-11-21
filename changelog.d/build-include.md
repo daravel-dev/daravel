@@ -1,3 +1,7 @@
 ### Added
 
 - `dartisan build --include <path>` (repeatable, #454) copies the files the server reads at run time (`public/`, raw SQL, Lua scripts, ...) into the bundle at the same relative path, so a deploy no longer needs its own copy step after the build. Paths are checked before the compile: absolute paths, paths outside the project, `bin/` and `lib/` (the bundle's own) and `.env` files are refused, and a missing path fails the build; `.env` files inside an included directory are skipped, and an included directory replaces its copy from an earlier build. A project with a `public/` directory that is not included is reminded once per build. Guide: [Deployment](docs/guide/deployment.md#2-binary-compilation-native-bundle).
+
+### Upgrade notes
+
+- New public functions `bundleIncludeErrors`, `copyBundleIncludes` and `bundleIncludeHint` in `package:dartisan_cli` (an application function of one of these names and the barrel import give an ambiguous-import error; `hide` it or rename yours).
