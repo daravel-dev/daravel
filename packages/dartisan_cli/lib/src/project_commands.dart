@@ -301,8 +301,11 @@ final class DoctorCommand extends DaravelCommand {
     );
 
     ProjectPaths? paths;
+    // The directory .env is read from: the project, or a build bundle.
+    String? root;
     try {
       paths = ProjectPaths.locate();
+      root = paths.root;
       checks.add(
         DoctorCheck(
           CheckStatus.ok,
@@ -310,7 +313,16 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     } on StateError catch (e) {
-      checks.add(DoctorCheck(CheckStatus.error, 'Project root', e.message));
+      // A deployed `dartisan build --with-cli` bundle has no pubspec.yaml
+      // on purpose; the checks of the source tree do not apply there.
+      root =
+          buildBundleRoot(Directory.current.path) ??
+          buildBundleRoot(p.dirname(p.dirname(Platform.resolvedExecutable)));
+      checks.add(
+        root != null
+            ? DoctorCheck(CheckStatus.ok, 'Build bundle at $root')
+            : DoctorCheck(CheckStatus.error, 'Project root', e.message),
+      );
     }
     if (paths != null) {
       var tooling = packageConfigCheck(paths.root, windows: Platform.isWindows);
@@ -334,9 +346,11 @@ final class DoctorCommand extends DaravelCommand {
       if (tooling != null) {
         checks.add(tooling);
       }
-      final env = File(p.join(paths.root, '.env'));
-      final example = File(p.join(paths.root, '.env.example'));
-      final encrypted = File(p.join(paths.root, '.env.encrypted'));
+    }
+    if (root != null) {
+      final env = File(p.join(root, '.env'));
+      final example = File(p.join(root, '.env.example'));
+      final encrypted = File(p.join(root, '.env.encrypted'));
       final hasKey = EnvironmentEncrypter.keyVariables.any(
         (name) => (Platform.environment[name] ?? '').isNotEmpty,
       );
@@ -1370,6 +1384,19 @@ void removeBundledSqlite(String bundle) {
       file.deleteSync();
     }
   }
+}
+
+/// [directory], normalized, when it is a `dartisan build` bundle: a
+/// `bin/server` executable and no `pubspec.yaml`; otherwise `null`.
+String? buildBundleRoot(String directory) {
+  if (File(p.join(directory, 'pubspec.yaml')).existsSync()) {
+    return null;
+  }
+  final server = [
+    'server',
+    'server.exe',
+  ].any((name) => File(p.join(directory, 'bin', name)).existsSync());
+  return server ? p.normalize(p.absolute(directory)) : null;
 }
 
 /// [key] from the process environment, else from the project's `.env`.
