@@ -1,4 +1,4 @@
-<!-- source: dartisan.md sha256:a27e5f1dd31e -->
+<!-- source: dartisan.md sha256:e42ff2cbc135 -->
 # dartisan
 
 `dartisan` adalah `artisan`-nya Daravel. Pasang sekali, lalu pakai di proyek
@@ -219,11 +219,28 @@ Command ini menambahkan server `daravel` ke `.mcp.json` (server lain
 dipertahankan; `--force` mengganti entri `daravel` yang sudah ada) dan
 menulis konvensi Daravel di antara penanda `<!-- daravel:guidelines -->` di
 `AGENTS.md`. Menjalankannya lagi setelah upgrade memperbarui bagian itu dan
-membiarkan sisa file. Claude Code membaca `.mcp.json` dari proyek; untuk
-mendaftarkan server secara manual:
+membiarkan sisa file.
+
+Server dijalankan lewat `tool/dartisan_mcp.dart`, launcher yang ditulis
+`mcp:install`. `dart run bin/dartisan.dart` mengompilasi seluruh CLI dan
+menjalankan build hook setiap kali start, yang di Windows bisa memakan
+beberapa menit, melewati batas waktu koneksi client MCP. Launcher hanya
+mengimpor `dart:io`. Launcher mem-build `bin/dartisan.dart` dengan
+`dart build cli` ke `.dart_tool/dartisan_mcp/` bila ada file Dart di `bin`,
+`bootstrap`, `config`, `database`, `lib` atau `routes`, atau
+`pubspec.lock`, yang lebih baru dari build terakhir, lalu menjalankan
+`mcp:serve` dari binary itu: sekitar satu detik bila tidak ada perubahan.
+`mcp:install` langsung mengompilasinya sekali (`--no-build` menyerahkannya
+ke start pertama). Bila build gagal, launcher melayani dari build terakhir,
+atau dengan `dart run` bila belum ada. Entri yang masih berupa default
+`dart run` lama diganti, dan `--force` juga menulis ulang launcher yang
+sudah diubah.
+
+Claude Code membaca `.mcp.json` dari proyek; untuk mendaftarkan server
+secara manual:
 
 ```bash
-claude mcp add daravel -- dart run bin/dartisan.dart mcp:serve
+claude mcp add daravel -- dart tool/dartisan_mcp.dart
 ```
 
 Entri `.mcp.json`, yang juga dibaca client MCP lain:
@@ -233,7 +250,7 @@ Entri `.mcp.json`, yang juga dibaca client MCP lain:
   "mcpServers": {
     "daravel": {
       "command": "dart",
-      "args": ["run", "bin/dartisan.dart", "mcp:serve"]
+      "args": ["tool/dartisan_mcp.dart"]
     }
   }
 }

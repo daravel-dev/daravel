@@ -1472,11 +1472,23 @@ final class McpServeCommand extends DaravelCommand {
   }
 }
 
-/// The `daravel` entry `mcp:install` writes to `.mcp.json`.
+/// The `daravel` entry `mcp:install` writes to `.mcp.json`: the
+/// [mcpLauncherPath] launcher, which starts a compiled `dartisan`.
 const Map<String, Object?> mcpServerEntry = {
+  'command': 'dart',
+  'args': [mcpLauncherPath],
+};
+
+/// The entry `mcp:install` wrote before the launcher. `dart run` compiles
+/// the whole CLI and runs the build hooks on every start, past an MCP
+/// client's connect timeout on Windows (#455), so `mcp:install` replaces it.
+const Map<String, Object?> mcpDartRunServerEntry = {
   'command': 'dart',
   'args': ['run', 'bin/dartisan.dart', 'mcp:serve'],
 };
+
+/// Where `mcp:install` writes [dartisanMcpLauncher] in a project.
+const String mcpLauncherPath = 'tool/dartisan_mcp.dart';
 
 /// The entry for a DDEV project: its packages are resolved inside the web
 /// container, so the server runs there (`ddev dartisan`).
@@ -1512,9 +1524,7 @@ const String _guidelinesEnd = '<!-- /daravel:guidelines -->';
 
 /// The Daravel section of the agent guidelines (`AGENTS.md`); [server] is
 /// how the MCP server is started.
-String agentGuidelines({
-  String server = 'dart run bin/dartisan.dart mcp:serve',
-}) {
+String agentGuidelines({String server = 'dart $mcpLauncherPath'}) {
   final conventions = daravelConventions
       .replaceFirst(RegExp(r'^# .*\n\n'), '')
       .replaceAll(RegExp(r'^## ', multiLine: true), '### ');
@@ -1536,9 +1546,14 @@ $conventions$_guidelinesEnd
 /// are kept) and writes the Daravel section of [root]`/`[guidelines]
 /// between markers, so running it again only refreshes that section.
 ///
+/// The server starts through [mcpLauncherPath] ([dartisanMcpLauncher],
+/// written when missing or with [force]), which runs a compiled `dartisan`
+/// instead of `dart run`; an entry still at the earlier `dart run` default
+/// ([mcpDartRunServerEntry]) is replaced.
+///
 /// In a DDEV project the server runs in the web container
 /// (`ddev dartisan mcp:serve`, adding `.ddev/commands/web/dartisan` when
-/// missing), and an existing entry still at the host default, which cannot
+/// missing), and an existing entry still at a host default, which cannot
 /// resolve the container's packages, is replaced. Returns the files it
 /// changed.
 List<String> installMcp(
@@ -1561,10 +1576,13 @@ List<String> installMcp(
   final ddev = isDdevProject(root);
   final entry = mcpServerEntryFor(root);
   final existing = servers['daravel'];
-  // Compared as JSON, the form it has in .mcp.json.
-  final hostDefault =
-      ddev && jsonEncode(existing) == jsonEncode(mcpServerEntry);
-  if (force || existing == null || hostDefault) {
+  // Compared as JSON, the form it has in .mcp.json. An entry still at an
+  // earlier default is replaced; a custom one is kept.
+  final outdated = [
+    mcpDartRunServerEntry,
+    if (ddev) mcpServerEntry,
+  ].any((old) => jsonEncode(existing) == jsonEncode(old));
+  if (force || existing == null || outdated) {
     servers['daravel'] = entry;
     json['mcpServers'] = servers;
     config.writeAsStringSync(
@@ -1584,13 +1602,20 @@ List<String> installMcp(
       }
       changed.add(command.path);
     }
+  } else {
+    final launcher = File(p.join(root, mcpLauncherPath));
+    final current = launcher.existsSync() ? launcher.readAsStringSync() : null;
+    if (current == null || (force && current != dartisanMcpLauncher)) {
+      launcher
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(dartisanMcpLauncher);
+      changed.add(launcher.path);
+    }
   }
 
   final file = File(p.join(root, guidelines));
   final section = agentGuidelines(
-    server: ddev
-        ? 'ddev dartisan mcp:serve'
-        : 'dart run bin/dartisan.dart mcp:serve',
+    server: ddev ? 'ddev dartisan mcp:serve' : 'dart $mcpLauncherPath',
   );
   final current = file.existsSync() ? file.readAsStringSync() : null;
   final String next;
@@ -1626,7 +1651,16 @@ final class McpInstallCommand extends Command<int> {
       ..addFlag(
         'force',
         negatable: false,
-        help: 'Replace an existing "daravel" entry in .mcp.json.',
+        help:
+            'Replace an existing "daravel" entry in .mcp.json and '
+            '$mcpLauncherPath.',
+      )
+      ..addFlag(
+        'build',
+        defaultsTo: true,
+        help:
+            'Compile the server once now, so an MCP client does not wait '
+            'for the first build (--no-build: on its first start).',
       );
   }
 
@@ -1651,6 +1685,188 @@ final class McpInstallCommand extends Command<int> {
     if (changed.isEmpty) {
       stdout.writeln('Already installed.');
     }
+    final launcher = File(p.join(root, mcpLauncherPath));
+    if (argResults!['build'] as bool &&
+        !isDdevProject(root) &&
+        launcher.existsSync()) {
+      stdout.writeln(
+        'Compiling the MCP server (dart $mcpLauncherPath --build)',
+      );
+      final process = await Process.start(
+        dartExecutable(),
+        [mcpLauncherPath, '--build'],
+        workingDirectory: root,
+        mode: ProcessStartMode.inheritStdio,
+      );
+      final code = await process.exitCode;
+      if (code != 0) {
+        stderr.writeln(
+          'The build failed; the launcher builds again on its first start '
+          'and serves with `dart run` until a build succeeds.',
+        );
+      }
+    }
     return 0;
   }
 }
+
+/// `tool/dartisan_mcp.dart`, written by `mcp:install` ([mcpLauncherPath]):
+/// builds `bin/dartisan.dart` with `dart build cli` into
+/// `.dart_tool/dartisan_mcp/` when the code or `pubspec.lock` is newer than
+/// the last build, then starts `dartisan mcp:serve` from that binary. It
+/// imports `dart:io` only, so `dart` starts it in about a second, where
+/// `dart run bin/dartisan.dart` takes minutes on Windows (#455).
+const String dartisanMcpLauncher = r"""
+// Starts `dartisan mcp:serve` from a compiled binary. Written by
+// `dartisan mcp:install`; `mcp:install --force` writes it again.
+//
+// `dart run bin/dartisan.dart` compiles the whole CLI and runs the build
+// hooks on every start, which can take minutes (on Windows above all), past
+// an MCP client's connect timeout. This script builds bin/dartisan.dart with
+// `dart build cli` into .dart_tool/dartisan_mcp/ when the application's code
+// or pubspec.lock is newer than the last build, then starts that binary. It
+// imports dart:io only, so `dart` starts it in about a second.
+//
+//   dart tool/dartisan_mcp.dart            serve (build first when stale)
+//   dart tool/dartisan_mcp.dart --build    build only
+//
+// stdout is the JSON-RPC channel: build output goes to stderr.
+import 'dart:io';
+
+/// Directories whose Dart files are compiled into the server.
+const List<String> sources = [
+  'bin',
+  'bootstrap',
+  'config',
+  'database',
+  'lib',
+  'routes',
+];
+
+Future<void> main(List<String> args) async {
+  final root = File.fromUri(Platform.script).parent.parent.path;
+  final builds = Directory('$root/.dart_tool/dartisan_mcp');
+  final buildOnly = args.contains('--build');
+  var binary = latestBuild(builds);
+  if (buildOnly || binary == null || isStale(root, binary)) {
+    final built = await build(root, builds);
+    if (buildOnly) {
+      exit(built == null ? 1 : 0);
+    }
+    if (built == null && binary != null) {
+      stderr.writeln('[dartisan_mcp] build failed; serving the last build.');
+    }
+    binary = built ?? binary;
+  }
+  final serveArgs = ['mcp:serve', ...args.where((a) => a != '--build')];
+  final process = binary != null
+      ? await Process.start(
+          binary.path,
+          serveArgs,
+          workingDirectory: root,
+          mode: ProcessStartMode.inheritStdio,
+        )
+      : await Process.start(
+          Platform.resolvedExecutable,
+          ['run', 'bin/dartisan.dart', ...serveArgs],
+          workingDirectory: root,
+          mode: ProcessStartMode.inheritStdio,
+        );
+  if (!Platform.isWindows) {
+    for (final signal in [ProcessSignal.sigint, ProcessSignal.sigterm]) {
+      signal.watch().listen((_) => process.kill(signal));
+    }
+  }
+  exit(await process.exitCode);
+}
+
+/// The executable of the newest complete build in [builds], if any.
+File? latestBuild(Directory builds) {
+  if (!builds.existsSync()) {
+    return null;
+  }
+  final names = [
+    for (final dir in builds.listSync().whereType<Directory>())
+      if (nameOf(dir).startsWith('build-')) nameOf(dir),
+  ]..sort();
+  for (final name in names.reversed) {
+    final binary = executableIn('${builds.path}/$name');
+    if (binary.existsSync()) {
+      return binary;
+    }
+  }
+  return null;
+}
+
+/// The last segment of [dir]'s path, whatever its separators.
+String nameOf(Directory dir) =>
+    dir.uri.pathSegments.lastWhere((segment) => segment.isNotEmpty);
+
+/// The `dartisan` executable `dart build cli` writes under [output].
+File executableIn(String output) =>
+    File('$output/bundle/bin/dartisan${Platform.isWindows ? '.exe' : ''}');
+
+/// Whether a Dart source or pubspec.lock is newer than [binary].
+bool isStale(String root, File binary) {
+  final built = binary.lastModifiedSync();
+  bool newer(File file) => file.lastModifiedSync().isAfter(built);
+  for (final name in ['pubspec.lock', 'pubspec.yaml']) {
+    final file = File('$root/$name');
+    if (file.existsSync() && newer(file)) {
+      return true;
+    }
+  }
+  for (final name in sources) {
+    final dir = Directory('$root/$name');
+    if (!dir.existsSync()) {
+      continue;
+    }
+    final changed = dir
+        .listSync(recursive: true, followLinks: false)
+        .whereType<File>()
+        .any((file) => file.path.endsWith('.dart') && newer(file));
+    if (changed) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Builds bin/dartisan.dart into a new directory of [builds] and removes
+/// the older builds a running server does not hold; null when it fails.
+Future<File?> build(String root, Directory builds) async {
+  final stamp = DateTime.now().millisecondsSinceEpoch.toString().padLeft(
+    16,
+    '0',
+  );
+  final output = '${builds.path}/build-$stamp';
+  stderr.writeln('[dartisan_mcp] dart build cli -t bin/dartisan.dart ...');
+  final process = await Process.start(Platform.resolvedExecutable, [
+    'build',
+    'cli',
+    '-t',
+    'bin/dartisan.dart',
+    '-o',
+    output,
+  ], workingDirectory: root);
+  await Future.wait([
+    process.stdout.forEach(stderr.add),
+    process.stderr.forEach(stderr.add),
+  ]);
+  final binary = executableIn(output);
+  if (await process.exitCode != 0 || !binary.existsSync()) {
+    return null;
+  }
+  for (final dir in builds.listSync().whereType<Directory>()) {
+    final name = nameOf(dir);
+    if (name.startsWith('build-') && name != 'build-$stamp') {
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // In use by a server that is still running; removed next time.
+      }
+    }
+  }
+  return binary;
+}
+""";
