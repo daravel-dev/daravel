@@ -212,11 +212,27 @@ It adds a `daravel` server to `.mcp.json` (other servers are kept; `--force`
 replaces an existing `daravel` entry) and writes the Daravel conventions
 between `<!-- daravel:guidelines -->` markers in `AGENTS.md`. Running it
 again after an upgrade refreshes that section and leaves the rest of the
-file alone. Claude Code reads `.mcp.json` from the project; to register the
-server by hand instead:
+file alone.
+
+The server starts through `tool/dartisan_mcp.dart`, a launcher that
+`mcp:install` writes. `dart run bin/dartisan.dart` compiles the whole CLI
+and runs the build hooks on every start, which can take minutes on Windows,
+past an MCP client's connect timeout. The launcher imports `dart:io` only.
+It builds `bin/dartisan.dart` with `dart build cli` into
+`.dart_tool/dartisan_mcp/` when a Dart file under `bin`, `bootstrap`,
+`config`, `database`, `lib` or `routes`, or `pubspec.lock`, is newer than
+the last build, then starts `mcp:serve` from that binary: about a second
+when nothing changed. `mcp:install` compiles it once right away
+(`--no-build` leaves that to the first start). If a build fails, the
+launcher serves from the last build, or with `dart run` when there is none.
+An entry still at the earlier `dart run` default is replaced, and
+`--force` also rewrites an edited launcher.
+
+Claude Code reads `.mcp.json` from the project; to register the server by
+hand instead:
 
 ```bash
-claude mcp add daravel -- dart run bin/dartisan.dart mcp:serve
+claude mcp add daravel -- dart tool/dartisan_mcp.dart
 ```
 
 The `.mcp.json` entry, which other MCP clients read too:
@@ -226,7 +242,7 @@ The `.mcp.json` entry, which other MCP clients read too:
   "mcpServers": {
     "daravel": {
       "command": "dart",
-      "args": ["run", "bin/dartisan.dart", "mcp:serve"]
+      "args": ["tool/dartisan_mcp.dart"]
     }
   }
 }

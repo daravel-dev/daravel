@@ -1,0 +1,7 @@
+### Changed
+
+- `dartisan mcp:install` (#455) registers the MCP server as `dart tool/dartisan_mcp.dart` instead of `dart run bin/dartisan.dart mcp:serve`, which compiles the whole CLI and runs the build hooks on every start: 100–250 s on Windows, past an MCP client's connect timeout. The launcher it writes (`dartisanMcpLauncher`, `dart:io` only) builds `bin/dartisan.dart` with `dart build cli` into `.dart_tool/dartisan_mcp/` when a Dart file under `bin`, `bootstrap`, `config`, `database`, `lib` or `routes`, or `pubspec.lock`, is newer than the last build, then starts `mcp:serve` from that binary (about 1.6 s to the first answer in a measured application, against minutes); a failed build serves from the last one, or with `dart run` when there is none. `mcp:install` compiles once right away (`--no-build` skips it), replaces an entry still at the `dart run` default (`mcpDartRunServerEntry`) and keeps a custom one; `--force` also rewrites an edited launcher. DDEV projects keep `ddev dartisan mcp:serve`. Guide: [dartisan](docs/guide/dartisan.md#ai-coding-agents-mcp).
+
+### Upgrade notes
+
+- `mcpServerEntry` is now `{"command": "dart", "args": ["tool/dartisan_mcp.dart"]}`, and running `mcp:install` again rewrites a `.mcp.json` entry still at the old default and adds `tool/dartisan_mcp.dart` (commit it). New public names `mcpDartRunServerEntry`, `mcpLauncherPath` and `dartisanMcpLauncher` in `package:dartisan_cli` (an application name of one of these and the barrel import give an ambiguous-import error; `hide` it or rename yours).
