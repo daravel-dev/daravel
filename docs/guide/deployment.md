@@ -323,6 +323,14 @@ dart run bin/dartisan.dart serve --embed-queue --embed-scheduler
 SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # same, from the bundle
 ```
 
+The embedded worker takes only the queues in `SERVER_EMBED_QUEUES` (comma
+separated; default: the default queue). A job dispatched with
+`.onQueue('mail')` waits in the jobs table until a worker listens on
+`mail`: list it (`SERVER_EMBED_QUEUES=default,mail`) or run
+`dartisan queue:work --queue=mail`. With the database queue, `dartisan
+doctor` warns about every queue with jobs left waiting for more than five
+minutes, and says which of the two is missing.
+
 The queue worker (on `SERVER_EMBED_QUEUES`, default the default queue) and
 the scheduler each run in their own isolate, so jobs never block the HTTP
 event loop. They share the server's coordinator, so the `process` cache

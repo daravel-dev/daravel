@@ -685,6 +685,7 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
+    checks.addAll(await waitingJobsChecks(app));
     return checks;
   }
 
@@ -1370,6 +1371,77 @@ void removeBundledSqlite(String bundle) {
       file.deleteSync();
     }
   }
+}
+
+/// The queues the worker embedded in `serve` consumes: `SERVER_EMBED_QUEUES`
+/// (comma separated), else the default queue, as `embedded_workers.dart`
+/// reads them; empty without `SERVER_EMBED_QUEUE`.
+List<String> embeddedQueueNames(Env env, QueueConfig queue) {
+  if (!ServeOptions.fromEnv(env).embedQueue) {
+    return const [];
+  }
+  return [
+    for (final name
+        in (env.maybeString('SERVER_EMBED_QUEUES') ?? queue.defaultQueue).split(
+          ',',
+        ))
+      if (name.trim().isNotEmpty) name.trim(),
+  ];
+}
+
+/// Warnings for jobs of the database queue that nobody takes (#453): per
+/// queue, the jobs available for longer than [waiting] and not reserved.
+///
+/// A job dispatched to a queue no worker listens on is stored and then
+/// never runs, and nothing else says so. The embedded worker listens on the
+/// default queue only unless `SERVER_EMBED_QUEUES` lists more, which is the
+/// usual cause; a separate `queue:work --queue=...` that keeps up leaves no
+/// such jobs, so it gives no warning. Empty for other drivers, or when the
+/// jobs table cannot be read (doctor reports the database itself).
+Future<List<DoctorCheck>> waitingJobsChecks(
+  Application app, {
+  Duration waiting = const Duration(minutes: 5),
+}) async {
+  final queue = app.config.section<QueueConfig>();
+  if (queue.defaultConnection != 'database') {
+    return const [];
+  }
+  final cutoff = Clock.now().millisecondsSinceEpoch ~/ 1000 - waiting.inSeconds;
+  final List<Map<String, Object?>> rows;
+  try {
+    rows = await DB
+        .table(queue.table)
+        .select(['queue'])
+        .selectRaw('COUNT(*) AS waiting')
+        .whereNull('reserved_at')
+        .where('available_at', '<=', cutoff)
+        .groupBy(['queue'])
+        .orderBy('queue')
+        .get();
+  } catch (_) {
+    return const [];
+  }
+  final embedded = embeddedQueueNames(app.env, queue);
+  return [
+    for (final row in rows)
+      if (row case {'queue': final String name, 'waiting': final Object count})
+        DoctorCheck(
+          CheckStatus.warning,
+          '$count job(s) on queue [$name] waiting over '
+          '${waiting.inMinutes} minutes',
+          embedded.contains(name)
+              ? 'The embedded worker consumes [$name] but is behind or not '
+                    'running: check the server log, or add a '
+                    '`dartisan queue:work --queue=$name` process.'
+              : embedded.isEmpty
+              ? 'No worker seems to take [$name]: run `dartisan queue:work '
+                    '--queue=$name`, or `serve` with SERVER_EMBED_QUEUE=true.'
+              : 'The embedded worker consumes ${embedded.join(',')} only: '
+                    'add $name to SERVER_EMBED_QUEUES '
+                    '(SERVER_EMBED_QUEUES=${[...embedded, name].join(',')}), '
+                    'or run `dartisan queue:work --queue=$name`.',
+        ),
+  ];
 }
 
 /// [key] from the process environment, else from the project's `.env`.

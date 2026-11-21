@@ -1,4 +1,4 @@
-<!-- source: deployment.md sha256:1be055b8fe04 -->
+<!-- source: deployment.md sha256:676672ec7e30 -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -336,6 +336,14 @@ queue worker, dan scheduler dalam satu proses:
 dart run bin/dartisan.dart serve --embed-queue --embed-scheduler
 SERVER_EMBED_QUEUE=true SERVER_EMBED_SCHEDULER=true bin/server   # sama, dari bundle
 ```
+
+Worker bawaan hanya mengambil queue yang ada di `SERVER_EMBED_QUEUES`
+(dipisah koma; default: queue default). Job yang di-dispatch dengan
+`.onQueue('mail')` menunggu di tabel jobs sampai ada worker yang
+mendengarkan `mail`: cantumkan queue itu (`SERVER_EMBED_QUEUES=default,mail`)
+atau jalankan `dartisan queue:work --queue=mail`. Dengan queue database,
+`dartisan doctor` memberi peringatan untuk setiap queue yang punya job
+menunggu lebih dari lima menit, dan menyebut mana dari keduanya yang kurang.
 
 Queue worker (di `SERVER_EMBED_QUEUES`, default-nya queue default) dan
 scheduler masing-masing berjalan di isolate sendiri, sehingga job tidak
