@@ -1092,6 +1092,14 @@ final class BuildCommand extends Command<int> {
         help:
             'Overwrite an existing Dockerfile; build --no-sqlite even when '
             'DB_CONNECTION is sqlite.',
+      )
+      ..addMultiOption(
+        'include',
+        valueHelp: 'path',
+        help:
+            'Copy a file or directory the server reads at run time (public, '
+            'database, ...) into the bundle at the same relative path. '
+            'Repeatable; .env files are never copied.',
       );
   }
 
@@ -1146,6 +1154,13 @@ final class BuildCommand extends Command<int> {
     final targetOs = r['target-os'] as String?;
     final targetArch = r['target-arch'] as String?;
     final withSqlite = r['sqlite'] as bool;
+    final includes = r['include'] as List<String>;
+    // Checked before the build: a wrong path should not cost a compile.
+    final includeErrors = bundleIncludeErrors(paths.root, includes);
+    if (includeErrors.isNotEmpty) {
+      includeErrors.forEach(stderr.writeln);
+      return 1;
+    }
     if (!withSqlite) {
       final connection =
           projectEnvValue(paths.root, 'DB_CONNECTION') ?? 'sqlite';
@@ -1195,6 +1210,14 @@ final class BuildCommand extends Command<int> {
       ).copySync(p.join(paths.root, output, 'bundle', 'bin', exe));
     }
     final bundle = Directory(p.join(paths.root, output, 'bundle'));
+    if (includes.isNotEmpty) {
+      final copied = copyBundleIncludes(paths.root, bundle.path, includes);
+      stdout.writeln('Included ${includes.join(', ')} ($copied files).');
+    }
+    final hint = bundleIncludeHint(paths.root, includes);
+    if (hint != null) {
+      stdout.writeln(hint);
+    }
     final size = bundle
         .listSync(recursive: true)
         .whereType<File>()
@@ -1357,6 +1380,97 @@ void Function() useSystemSqlite(String root) {
   }
   pubspec.writeAsStringSync('${original.trimRight()}\n\n$systemSqliteHooks');
   return () => pubspec.writeAsStringSync(original);
+}
+
+/// Top-level bundle directories `--include` may not write into: they hold
+/// the executables and their libraries.
+const Set<String> _bundleOwnDirectories = {'bin', 'lib'};
+
+/// Whether [name] is an environment file (`.env`, `.env.production`, ...),
+/// which holds secrets and never goes into a bundle.
+bool _isEnvFile(String name) => name == '.env' || name.startsWith('.env.');
+
+/// Why the `dartisan build --include` paths [includes] cannot be copied
+/// from the project at [root]; empty when all of them can.
+List<String> bundleIncludeErrors(String root, List<String> includes) {
+  final errors = <String>[];
+  for (final include in includes) {
+    final relative = p.normalize(include);
+    final segments = p.split(relative);
+    if (p.isAbsolute(include)) {
+      errors.add('--include $include: use a path relative to the project.');
+    } else if (relative == '.' || segments.first == '..') {
+      errors.add('--include $include: only paths inside the project.');
+    } else if (_bundleOwnDirectories.contains(segments.first)) {
+      errors.add(
+        '--include $include: bin/ and lib/ belong to the built bundle.',
+      );
+    } else if (segments.any(_isEnvFile)) {
+      errors.add(
+        '--include $include: .env files hold secrets; put them on the '
+        'server, not in the bundle.',
+      );
+    } else if (FileSystemEntity.typeSync(p.join(root, relative)) ==
+        FileSystemEntityType.notFound) {
+      errors.add('--include $include: not found in the project.');
+    }
+  }
+  return errors;
+}
+
+/// Copies each of [includes] (checked by [bundleIncludeErrors]) from the
+/// project at [root] into [bundle] at the same relative path, and returns
+/// the number of files copied.
+///
+/// A directory replaces the copy of an earlier build, so a file deleted
+/// from the project does not linger in the bundle; `.env` files inside it
+/// are skipped.
+int copyBundleIncludes(String root, String bundle, List<String> includes) {
+  var copied = 0;
+  for (final include in includes) {
+    final relative = p.normalize(include);
+    final source = p.join(root, relative);
+    final target = p.join(bundle, relative);
+    if (FileSystemEntity.isDirectorySync(source)) {
+      final existing = Directory(target);
+      if (existing.existsSync()) {
+        existing.deleteSync(recursive: true);
+      }
+      final files = Directory(source)
+          .listSync(recursive: true)
+          .whereType<File>();
+      for (final file in files) {
+        final name = p.relative(file.path, from: source);
+        if (p.split(name).any(_isEnvFile)) {
+          continue;
+        }
+        final destination = File(p.join(target, name));
+        destination.parent.createSync(recursive: true);
+        file.copySync(destination.path);
+        copied++;
+      }
+    } else {
+      File(target).parent.createSync(recursive: true);
+      File(source).copySync(target);
+      copied++;
+    }
+  }
+  return copied;
+}
+
+/// A reminder when the project has a `public/` directory that [includes]
+/// leaves out: the bundled server would answer 404 for its files.
+String? bundleIncludeHint(String root, List<String> includes) {
+  if (!Directory(p.join(root, 'public')).existsSync()) {
+    return null;
+  }
+  final covered = includes.any(
+    (include) => p.split(p.normalize(include)).first == 'public',
+  );
+  return covered
+      ? null
+      : 'public/ is not in the bundle; add --include public if the server '
+            'serves its files.';
 }
 
 /// Removes SQLite libraries left in [bundle] by an earlier build.

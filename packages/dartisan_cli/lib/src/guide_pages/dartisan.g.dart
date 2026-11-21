@@ -92,7 +92,7 @@ before moving to a new minor version.
 | :-- | :-- |
 | `serve [--watch] [--isolates=N] [--embed-queue] [--embed-scheduler]` | HTTP server; `--watch` hot-reloads |
 | `test [--conformance] [--security] [--coverage]` | Runs the tests |
-| `build [--with-cli] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Native bundle in `build/server/bundle`, optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps); `--target-os=linux` (and `--target-arch=x64` or `arm64`) builds for another machine, see [Deployment](deployment.md#build-on-one-os-run-on-another) |
+| `build [--with-cli] [--include <path>] [--docker [--distroless]] [--no-sqlite] [--target-os] [--target-arch]` | Native bundle in `build/server/bundle`; `--include` copies run-time files (`public`, SQL, ...) into it, see [Deployment](deployment.md#2-binary-compilation-native-bundle); optional `Dockerfile` (`--distroless`: no shell, non-root, see [Deployment](deployment.md#docker)); `--no-sqlite` leaves the SQLite library out (PostgreSQL/MySQL apps); `--target-os=linux` (and `--target-arch=x64` or `arm64`) builds for another machine, see [Deployment](deployment.md#build-on-one-os-run-on-another) |
 | `route:list` | The route table |
 | `openapi:generate [--output]` | OpenAPI 3.1 from the routes and their declared metadata |
 | `client:flutter [--output] [--package-name] [--prefix] [--state] [--watch]` | A typed Dart/Flutter client package from the routes, with the server's validation rules ([Flutter client](flutter-client.md)) |
