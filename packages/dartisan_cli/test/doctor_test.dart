@@ -578,6 +578,39 @@ void main() {
       );
     },
   );
+
+  test(
+    'a build bundle is recognized instead of a Project root error',
+    () async {
+      // A deployed `dartisan build --with-cli` bundle: executables, no
+      // pubspec.yaml, and (here) no .env yet.
+      File(p.join(root.path, 'pubspec.yaml')).deleteSync();
+      File(p.join(root.path, '.env')).deleteSync();
+      File(p.join(root.path, 'bin', 'server'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('');
+      expect(buildBundleRoot(root.path), p.normalize(root.path));
+
+      final checks = await diagnose(const {});
+      expect(
+        titled(checks, CheckStatus.error),
+        isNot(contains('Project root')),
+      );
+      expect(
+        titled(checks, CheckStatus.ok),
+        contains('Build bundle at ${p.normalize(root.path)}'),
+      );
+      // The .env checks still run, against the bundle.
+      expect(titled(checks, CheckStatus.warning), contains('.env is missing'));
+    },
+  );
+
+  test('a directory with neither pubspec.yaml nor bin/server', () async {
+    File(p.join(root.path, 'pubspec.yaml')).deleteSync();
+    expect(buildBundleRoot(root.path), isNull);
+    final checks = await diagnose(const {});
+    expect(titled(checks, CheckStatus.error), contains('Project root'));
+  });
 }
 
 /// A user model for the JWT guard of the denylist check.
