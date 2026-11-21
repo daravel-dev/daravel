@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/deployment.md`.
 const String pageIdDeployment =
-    r'''<!-- source: deployment.md sha256:1be055b8fe04 -->
+    r'''<!-- source: deployment.md sha256:efc10861257a -->
 # Deployment
 
 ## Konsep & Arsitektur Ahead-of-Time (AOT) Single Binary
@@ -80,6 +80,21 @@ menjalankan build hook: SQLite diunduh (hash-nya diverifikasi) dan diletakkan
 di `bundle/lib/`. Salin seluruh direktori `bundle/` ke server lalu jalankan
 `bin/server`. (`dart compile exe` tidak bisa dipakai karena menolak paket yang
 punya build hook.)
+
+Bundle berisi executable dan library-nya, bukan file yang dibaca server dari
+disk. `--include` menyalin file itu ke bundle di path relatif yang sama:
+
+```bash
+dart run bin/dartisan.dart build --with-cli \
+  --include public --include database/migrations --include redis/lua
+```
+
+Path diperiksa sebelum kompilasi. Path absolut, path di luar proyek, `bin/`
+dan `lib/` (milik bundle) serta file `.env` ditolak, dan path yang tidak ada
+menggagalkan build. File `.env` di dalam direktori yang disertakan dilewati:
+letakkan `.env` di server. Direktori yang disertakan menggantikan salinan
+dari build sebelumnya. Proyek yang punya direktori `public/` tetapi tidak
+menyertakannya mendapat pengingat.
 
 Aplikasi di PostgreSQL atau MySQL tidak membutuhkan library SQLite di
 bundle-nya:

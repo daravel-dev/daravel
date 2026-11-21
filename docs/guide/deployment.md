@@ -72,6 +72,22 @@ hooks: SQLite is downloaded (hash-verified) and placed in `bundle/lib/`.
 Copy the whole `bundle/` directory to the server and start `bin/server`.
 (`dart compile exe` cannot be used: it refuses packages with build hooks.)
 
+The bundle holds the executables and their libraries, not the files the
+server reads from disk. `--include` copies those in at the same relative
+path:
+
+```bash
+dart run bin/dartisan.dart build --with-cli \
+  --include public --include database/migrations --include redis/lua
+```
+
+Paths are checked before the compile. Absolute paths, paths outside the
+project, `bin/` and `lib/` (the bundle's own) and `.env` files are refused,
+and a missing path fails the build. `.env` files inside an included
+directory are skipped: put `.env` on the server. An included directory
+replaces its copy from an earlier build. A project with a `public/`
+directory that is not included gets a reminder.
+
 An application on PostgreSQL or MySQL does not need the SQLite library in
 its bundle:
 
