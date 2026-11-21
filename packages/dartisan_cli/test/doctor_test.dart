@@ -578,6 +578,91 @@ void main() {
       );
     },
   );
+
+  group('jobs nobody takes (#453)', () {
+    /// `waitingJobsChecks` in an application on the database queue whose jobs
+    /// table holds a job on each of [queues]: available for ten minutes,
+    /// except `fresh` (just now) and `reserved` (taken by a worker).
+    Future<List<DoctorCheck>> checksWith(Map<String, String> env) async {
+      final app = appWith({'QUEUE_CONNECTION': 'database', ...env})();
+      await app.boot();
+      try {
+        return await app.run(() async {
+          await DB.manager.statement(
+            'CREATE TABLE jobs (id INTEGER PRIMARY KEY, queue TEXT, '
+            'payload TEXT, attempts INTEGER, reserved_at INTEGER, '
+            'available_at INTEGER, created_at INTEGER)',
+          );
+          final now = Clock.now().millisecondsSinceEpoch ~/ 1000;
+          final old = now - 600;
+          Map<String, Object?> job(String queue, int at, [int? reserved]) => {
+            'queue': queue,
+            'payload': '{}',
+            'attempts': 0,
+            'reserved_at': reserved,
+            'available_at': at,
+            'created_at': at,
+          };
+          await DB.table('jobs').insert(job('default', old));
+          await DB.table('jobs').insert(job('lifecycle', old));
+          await DB.table('jobs').insert(job('lifecycle', old));
+          await DB.table('jobs').insert(job('fresh', now));
+          await DB.table('jobs').insert(job('reserved', old, now));
+          return waitingJobsChecks(app);
+        });
+      } finally {
+        await app.shutdown();
+      }
+    }
+
+    test('the embedded worker on the default queue only', () async {
+      final checks = await checksWith({'SERVER_EMBED_QUEUE': 'true'});
+      expect(checks.map((c) => c.title), [
+        '1 job(s) on queue [default] waiting over 5 minutes',
+        '2 job(s) on queue [lifecycle] waiting over 5 minutes',
+      ]);
+      expect(checks.every((c) => c.status == CheckStatus.warning), isTrue);
+      expect(checks.first.detail, contains('behind or not running'));
+      expect(
+        checks.last.detail,
+        contains('SERVER_EMBED_QUEUES=default,lifecycle'),
+      );
+    });
+
+    test('SERVER_EMBED_QUEUES lists the queue', () async {
+      final checks = await checksWith({
+        'SERVER_EMBED_QUEUE': 'true',
+        'SERVER_EMBED_QUEUES': 'default, lifecycle',
+      });
+      expect(
+        checks.map((c) => c.detail),
+        everyElement(contains('behind or not running')),
+      );
+    });
+
+    test('no embedded worker', () async {
+      final checks = await checksWith(const {});
+      expect(checks.last.detail, contains('queue:work --queue=lifecycle'));
+      expect(checks.last.detail, contains('SERVER_EMBED_QUEUE=true'));
+    });
+
+    test('other drivers and an unreadable table give nothing', () async {
+      final sync = appWith({'QUEUE_CONNECTION': 'sync'})();
+      await sync.boot();
+      try {
+        expect(await sync.run(() => waitingJobsChecks(sync)), isEmpty);
+      } finally {
+        await sync.shutdown();
+      }
+      final noTable = appWith({'QUEUE_CONNECTION': 'database'})();
+      await noTable.boot();
+      try {
+        expect(await noTable.run(() => waitingJobsChecks(noTable)), isEmpty);
+      } finally {
+        await noTable.shutdown();
+      }
+    });
+  });
 }
 
 /// A user model for the JWT guard of the denylist check.
