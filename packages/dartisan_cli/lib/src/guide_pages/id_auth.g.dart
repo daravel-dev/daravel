@@ -2,7 +2,7 @@
 // Do not edit; run `dart run tool/docs/generate.dart`.
 
 /// `docs/guide/id/auth.md`.
-const String pageIdAuth = r'''<!-- source: auth.md sha256:d61977ea59e3 -->
+const String pageIdAuth = r'''<!-- source: auth.md sha256:941f661762b5 -->
 # Autentikasi dan otorisasi
 
 Guard didaftarkan di `bootstrap/app.dart`:
@@ -94,6 +94,42 @@ JWT_LEEWAY=0                        # detik, sama dengan leeway tymon
 
 Token yang diterbitkan Laravel lalu dapat dipakai untuk login sebagai user
 yang sama di Daravel, dan sebaliknya; `prv` untuk class model lain ditolak.
+
+### Token dari identity provider (RS256, JWKS)
+
+Google, Firebase Authentication, Auth0, Okta, Keycloak dan sejenisnya
+menandatangani ID token dengan RS256 dan menerbitkan kunci publiknya sebagai
+JSON Web Key Set. `JwksVerifier` memeriksa token seperti itu dengan kunci
+tersebut:
+
+```dart
+// Firebase Authentication (Google, email, ...): pemeriksaan Admin SDK.
+final firebase = JwksVerifier.firebase('my-project');
+final claims = await firebase.verify(idToken); // selain itu JwtException
+final uid = claims.subject;
+
+// ID token Google Sign-In untuk satu OAuth client.
+final google = JwksVerifier.google('123.apps.googleusercontent.com');
+
+// Provider apa pun.
+final auth0 = JwksVerifier(
+  Uri.parse('https://tenant.eu.auth0.com/.well-known/jwks.json'),
+  issuers: {'https://tenant.eu.auth0.com/'},
+  audience: 'https://api.example.com',
+);
+```
+
+Key set diambil saat pertama dipakai dan disimpan selama `Cache-Control:
+max-age` responnya; token dengan `kid` yang tidak dikenal memicu pengambilan
+ulang (provider merotasi kunci), paling banyak sekali per menit, dan
+pengambilan yang gagal tetap memakai kunci yang sudah ada. Simpan satu
+verifier per provider, misalnya singleton di container. Kunci RS256
+(`RsaJwtKey`, minimal 2048 bit) hanya memverifikasi: `JwtCodec` menolak
+menandatangani dengannya, dan `JWT_ALGO=RS256` ditolak untuk guard JWT, yang
+menandatangani tokennya sendiri dengan HS256 atau EdDSA.
+`JsonWebKeySet.parse` membaca dokumen JWKS secara mandiri (kunci tanda
+tangan RSA dan OKP Ed25519; selain itu dilewati), untuk kunci yang Anda muat
+sendiri.
 
 ## Hashing
 

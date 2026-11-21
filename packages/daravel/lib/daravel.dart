@@ -143,6 +143,7 @@ export 'src/auth/contracts.dart';
 export 'src/auth/encryption.dart';
 export 'src/auth/env_encryption.dart';
 export 'src/auth/hashing.dart';
+export 'src/auth/jwks.dart';
 export 'src/auth/jwt.dart';
 export 'src/auth/tokens.dart';
 export 'src/http/rate_limiter.dart';

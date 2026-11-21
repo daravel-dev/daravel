@@ -293,6 +293,14 @@ final class AuthManager {
   JwtCodec defaultJwtCodec() {
     final keys = <JwtKey>[];
     final publicKey = config.jwtPublicKey;
+    if (config.jwtAlgorithm == .rs256) {
+      // Without this, RS256 would fall through to the HMAC branch below.
+      throw const ConfigException(
+        'JWT_ALGO=RS256 is for verifying tokens of an identity provider '
+        '(JwksVerifier); the JWT guard signs its own tokens with HS256 or '
+        'EdDSA.',
+      );
+    }
     if (config.jwtAlgorithm == .eddsa) {
       if (publicKey == null || publicKey.isEmpty) {
         throw const ConfigException(
