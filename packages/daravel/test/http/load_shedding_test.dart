@@ -306,6 +306,59 @@ void main() {
       // idle loop must do is come back under the limit and serve.
       await expectServedOnceCaughtUp();
     });
+
+    test('the lag timer does not run before the first request', () {
+      expect(lagged.lagTimerActive, isFalse);
+      expect(lagged.queueDelay, Duration.zero);
+    });
+
+    test('the lag timer stops once the engine has been idle, and starts again '
+        'with the next request', () async {
+      final first = await getLagged('/fast');
+      expect(first.statusCode, 200);
+      await first.drain<void>();
+      expect(lagged.lagTimerActive, isTrue);
+
+      // lagIdleStop (1 s) after the last request; waitFor allows 5 s.
+      await waitFor(() => !lagged.lagTimerActive);
+      expect(lagged.queueDelay, Duration.zero);
+
+      final second = await getLagged('/fast');
+      expect(second.statusCode, 200);
+      await second.drain<void>();
+      expect(lagged.lagTimerActive, isTrue);
+      expect(lagged.shedRequests, 0);
+    });
+
+    test('an idle gap is not lag: the first request after the timer stopped is '
+        'served', () async {
+      final warmUp = await getLagged('/fast');
+      expect(warmUp.statusCode, 200);
+      await warmUp.drain<void>();
+      await waitFor(() => !lagged.lagTimerActive);
+      final shedBefore = lagged.shedRequests;
+
+      // Block the loop while idle, far above the 30 ms limit.
+      final blocked = Stopwatch()..start();
+      while (blocked.elapsed < const Duration(milliseconds: 100)) {}
+
+      // The second request reads the lag measured since the restart: a
+      // timer restarted from where it stopped would see the whole idle gap
+      // as lag and shed it.
+      for (var i = 0; i < 2; i++) {
+        final response = await getLagged('/fast');
+        expect(response.statusCode, 200, reason: 'request ${i + 1}');
+        await response.drain<void>();
+      }
+      expect(lagged.shedRequests, shedBefore);
+    });
+
+    test('an engine without maxQueueDelay never starts the timer', () async {
+      final response = await get('/fast');
+      expect(response.statusCode, 200);
+      await response.drain<void>();
+      expect(engine.lagTimerActive, isFalse);
+    });
   });
 
   group('ServeOptions.fromEnv', () {
