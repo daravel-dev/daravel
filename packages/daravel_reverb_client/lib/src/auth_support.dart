@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'auth.dart';
 
 /// An authorizer holding something to release ([EchoAuth.bearer] and
-/// [EchoAuth.endpoint] keep one HTTP client): `Echo.disconnect` closes it.
-/// Not exported.
+/// [EchoAuth.endpoint] keep one HTTP client): `Echo.disconnect` closes it,
+/// and so does a lost connection. Not exported.
 abstract interface class ClosableEchoAuth {
   /// Releases what the authorizer holds; it can be used again afterwards.
   void close();

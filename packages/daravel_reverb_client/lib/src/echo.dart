@@ -170,14 +170,11 @@ final class Echo {
     _stopTimers();
     final socket = _socket;
     _socket = null;
+    _socketId = null;
+    _release();
     await _subscription?.cancel();
     _subscription = null;
     await socket?.sink.close(1000);
-    _socketId = null;
-    // The authorizer's HTTP client; made again if [connect] follows.
-    if (auth case final ClosableEchoAuth closable) {
-      closable.close();
-    }
     _setState(EchoConnectionState.disconnected);
   }
 
@@ -373,16 +370,7 @@ final class Echo {
     _socket = null;
     _subscription = null;
     _socketId = null;
-    for (final channel in _channels.values) {
-      channel
-        .._subscribed = false
-        .._pending = false;
-    }
-    // Drop any idle keep-alive HTTP connections to the worker that just went
-    // away so the next reconnect's channel authorizations open fresh ones.
-    if (auth case final ClosableEchoAuth closable) {
-      closable.close();
-    }
+    _release();
     if (_closing) {
       return;
     }
@@ -405,6 +393,22 @@ final class Echo {
       }
     });
     _setState(EchoConnectionState.unavailable);
+  }
+
+  /// What a connection that is gone leaves behind: no channel is
+  /// subscribed or on its way, and the authorizer's HTTP client is closed
+  /// (the next authorization makes one again). Closing it drops its idle
+  /// keep-alive sockets, whose server may be gone too, and ends the
+  /// authorizations still running for the old socket id.
+  void _release() {
+    for (final channel in _channels.values) {
+      channel
+        .._subscribed = false
+        .._pending = false;
+    }
+    if (auth case final ClosableEchoAuth closable) {
+      closable.close();
+    }
   }
 
   /// The next reconnect delay: exponential, capped, with jitter (half to
@@ -595,10 +599,12 @@ base class EchoChannel {
     try {
       authorization = await _authorization();
     } on Object catch (error) {
-      // The connection changed while authorizing: the next one subscribes.
-      if (_echo.socketId != socketId) {
+      // A newer connection subscribes for itself, and [_pending] is its.
+      final current = _echo.socketId;
+      if (current != null && current != socketId) {
         return;
       }
+      // This connection's, or there is none: nothing is on its way.
       _pending = false;
       if (_cancelled) {
         _echo.leaveChannel(name);
@@ -613,8 +619,17 @@ base class EchoChannel {
       }
       return;
     }
-    // The connection changed while authorizing: the next one subscribes.
-    if (_echo.socketId != socketId || !_echo._channels.containsKey(name)) {
+    final current = _echo.socketId;
+    if (current != socketId) {
+      // A newer connection subscribes for itself, and [_pending] is its.
+      // With none (closed, lost, or one without a socket id) nothing is on
+      // its way, and this authorization is of no use.
+      if (current == null) {
+        _pending = false;
+      }
+      return;
+    }
+    if (!_echo._channels.containsKey(name)) {
       return;
     }
     // Left while authorizing: nothing was sent, so nothing to undo.

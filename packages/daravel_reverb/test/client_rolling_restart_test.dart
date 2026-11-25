@@ -172,6 +172,19 @@ Future<void> until(
 /// subscribes its public, private and presence channels again, sees both
 /// members again, and receives what is published afterwards.
 void main() {
+  // After the test's own teardowns, which stop the workers using it. A
+  // file one of them still holds for a moment is tried again.
+  tearDownAll(() async {
+    final directory = Directory(base);
+    for (var tries = 0; tries < 50 && directory.existsSync(); tries++) {
+      try {
+        directory.deleteSync(recursive: true);
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  });
+
   test('a rolling restart: 1001, reconnect, channels and presence back, '
       'events delivered', () async {
     final port = await freePort();
