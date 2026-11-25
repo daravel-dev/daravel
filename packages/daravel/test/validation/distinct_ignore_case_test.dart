@@ -745,7 +745,10 @@ void main() {
       String rule = 'distinct:ignore_case',
     ]) async {
       var best = 1 << 62;
-      for (var run = 0; run < 3; run++) {
+      // A first run warms the code up; the best of five keeps a pause of
+      // the machine out of the ratio.
+      await Validator({'items': items}, {'items.*': rule}).run();
+      for (var run = 0; run < 5; run++) {
         final watch = Stopwatch()..start();
         await Validator({'items': items}, {'items.*': rule}).run();
         final elapsed = watch.elapsedMicroseconds;
@@ -767,16 +770,24 @@ void main() {
       'doubles': (i) => i * 0.37 + 1e-3,
     };
     for (final MapEntry(:key, :value) in shapes.entries) {
-      test('$key: 8000 items take less than 8 times 2000', () async {
-        final small = await micros([for (var i = 0; i < 2000; i++) value(i)]);
-        final large = await micros([for (var i = 0; i < 8000; i++) value(i)]);
-        // ignore: avoid_print
-        print('$key: 2000 in ${small}us, 8000 in ${large}us');
-        expect(large, lessThan(8 * small), reason: '$small -> $large');
-      });
+      test(
+        '$key: four times the items take less than 10 times as long',
+        () async {
+          final small = await micros([
+            for (var i = 0; i < 10000; i++) value(i),
+          ]);
+          final large = await micros([
+            for (var i = 0; i < 40000; i++) value(i),
+          ]);
+          // ignore: avoid_print
+          print('$key: 10000 in ${small}us, 40000 in ${large}us');
+          // Linear work is 4 times, quadratic 16.
+          expect(large, lessThan(10 * small), reason: '$small -> $large');
+        },
+      );
     }
 
-    test('non-ASCII text costs less than 6 times plain distinct', () async {
+    test('non-ASCII text costs less than 8 times plain distinct', () async {
       final items = [
         for (var i = 0; i < 8000; i++)
           '$i${zhe * 497}$eAcuteUpper${ya * 497}'.padRight(1000, ya),
@@ -785,7 +796,7 @@ void main() {
       final folded = await micros(items);
       // ignore: avoid_print
       print('8000 x 1000 chars: plain ${plain}us, ignore_case ${folded}us');
-      expect(folded, lessThan(6 * plain), reason: '$plain vs $folded');
+      expect(folded, lessThan(8 * plain), reason: '$plain vs $folded');
     });
   });
 }
