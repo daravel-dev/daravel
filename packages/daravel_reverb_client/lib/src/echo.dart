@@ -595,7 +595,9 @@ base class EchoChannel {
   /// longer the current one, so that what the authorization ends with, an
   /// error too, counts for nothing and is not reported. A newer connection
   /// subscribes for itself, and [_pending] is its; with none (closed, lost,
-  /// or one without a socket id) nothing is on its way.
+  /// or one without a socket id) nothing is on its way, and a channel left
+  /// meanwhile is dropped here: a newer connection drops such channels
+  /// when it is established, and without one nothing else would.
   bool _outdated(String socketId) {
     final current = _echo.socketId;
     if (current == socketId) {
@@ -603,6 +605,9 @@ base class EchoChannel {
     }
     if (current == null) {
       _pending = false;
+      if (_cancelled && identical(_echo._channels[name], this)) {
+        _echo.leaveChannel(name);
+      }
     }
     return true;
   }

@@ -258,6 +258,50 @@ void main() {
       expect(subscribes(name), ['k:new']);
       expect(errors, isEmpty);
     });
+
+    // A channel left while it is authorizing is only marked, and dropped
+    // once that ends; with no connection left nothing else would drop it.
+    for (final (how, gone, answer) in [
+      ('disconnect(), then it fails', 'closed', 'fails'),
+      ('disconnect(), then it succeeds', 'closed', 'succeeds'),
+      ('a lost connection, then it fails', 'lost', 'fails'),
+    ]) {
+      test('left while authorizing, $how: the channel is gone', () async {
+        await authorizing(old);
+        echo.leaveChannel(name);
+        if (gone == 'closed') {
+          await echo.disconnect();
+        } else {
+          // 4001: no reconnect follows.
+          await server.drop(4001);
+          await until(
+            () => echo.connectionState == EchoConnectionState.disconnected,
+            'disconnected',
+          );
+        }
+        if (answer == 'fails') {
+          asked[old]!.completeError(lateFailure);
+        } else {
+          asked[old]!.complete({'auth': 'k:old'});
+        }
+        await settle();
+
+        expect(errors, isEmpty);
+        expect(channelErrors, isEmpty);
+        expect(echo.channels, isEmpty);
+        // Joined again it is another channel, not the one left.
+        expect(echo.private('x'), isNot(same(channel)));
+        expect(channel.subscribed, isFalse);
+        expect(
+          server.received.where(
+            (frame) =>
+                frame['event'] == 'pusher:subscribe' ||
+                frame['event'] == 'pusher:unsubscribe',
+          ),
+          isEmpty,
+        );
+      });
+    }
   });
 
   test('disconnect() leaves no channel subscribed or pending', () async {
@@ -644,7 +688,7 @@ void main() {
           expect(errors, isEmpty);
           expect(firstErrors, isEmpty);
           expect(channel.subscribed, isTrue);
-          expect(endpoint.count['$otherId private-b'], inInclusiveRange(1, 2));
+          expect(endpoint.count['$otherId private-b'], 2);
           expect(endpoint.count['$firstId private-a'], 1);
           expect(endpoint.count, hasLength(2));
         });
