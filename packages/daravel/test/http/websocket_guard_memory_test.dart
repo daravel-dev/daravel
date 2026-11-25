@@ -11,14 +11,36 @@ import 'package:test/test.dart';
 
 import 'support/raw_ws_client.dart';
 
+/// Deletes [dir], trying again for a moment when the OS still holds a file
+/// of it (a process that was just killed). A directory that stays does not
+/// fail the run: one line names it.
+Future<void> deleteDirectory(Directory dir) async {
+  const attempts = 5;
+  for (var attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      if (dir.existsSync()) {
+        dir.deleteSync(recursive: true);
+      }
+      return;
+    } on FileSystemException {
+      if (attempt < attempts) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
+  }
+  print('could not delete the temporary directory ${dir.path}');
+}
+
 /// The WebSocket guard keeps a server's memory bounded against clients that
 /// send without end or never read. The server runs in a process of its own
 /// (support/guard_server.dart), so its memory is not mixed with the other
 /// test files the runner runs at the same time.
 void main() {
-  late Directory scratch;
+  // Null until setUpAll created them, so tearDownAll can tell what exists
+  // when setUpAll failed half way.
+  Directory? scratch;
+  Process? server;
   late String serverDill;
-  late Process server;
   late int port;
   final logs = <String>[];
 
@@ -26,8 +48,9 @@ void main() {
     // Compile guard_server.dart once to a kernel snapshot so spawning the
     // dedicated server in the empty-frames test does not pay a second ~30 s
     // front-end compile on a 2-vCPU runner.
-    scratch = Directory.systemTemp.createTempSync('daravel_ws_guard_mem_');
-    serverDill = '${scratch.path}${Platform.pathSeparator}guard_server.dill';
+    final dir = Directory.systemTemp.createTempSync('daravel_ws_guard_mem_');
+    scratch = dir;
+    serverDill = '${dir.path}${Platform.pathSeparator}guard_server.dill';
     final compiled = await Process.run(Platform.resolvedExecutable, [
       'compile',
       'kernel',
@@ -41,9 +64,12 @@ void main() {
         '${compiled.stderr}',
       );
     }
-    server = await Process.start(Platform.resolvedExecutable, [serverDill]);
+    final process = await Process.start(Platform.resolvedExecutable, [
+      serverDill,
+    ]);
+    server = process;
     final ready = Completer<int>();
-    server.stdout
+    process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
@@ -53,15 +79,24 @@ void main() {
             logs.add(line.substring(4));
           }
         });
-    server.stderr.drain<void>().ignore();
+    process.stderr.drain<void>().ignore();
     port = await ready.future.timeout(const Duration(seconds: 60));
   });
 
   tearDownAll(() async {
-    server.kill();
-    await server.exitCode;
-    if (scratch.existsSync()) {
-      scratch.deleteSync(recursive: true);
+    // Whatever setUpAll got to, the directory it created goes, also when
+    // stopping the server throws.
+    try {
+      final process = server;
+      if (process != null) {
+        process.kill();
+        await process.exitCode;
+      }
+    } finally {
+      final dir = scratch;
+      if (dir != null) {
+        await deleteDirectory(dir);
+      }
     }
   });
 
@@ -337,7 +372,11 @@ void main() {
     final bytes = frames.takeBytes();
     // A server of its own, whose resident memory only this test moves.
     final own = await Process.start(Platform.resolvedExecutable, [serverDill]);
-    addTearDown(own.kill);
+    // Gone before tearDownAll deletes the kernel file it runs from.
+    addTearDown(() async {
+      own.kill();
+      await own.exitCode;
+    });
     own.stderr.drain<void>().ignore();
     final ownPort = await own.stdout
         .transform(utf8.decoder)
