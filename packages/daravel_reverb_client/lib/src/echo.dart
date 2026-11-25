@@ -170,14 +170,12 @@ final class Echo {
     _stopTimers();
     final socket = _socket;
     _socket = null;
+    final socketId = _socketId;
+    _socketId = null;
+    _release(socketId);
     await _subscription?.cancel();
     _subscription = null;
     await socket?.sink.close(1000);
-    _socketId = null;
-    // The authorizer's HTTP client; made again if [connect] follows.
-    if (auth case final ClosableEchoAuth closable) {
-      closable.close();
-    }
     _setState(EchoConnectionState.disconnected);
   }
 
@@ -372,12 +370,9 @@ final class Echo {
     _stopTimers();
     _socket = null;
     _subscription = null;
+    final socketId = _socketId;
     _socketId = null;
-    for (final channel in _channels.values) {
-      channel
-        .._subscribed = false
-        .._pending = false;
-    }
+    _release(socketId);
     if (_closing) {
       return;
     }
@@ -400,6 +395,22 @@ final class Echo {
       }
     });
     _setState(EchoConnectionState.unavailable);
+  }
+
+  /// What a connection that is gone leaves behind: no channel is
+  /// subscribed or on its way, and the authorizer's HTTP client is closed
+  /// (the next authorization makes one again). Closing it drops its idle
+  /// keep-alive sockets, whose server may be gone too, and ends the
+  /// authorizations still running for [socketId], the one it had.
+  void _release(String? socketId) {
+    for (final channel in _channels.values) {
+      channel
+        .._subscribed = false
+        .._pending = false;
+    }
+    if (auth case final ClosableEchoAuth closable) {
+      closable.close(socketId);
+    }
   }
 
   /// The next reconnect delay: exponential, capped, with jitter (half to
@@ -580,6 +591,27 @@ base class EchoChannel {
   Future<Map<String, Object?>> _authorization() async =>
       const <String, Object?>{};
 
+  /// Whether the connection an authorization was for ([socketId]) is no
+  /// longer the current one, so that what the authorization ends with, an
+  /// error too, counts for nothing and is not reported. A newer connection
+  /// subscribes for itself, and [_pending] is its; with none (closed, lost,
+  /// or one without a socket id) nothing is on its way, and a channel left
+  /// meanwhile is dropped here: a newer connection drops such channels
+  /// when it is established, and without one nothing else would.
+  bool _outdated(String socketId) {
+    final current = _echo.socketId;
+    if (current == socketId) {
+      return false;
+    }
+    if (current == null) {
+      _pending = false;
+      if (_cancelled && identical(_echo._channels[name], this)) {
+        _echo.leaveChannel(name);
+      }
+    }
+    return true;
+  }
+
   Future<void> _subscribe() async {
     final socketId = _echo.socketId;
     if (socketId == null) {
@@ -590,6 +622,10 @@ base class EchoChannel {
     try {
       authorization = await _authorization();
     } on Object catch (error) {
+      // Its connection is gone: a failure there is not one of the channel.
+      if (_outdated(socketId)) {
+        return;
+      }
       _pending = false;
       if (_cancelled) {
         _echo.leaveChannel(name);
@@ -604,8 +640,10 @@ base class EchoChannel {
       }
       return;
     }
-    // The connection changed while authorizing: the next one subscribes.
-    if (_echo.socketId != socketId || !_echo._channels.containsKey(name)) {
+    if (_outdated(socketId)) {
+      return;
+    }
+    if (!_echo._channels.containsKey(name)) {
       return;
     }
     // Left while authorizing: nothing was sent, so nothing to undo.

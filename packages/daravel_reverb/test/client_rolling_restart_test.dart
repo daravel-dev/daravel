@@ -114,6 +114,7 @@ final class Client {
       },
     );
     echo.onConnectionStateChange.listen(states.add);
+    echo.onError.listen(errors.add);
     echo
         .channel('news')
         .subscribedTo(() => subscribed['news'] = subscribed['news']! + 1)
@@ -132,8 +133,13 @@ final class Client {
   late final EchoPresenceChannel room;
   final List<WebSocketChannel> sockets = [];
   final List<EchoConnectionState> states = [];
+  final List<Map<String, Object?>> errors = [];
   final Map<String, int> subscribed = {'news': 0, 'orders': 0, 'room': 0};
   final List<String> received = [];
+
+  String get summary =>
+      'state=${echo.connectionState} socketId=${echo.socketId} '
+      'sockets=${sockets.length} subscribed=$subscribed errors=$errors';
 
   Set<String> get memberNames => {
     for (final member in room.members) '${member['name']}',
@@ -148,11 +154,13 @@ Future<void> until(
   bool Function() done,
   String what, {
   Duration within = const Duration(seconds: 20),
+  String Function()? diagnose,
 }) async {
   final deadline = DateTime.now().add(within);
   while (!done()) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('timed out waiting for $what');
+      final extra = diagnose == null ? '' : ' (${diagnose()})';
+      fail('timed out waiting for $what$extra');
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));
   }
@@ -164,6 +172,19 @@ Future<void> until(
 /// subscribes its public, private and presence channels again, sees both
 /// members again, and receives what is published afterwards.
 void main() {
+  // After the test's own teardowns, which stop the workers using it. A
+  // file one of them still holds for a moment is tried again.
+  tearDownAll(() async {
+    final directory = Directory(base);
+    for (var tries = 0; tries < 50 && directory.existsSync(); tries++) {
+      try {
+        directory.deleteSync(recursive: true);
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  });
+
   test('a rolling restart: 1001, reconnect, channels and presence back, '
       'events delivered', () async {
     final port = await freePort();
@@ -287,6 +308,7 @@ void main() {
             client.subscribed.values.every((n) => n >= 2),
         '${client.name} subscribed again',
         within: const Duration(seconds: 30),
+        diagnose: () => client.summary,
       );
       expect(client.echo.socketId, isNot(before[client.name]));
     }

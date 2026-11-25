@@ -12,9 +12,13 @@ abstract interface class EchoAuth {
   /// POSTs `socket_id` and `channel_name` (a form, as Laravel Echo does) to
   /// [endpoint] with `Authorization: Bearer <token>` when [token] gives one.
   ///
-  /// A request that takes longer than [timeout] fails the authorization
-  /// (status 0, `timeout`). Without a [client], one is made when first
-  /// needed, used for every authorization and closed by `Echo.disconnect`.
+  /// An authorization that takes longer than [timeout] fails (status 0,
+  /// `timeout`). Without a [client], one is made when first needed, used
+  /// for every authorization and closed by `Echo.disconnect` and when the
+  /// connection is lost; a request that fails before any answer began (a
+  /// keep-alive socket the server closed) is then sent once more, within
+  /// the same [timeout]. A [client] that is given is asked once and never
+  /// closed.
   factory EchoAuth.bearer(
     FutureOr<String?> Function() token, {
     required String endpoint,
@@ -88,11 +92,58 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
   /// authorizations, closed by [close].
   http.Client? _own;
 
+  /// The socket ids of connections that are gone, oldest first: an
+  /// authorization for one of them sends nothing more. Only the last
+  /// [_goneKept] are kept, which is enough: an authorization lasts
+  /// [timeout] at most. Other connections sharing this authorizer are not
+  /// in it, and go on.
+  final Set<String> _gone = {};
+  static const int _goneKept = 16;
+
+  /// The clients made for a second request, each with the socket id it
+  /// authorizes for, while that request is on its way.
+  final Map<http.Client, String> _second = {};
+
   @override
-  void close() {
+  void close(String? socketId) {
+    if (socketId != null) {
+      _gone
+        ..remove(socketId)
+        ..add(socketId);
+      if (_gone.length > _goneKept) {
+        _gone.remove(_gone.first);
+      }
+      _second.removeWhere((client, id) {
+        if (id != socketId) {
+          return false;
+        }
+        client.close();
+        return true;
+      });
+    }
     _own?.close();
     _own = null;
   }
+
+  /// [sending] within [limit], or a [TimeoutException]. A response that
+  /// arrives after that has no reader, and would keep its socket and what
+  /// the server still writes to it: it is read to its end and dropped,
+  /// without waiting for it, and so is the error it may end with. (A
+  /// `Response.fromStream` that runs out of time needs no such care: it
+  /// goes on reading its body to the end, and `timeout` drops its result.)
+  static Future<http.StreamedResponse> _within(
+    Future<http.StreamedResponse> sending,
+    Duration limit,
+  ) => sending.timeout(
+    limit,
+    onTimeout: () {
+      sending
+          .then((late) => late.stream.drain<void>())
+          .catchError((Object _) {})
+          .ignore();
+      throw TimeoutException(null);
+    },
+  );
 
   @override
   Future<Map<String, Object?>> authorize(
@@ -100,21 +151,65 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
     String channel,
   ) async {
     final token = await _token?.call();
+    if (_gone.contains(socketId)) {
+      throw EchoAuthException(channel, 0, 'closed');
+    }
     final requestHeaders = {
       'accept': 'application/json',
       ...headers,
       if (token != null && token.isNotEmpty) 'authorization': 'Bearer $token',
     };
-    final body = {'socket_id': socketId, 'channel_name': channel};
+    final uri = Uri.parse(endpoint);
+    http.Request request() => http.Request('POST', uri)
+      ..headers.addAll(requestHeaders)
+      ..bodyFields = {'socket_id': socketId, 'channel_name': channel};
+    // One deadline for the whole authorization, a second request included.
+    final elapsed = Stopwatch()..start();
+    Duration left() {
+      final left = timeout - elapsed.elapsed;
+      return left > Duration.zero ? left : Duration.zero;
+    }
+
     final http.Response response;
+    http.Client? second;
     try {
-      response = await (client ?? (_own ??= http.Client()))
-          .post(Uri.parse(endpoint), headers: requestHeaders, body: body)
-          .timeout(timeout);
+      http.StreamedResponse answered;
+      try {
+        answered = await _within(
+          (client ?? (_own ??= http.Client())).send(request()),
+          left(),
+        );
+      } on http.ClientException {
+        // No answer began: a pooled keep-alive socket closed by a draining
+        // worker or proxy fails like this, and so does a request on the
+        // shared client when [close] closes it for another connection.
+        // Authorizing is idempotent, so the request is sent once more, on
+        // a client made for it alone: the shared one stays as it is for
+        // the requests still using it. A client the application gave is
+        // not asked twice, and nothing is sent for a connection that is
+        // gone.
+        if (client != null || _gone.contains(socketId)) {
+          rethrow;
+        }
+        if (left() == Duration.zero) {
+          throw TimeoutException(null);
+        }
+        second = http.Client();
+        _second[second] = socketId;
+        answered = await _within(second.send(request()), left());
+      }
+      // The endpoint answered: a body that fails from here on is an error,
+      // not a reason to ask again.
+      response = await http.Response.fromStream(answered).timeout(left());
     } on TimeoutException {
       throw EchoAuthException(channel, 0, 'timeout');
     } on Object catch (error) {
       throw EchoAuthException(channel, 0, '$error');
+    } finally {
+      if (second != null) {
+        _second.remove(second);
+        second.close();
+      }
     }
     final status = response.statusCode;
     if (status < 200 || status >= 300) {
