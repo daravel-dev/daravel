@@ -268,8 +268,10 @@ abstract final class Rules {
   static Rule enumValues<E extends Enum>(List<E> values) =>
       InRule(values.map((v) => v.name).toList());
 
-  /// `distinct`: no duplicates among the list's items (`items.*`).
-  static Rule distinct() => const DistinctRule();
+  /// `distinct`: no duplicates among the list's items (`items.*`). With
+  /// [strict] (`distinct:strict`), values are duplicates only when PHP's
+  /// `===` holds: `1` is not `'1'`.
+  static Rule distinct({bool strict = false}) => DistinctRule(strict: strict);
 
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
@@ -1148,7 +1150,11 @@ final class InRule extends Rule {
 /// `distinct`: see [Rules.distinct].
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
-  const DistinctRule();
+  const DistinctRule({this.strict = false});
+
+  /// `distinct:strict`: values are duplicates only by `===` (`1` is not
+  /// `'1'`, nor `1.0`), as Laravel's `in_array(..., strict: true)`.
+  final bool strict;
   @override
   String get name => 'distinct';
   @override
@@ -1166,6 +1172,9 @@ final class DistinctRule extends Rule {
     final own = _groupOf(c.attribute, patternSegments);
     if (own == null) {
       return null;
+    }
+    if (strict) {
+      return _passesStrict(c, patternSegments, own);
     }
     Map<String, Map<String, int>> build() {
       final groups = <String, Map<String, int>>{};
@@ -1192,6 +1201,102 @@ final class DistinctRule extends Rule {
               as Map<String, Map<String, int>>;
     final seen = groups[own.key]?['${c.value}'] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+  }
+
+  /// The strict path: the groups of plain `distinct`, with each value
+  /// compared by a key that is equal only when PHP's `===` holds.
+  String? _passesStrict(
+    ValidationContext c,
+    List<String> patternSegments,
+    ({String key, bool counted}) own,
+  ) {
+    ({Map<String, Map<String, int>> groups, Map<String, String> keys}) build() {
+      final groups = <String, Map<String, int>>{};
+      final keys = <String, String>{};
+      for (final attribute in Validator.expandPattern(c.data, c.pattern)) {
+        final group = _groupOf(attribute, patternSegments);
+        if (group == null ||
+            !group.counted ||
+            !ValidationContext.exists(c.data, attribute)) {
+          continue;
+        }
+        final counts = groups.putIfAbsent(group.key, () => {});
+        final key = _strictKey(ValidationContext.dig(c.data, attribute));
+        keys[attribute] = key;
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+      return (groups: groups, keys: keys);
+    }
+
+    final memo = c.memo;
+    final built = memo == null
+        ? build()
+        : memo.putIfAbsent(('distinct', c.data, c.pattern, #strict), build)!
+              as ({
+                Map<String, Map<String, int>> groups,
+                Map<String, String> keys,
+              });
+    final key = built.keys[c.attribute] ?? _strictKey(c.value);
+    final seen = built.groups[own.key]?[key] ?? 0;
+    return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
+  }
+
+  // The numbers in a key that stand for an object (it keeps its number: it
+  // equals only itself) and for a NaN or a record (a new number at each
+  // occurrence: never equal).
+  static final Expando<int> _ids = Expando<int>();
+  static int _unique = 0;
+
+  /// A string equal for two values exactly when PHP's `===` holds: a type
+  /// tag and the value (`1`, `1.0`, `'1'` and `true` differ, `-0.0` is
+  /// `0.0`), a list or map by its keys in order (a list has the keys
+  /// `0..n-1`), anything else by its number. One pass over the value.
+  static String _strictKey(Object? value) {
+    final out = StringBuffer();
+    _encode(out, value);
+    return '$out';
+  }
+
+  static void _text(StringBuffer out, String text) =>
+      out.write('s${text.length}:$text');
+
+  static void _encode(StringBuffer out, Object? value) {
+    switch (value) {
+      case null:
+        out.write('n');
+      case final bool b:
+        out.write(b ? 't' : 'f');
+      case final int i:
+        out.write('i$i;');
+      case final double d when d.isNaN:
+        out.write('x${++_unique};');
+      case final double d:
+        out.write('d${d == 0 ? 0.0 : d};');
+      case final String s:
+        _text(out, s);
+      case final List<Object?> list:
+        out.write('a${list.length}{');
+        for (var i = 0; i < list.length; i++) {
+          _text(out, '$i');
+          _encode(out, list[i]);
+        }
+        out.write('}');
+      case final Map<Object?, Object?> map:
+        out.write('a${map.length}{');
+        for (final MapEntry(:key, :value) in map.entries) {
+          if (key is String || key is num || key is bool || key == null) {
+            _text(out, '$key');
+          } else {
+            _encode(out, key);
+          }
+          _encode(out, value);
+        }
+        out.write('}');
+      case Record _:
+        out.write('o${++_unique};');
+      case final Object o:
+        out.write('o${_ids[o] ??= ++_unique};');
+    }
   }
 
   /// The group of [attribute] under [patternSegments] (its keys at every

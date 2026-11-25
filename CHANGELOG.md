@@ -17,7 +17,12 @@ match Laravel more closely.
 
 **Upgrading can change what an application sees:**
 
+- `distinct:strict` now compares values by `===`, where it was read as plain `distinct` (the values' text). A request that passed `distinct:strict` with values equal only by their text validates differently: `1` beside `"1"` was a duplicate (the text `1` twice) and now passes. `1.0` beside `1` was distinct (the texts `1.0` and `1`) and stays distinct. A file or other object is a duplicate only of itself. `distinct` without a parameter, and `distinct:ignore_case`, which is still read as `distinct`, compare the text as before.
+- New public name: `Rules.distinct({bool strict})` (the new named parameter `strict`, default `false`) and `DistinctRule.strict` (a field of the rule).
+
 ### Fixed
+
+- `distinct:strict` was read as `distinct`: it ignored its parameter. It now compares values by PHP's `===`, as Laravel 12.x `validateDistinct` does (`in_array($value, array_values($data), in_array('strict', $parameters))`): `1`, `1.0`, `"1"` and `true` are four different values, `-0.0` equals `0.0`, `NaN` equals nothing, a list equals a map with the same keys in the same order, and any other object equals only itself, however deep it sits in the compared values. Any other parameter is still ignored, and `STRICT` is not `strict`. Items are grouped as before, and the work stays linear in the size of the input.
 
 ## 1.27.7
 
