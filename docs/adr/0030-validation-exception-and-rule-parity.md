@@ -57,7 +57,7 @@ The Daravel `boolean` column is the behaviour of 1.27.7 and is unchanged. Before
 
 And one difference is closed:
 
-- **`boolean:strict`** is implemented as Laravel reads it: only the first parameter counts, and only when it is `strict`, compared exactly (same case) after the rule parser trims surrounding spaces from the rule and from every parameter, as it does for every rule (`boolean:strict`, `boolean:strict,x`, `boolean: strict` and `boolean:strict ` are strict; `boolean:x,strict`, `boolean:STRICT`, `boolean:s trict`, `boolean:` and `boolean` are not), and then only the values `true` and `false` pass. The error key and message are those of `boolean`. `Rules.boolean(strict: true)` builds the same rule. (The parser also accepts `bool` as an alias, which Laravel does not have, and `bool:strict` is strict too.)
+- **`boolean:strict`** is implemented as Laravel reads it: only the first parameter counts, and only when it is `strict`, compared exactly (same case), and then only the values `true` and `false` pass. The error key and message are those of `boolean`. `Rules.boolean(strict: true)` and the `boolean({strict})` chain step (`RuleBuilder` and rule chains) build the same rule. `bool` is an alias of `boolean` in both, since Laravel's `ValidationRuleParser::normalizeRule` maps `Bool` to `Boolean`, so `bool:strict` is strict too. One difference stays on the parameter: Laravel does not trim it, so `boolean: strict` and `boolean:strict ` (a space before or after) are NOT strict in Laravel, while Daravel's rule parser trims every parameter of every rule, so they ARE strict in Daravel. `boolean:x,strict` and `boolean:STRICT` are not strict in either, and neither are `boolean:s trict`, `boolean:` and `boolean`. A form (`application/x-www-form-urlencoded`), multipart or query value is always a string, so `boolean:strict` rejects every value sent that way, in Laravel and in Daravel; use plain `boolean` for form input.
 
 `validated()` and the typed accessors read the same way (`ValidatedData.boolean`, `maybeBoolean`), so a value that passes the rule is read back as the matching `bool`.
 
@@ -80,5 +80,5 @@ A difference whose fix would reject input that is accepted today is recorded in 
 ## Consequences
 
 - `docs/guide/parity.md` lists the `boolean` rule with a note that points here.
-- The first version of this record changed nothing in `lib/`. The revision implements `boolean:strict` (`BooleanRule.strict`, `Rules.boolean(strict:)`, the `RuleBuilder` step) and ships with an upgrade note.
+- The first version of this record changed nothing in `lib/`. The revision implements `boolean:strict` (`BooleanRule.strict`, `Rules.boolean(strict:)`, the `boolean({strict})` step of `RuleBuilder` and rule chains) and ships with an upgrade note.
 - A later revision of this ADR decides the `boolean` alignment; if it changes behaviour, it ships with an upgrade note.
