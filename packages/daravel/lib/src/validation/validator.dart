@@ -114,7 +114,12 @@ final class Validator {
     }
     _booleans = {
       for (final (:attribute, :pattern, :rules) in plan)
-        if (rules.any((rule) => rule is BooleanRule)) ...[attribute, pattern],
+        // Laravel's shouldConvertToBoolean compares the whole rule string
+        // with `boolean`, so a `boolean:strict` field is not one.
+        if (rules.any((rule) => rule is BooleanRule && !rule.strict)) ...[
+          attribute,
+          pattern,
+        ],
     };
     for (final (:attribute, :pattern, :rules) in plan) {
       if (_isExcluded(attribute)) {

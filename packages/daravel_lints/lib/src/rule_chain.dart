@@ -77,6 +77,8 @@ String? _call(String segment) {
     'string' => none('string'),
     'integer' || 'int' => none('integer'),
     'numeric' => none('numeric'),
+    'boolean' || 'bool' when args.isNotEmpty && args[0] == 'strict' =>
+      'boolean(strict: true)',
     'boolean' || 'bool' => none('boolean'),
     'list' => none('list'),
     'map' || 'object' => none('map'),

@@ -30,6 +30,16 @@ void main() {
     ('numeric', 'Rules.numeric()', Rules.numeric()),
     ('boolean', 'Rules.boolean()', Rules.boolean()),
     ('bool', 'Rules.boolean()', Rules.boolean()),
+    (
+      'boolean:strict',
+      'Rules.boolean(strict: true)',
+      Rules.boolean(strict: true),
+    ),
+    (
+      'bool: strict',
+      'Rules.boolean(strict: true)',
+      Rules.boolean(strict: true),
+    ),
     ('list', 'Rules.list()', Rules.list()),
     ('map', 'Rules.map()', Rules.map()),
     ('object', 'Rules.map()', Rules.map()),

@@ -141,4 +141,55 @@ void main() {
       ]);
     });
   });
+
+  group('runtime: a kind it does not know', () {
+    late Map<String, Object?> results;
+
+    setUpAll(() async {
+      final source = clientRuntimeSource;
+      final start = source.indexOf('/// One server validation rule');
+      expect(start, greaterThan(0));
+      final dir = Directory.systemTemp.createTempSync('unknown_kind');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final script = File(p.join(dir.path, 'main.dart'))
+        ..writeAsStringSync('''
+import 'dart:convert';
+
+${source.substring(start)}
+
+void main() {
+  // A kind from another generator version, with no pattern.
+  const unknown = Check.type('a_future_kind', 'no');
+  const digits = Check.pattern('alpha_num', r'^[a-z0-9]+\$', 'no');
+  String? run(Check check, Object? v) {
+    try {
+      return check.apply(v, const {});
+    } on Object {
+      return 'crash';
+    }
+  }
+  final values = <Object?>['abc', 7, null];
+  print(jsonEncode({
+    'unknown': [for (final v in values) run(unknown, v)],
+    'pattern': [for (final v in <Object?>['abc1', 'AB-', 7]) run(digits, v)],
+  }));
+}
+''');
+      final result = await Process.run(Platform.resolvedExecutable, [
+        'run',
+        script.path,
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      results = (jsonDecode('${result.stdout}'.trim()) as Map)
+          .cast<String, Object?>();
+    });
+
+    test('passes a String, an int and null instead of throwing', () {
+      expect(results['unknown'], [null, null, null]);
+    });
+
+    test('a known pattern check still works', () {
+      expect(results['pattern'], [null, 'no', 'no']);
+    });
+  });
 }

@@ -661,6 +661,11 @@ final v = Validator({}, {'age': 'integer|min:18'});
         ruleChainSource('nullable|unique:users,email'),
         "Rules.nullable().unique('users', 'email')",
       );
+      expect(ruleChainSource('boolean:strict'), 'Rules.boolean(strict: true)');
+      expect(
+        ruleChainSource('required|bool: strict'),
+        'Rules.required().boolean(strict: true)',
+      );
       expect(ruleChainSource('regex:/a/'), isNull);
       expect(ruleChainSource(''), isNull);
     });
