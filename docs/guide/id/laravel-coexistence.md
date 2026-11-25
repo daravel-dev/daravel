@@ -1,4 +1,4 @@
-<!-- source: laravel-coexistence.md sha256:6563b0e767b9 -->
+<!-- source: laravel-coexistence.md sha256:a0d57e87b2bd -->
 # Koeksistensi dengan Laravel
 
 Tujuan produk Daravel adalah aplikasi Laravel dan aplikasi Daravel bisa
@@ -82,7 +82,6 @@ ISO-8601 UTC (`Carbon::toJSON()`).
 
 | Laravel | Daravel | Alasannya |
 | :-- | :-- | :-- |
-| `Crypt::encrypt()` memakai PHP `serialize()` | JSON | Belum ada serializer PHP (Tier 2); pakai varian `*String` lintas runtime |
 | `HASH_VERIFY` menolak driver lain | menerima bcrypt dan argon2id saat driver diganti | Agar `rehashPasswordIfRequired` bisa meng-upgrade hash lama (ADR-024) |
 | JSON meng-escape `/` dan non-ASCII (`\/`, `é`) | UTF-8 apa adanya | Setara setelah di-decode; cursor memakai escaping PHP |
 | `$model->with(...)` | `with_(...)` | `with` adalah kata kunci Dart |
@@ -108,8 +107,13 @@ bertipe statis. Daravel mempertahankan tujuannya dan mengubah mekanismenya:
 
 **Nilai cache.** Kedua framework bisa memakai satu tabel `cache`, tetapi Laravel
 menyimpan teks `serialize()` dan Daravel menyimpan JSON. Nilai tulisan pihak lain
-dibaca sebagai cache miss di sini, jadi beri masing-masing `CACHE_PREFIX` sendiri:
-dengan key yang sama, keduanya akan saling menimpa.
+dibaca sebagai cache miss di sini, dan dengan key yang sama keduanya akan saling
+menimpa. Lock job di queue (job unik, `WithoutOverlapping`, debounce) juga entri
+cache, dengan nama key Laravel (`laravel_unique_job:<job>:<id>` sesudah awalan),
+dan kedua aplikasi hanya melihat lock satu sama lain bila `CACHE_PREFIX`-nya sama.
+Jadi untuk saat ini awalan adalah pilihan. Awalan berbeda memisahkan nilai, tetapi
+job unik yang sama lalu bisa tertunda di kedua aplikasi sekaligus. Awalan yang sama
+membagi lock, dan kedua aplikasi lalu saling menimpa nilai pada key yang sama.
 
 **Queue.** Kedua framework bisa memakai satu tabel `jobs`, tetapi
 masing-masing hanya menjalankan job miliknya sendiri: payload Laravel
