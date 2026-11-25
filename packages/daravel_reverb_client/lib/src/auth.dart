@@ -92,25 +92,66 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
   /// authorizations, closed by [close].
   http.Client? _own;
 
-  /// How often [close] ran. An authorization that began before the last
-  /// time belongs to a connection that is gone: it sends nothing more.
-  int _closes = 0;
+  /// The socket ids of connections that are gone, oldest first: an
+  /// authorization for one of them sends nothing more. Only the last
+  /// [_goneKept] are kept, which is enough: an authorization lasts
+  /// [timeout] at most. Other connections sharing this authorizer are not
+  /// in it, and go on.
+  final Set<String> _gone = {};
+  static const int _goneKept = 16;
+
+  /// The clients made for a second request, each with the socket id it
+  /// authorizes for, while that request is on its way.
+  final Map<http.Client, String> _second = {};
 
   @override
-  void close() {
-    _closes++;
+  void close(String? socketId) {
+    if (socketId != null) {
+      _gone
+        ..remove(socketId)
+        ..add(socketId);
+      if (_gone.length > _goneKept) {
+        _gone.remove(_gone.first);
+      }
+      _second.removeWhere((client, id) {
+        if (id != socketId) {
+          return false;
+        }
+        client.close();
+        return true;
+      });
+    }
     _own?.close();
     _own = null;
   }
+
+  /// [sending] within [limit], or a [TimeoutException]. A response that
+  /// arrives after that has no reader, and would keep its socket and what
+  /// the server still writes to it: it is read to its end and dropped,
+  /// without waiting for it, and so is the error it may end with. (A
+  /// `Response.fromStream` that runs out of time needs no such care: it
+  /// goes on reading its body to the end, and `timeout` drops its result.)
+  static Future<http.StreamedResponse> _within(
+    Future<http.StreamedResponse> sending,
+    Duration limit,
+  ) => sending.timeout(
+    limit,
+    onTimeout: () {
+      sending
+          .then((late) => late.stream.drain<void>())
+          .catchError((Object _) {})
+          .ignore();
+      throw TimeoutException(null);
+    },
+  );
 
   @override
   Future<Map<String, Object?>> authorize(
     String socketId,
     String channel,
   ) async {
-    final closes = _closes;
     final token = await _token?.call();
-    if (closes != _closes) {
+    if (_gone.contains(socketId)) {
       throw EchoAuthException(channel, 0, 'closed');
     }
     final requestHeaders = {
@@ -134,24 +175,28 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
     try {
       http.StreamedResponse answered;
       try {
-        answered = await (client ?? (_own ??= http.Client()))
-            .send(request())
-            .timeout(left());
+        answered = await _within(
+          (client ?? (_own ??= http.Client())).send(request()),
+          left(),
+        );
       } on http.ClientException {
         // No answer began: a pooled keep-alive socket closed by a draining
-        // worker or proxy fails like this. Authorizing is idempotent, so
-        // the request is sent once more, on a client made for it alone:
-        // the shared one stays as it is for the requests still using it.
-        // A client the application gave is not asked twice, and nothing is
-        // sent once [close] ran.
-        if (client != null || closes != _closes) {
+        // worker or proxy fails like this, and so does a request on the
+        // shared client when [close] closes it for another connection.
+        // Authorizing is idempotent, so the request is sent once more, on
+        // a client made for it alone: the shared one stays as it is for
+        // the requests still using it. A client the application gave is
+        // not asked twice, and nothing is sent for a connection that is
+        // gone.
+        if (client != null || _gone.contains(socketId)) {
           rethrow;
         }
         if (left() == Duration.zero) {
           throw TimeoutException(null);
         }
         second = http.Client();
-        answered = await second.send(request()).timeout(left());
+        _second[second] = socketId;
+        answered = await _within(second.send(request()), left());
       }
       // The endpoint answered: a body that fails from here on is an error,
       // not a reason to ask again.
@@ -161,7 +206,10 @@ final class _HttpAuth implements EchoAuth, ClosableEchoAuth {
     } on Object catch (error) {
       throw EchoAuthException(channel, 0, '$error');
     } finally {
-      second?.close();
+      if (second != null) {
+        _second.remove(second);
+        second.close();
+      }
     }
     final status = response.statusCode;
     if (status < 200 || status >= 300) {

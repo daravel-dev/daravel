@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:daravel_reverb_client/daravel_reverb_client.dart';
-import 'package:daravel_reverb_client/src/auth_support.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
@@ -38,7 +37,9 @@ void main() {
   Future<void> until(bool Function() done, String what) =>
       eventually(() => done() ? true : null, what);
 
-  Future<void> settle([int ms = 60]) =>
+  /// Long enough for what must not happen (a request, an error, a frame)
+  /// to have happened.
+  Future<void> settle([int ms = 500]) =>
       Future<void>.delayed(Duration(milliseconds: ms));
 
   /// Whether a subscription of [channel] is on its way. A channel left
@@ -100,8 +101,8 @@ void main() {
     }
 
     // Each row: the connection when the old authorization finishes, how to
-    // get there, and what holds afterwards whether it fails or succeeds
-    // (unless a cell says otherwise below).
+    // get there, and what holds afterwards whether it fails or succeeds: a
+    // connection that is not the one authorized for reports nothing.
     final rows =
         <
           ({
@@ -110,7 +111,6 @@ void main() {
             bool pending,
             bool subscribed,
             List<Map<String, Object?>> errorsBefore,
-            bool reportsLateFailure,
             List<Object?> subscribes,
           })
         >[
@@ -124,7 +124,6 @@ void main() {
             pending: false,
             subscribed: true,
             errorsBefore: [],
-            reportsLateFailure: false,
             subscribes: ['k:new'],
           ),
           (
@@ -133,7 +132,6 @@ void main() {
             pending: true,
             subscribed: false,
             errorsBefore: [],
-            reportsLateFailure: false,
             subscribes: [],
           ),
           (
@@ -148,7 +146,6 @@ void main() {
             pending: false,
             subscribed: false,
             errorsBefore: [refusedError],
-            reportsLateFailure: false,
             subscribes: [],
           ),
           (
@@ -160,7 +157,6 @@ void main() {
             pending: false,
             subscribed: false,
             errorsBefore: [],
-            reportsLateFailure: true,
             subscribes: [],
           ),
           (
@@ -176,7 +172,6 @@ void main() {
             pending: false,
             subscribed: false,
             errorsBefore: [],
-            reportsLateFailure: true,
             subscribes: [],
           ),
           (
@@ -192,7 +187,6 @@ void main() {
             pending: false,
             subscribed: false,
             errorsBefore: [],
-            reportsLateFailure: true,
             subscribes: [],
           ),
         ];
@@ -209,10 +203,7 @@ void main() {
           }
           await settle();
 
-          final reported = [
-            ...row.errorsBefore,
-            if (fails && row.reportsLateFailure) lateError,
-          ];
+          final reported = row.errorsBefore;
           expect(errors, reported, reason: 'Echo.onError');
           expect(channelErrors, hasLength(reported.length));
           expect(channel.subscribed, row.subscribed, reason: 'subscribed');
@@ -290,22 +281,88 @@ void main() {
       return client;
     });
 
+    Matcher refused(Object message) => isA<EchoAuthException>()
+        .having((e) => e.status, 'status', 0)
+        .having((e) => e.message, 'message', message);
+
     test('disconnect() while a request is on its way: none follows, every '
-        'client is closed, the channel is not pending', () async {
-      var posts = 0;
-      final endpoint = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => endpoint.close(force: true));
-      endpoint.listen((request) async {
-        await utf8.decodeStream(request);
-        posts++;
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        try {
-          request.response.write('{"auth":"k:s"}');
-          await request.response.close();
-        } on Object {
-          // The client went away.
-        }
+        'client is closed, nothing is reported, the channel is not '
+        'pending', () async {
+      final endpoint = await _HeldEndpoint.start();
+      addTearDown(endpoint.close);
+
+      final made = <_SpyClient>[];
+      await counting(made, () async {
+        final echo = Echo.reverb(
+          key: 'k',
+          host: server.host,
+          auth: EchoAuth.bearer(() => 't', endpoint: endpoint.url),
+        );
+        addTearDown(echo.disconnect);
+        final errors = <Map<String, Object?>>[];
+        echo.onError.listen(errors.add);
+        final channel = echo.private('a');
+        await until(() => endpoint.requests.length == 1, 'the request');
+        expect(endpoint.answered, 0);
+
+        await echo.disconnect();
+        expect(made, hasLength(1));
+        expect(made.every((client) => client.closed), isTrue);
+        await settle();
+
+        expect(endpoint.requests, hasLength(1));
+        expect(made, hasLength(1));
+        expect(errors, isEmpty);
+        expect(channel.subscribed, isFalse);
+        expect(pending(echo, channel), isFalse);
       });
+    });
+
+    test('disconnect() while the token is awaited: no request, no client '
+        'left open, nothing is reported, the channel is not '
+        'pending', () async {
+      final endpoint = await _HeldEndpoint.start(hold: (_) => false);
+      addTearDown(endpoint.close);
+
+      final made = <_SpyClient>[];
+      final asked = Completer<void>();
+      final token = Completer<String>();
+      await counting(made, () async {
+        final echo = Echo.reverb(
+          key: 'k',
+          host: server.host,
+          auth: EchoAuth.bearer(() {
+            asked.complete();
+            return token.future;
+          }, endpoint: endpoint.url),
+        );
+        addTearDown(echo.disconnect);
+        final errors = <Map<String, Object?>>[];
+        echo.onError.listen(errors.add);
+        final channel = echo.private('a');
+        await asked.future;
+        await echo.disconnect();
+        token.complete('t');
+        await settle();
+
+        expect(endpoint.requests, isEmpty);
+        expect(made.every((client) => client.closed), isTrue);
+        expect(errors, isEmpty);
+        expect(pending(echo, channel), isFalse);
+      });
+    });
+
+    test('disconnect() while a second request is on its way: its client is '
+        'closed at once, nothing is reported, the channel is not '
+        'pending', () async {
+      var posts = 0;
+      final endpoint = await _rawEndpoint((socket, form) {
+        if (++posts == 1) {
+          socket.destroy();
+        }
+        // The second request is never answered.
+      });
+      addTearDown(endpoint.close);
 
       final made = <_SpyClient>[];
       await counting(made, () async {
@@ -321,59 +378,17 @@ void main() {
         final errors = <Map<String, Object?>>[];
         echo.onError.listen(errors.add);
         final channel = echo.private('a');
-        await until(() => posts == 1, 'the request');
+        await until(() => posts == 2, 'the second request');
+        expect(made, hasLength(2));
+        expect(made[1].closed, isFalse);
+
         await echo.disconnect();
-        await settle(200);
+        expect(made.where((client) => !client.closed), isEmpty);
+        await settle();
 
-        expect(posts, 1, reason: 'requests');
-        expect(made, hasLength(1));
-        expect(made.every((client) => client.closed), isTrue);
-        expect(errors, [
-          {'channel': 'private-a', 'status': 0},
-        ]);
-        expect(channel.subscribed, isFalse);
-        expect(pending(echo, channel), isFalse);
-      });
-    });
-
-    test('disconnect() while the token is awaited: no request, no client '
-        'left open, the channel is not pending', () async {
-      var posts = 0;
-      final endpoint = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => endpoint.close(force: true));
-      endpoint.listen((request) async {
-        await utf8.decodeStream(request);
-        posts++;
-        request.response.write('{"auth":"k:s"}');
-        await request.response.close();
-      });
-
-      final made = <_SpyClient>[];
-      final asked = Completer<void>();
-      final token = Completer<String>();
-      await counting(made, () async {
-        final echo = Echo.reverb(
-          key: 'k',
-          host: server.host,
-          auth: EchoAuth.bearer(() {
-            asked.complete();
-            return token.future;
-          }, endpoint: 'http://127.0.0.1:${endpoint.port}/broadcasting/auth'),
-        );
-        addTearDown(echo.disconnect);
-        final errors = <Map<String, Object?>>[];
-        echo.onError.listen(errors.add);
-        final channel = echo.private('a');
-        await asked.future;
-        await echo.disconnect();
-        token.complete('t');
-        await settle(200);
-
-        expect(posts, 0, reason: 'requests');
-        expect(made.every((client) => client.closed), isTrue);
-        expect(errors, [
-          {'channel': 'private-a', 'status': 0},
-        ]);
+        expect(posts, 2);
+        expect(made, hasLength(2));
+        expect(errors, isEmpty);
         expect(pending(echo, channel), isFalse);
       });
     });
@@ -390,20 +405,19 @@ void main() {
           allAsked.complete();
         }
         if (channel == 'private-a' && count == 1) {
-          await allAsked.future.timeout(const Duration(seconds: 2));
+          await allAsked.future;
           socket.destroy();
           return;
         }
         if (channel == 'private-a') {
           _respond(socket, '{"auth":"k:a"}');
-          await settle();
           if (!release.isCompleted) {
             release.complete();
           }
           return;
         }
         // The others answer once the first has failed and asked again.
-        await release.future.timeout(const Duration(seconds: 2));
+        await release.future;
         _respond(socket, '{"auth":"k:other"}');
       });
       addTearDown(endpoint.close);
@@ -433,8 +447,8 @@ void main() {
         expect(errors, isEmpty);
         expect(channels.every((c) => c.subscribed), isTrue);
         expect(posts, {'private-a': 2, 'private-b': 1, 'private-c': 1});
-        // The shared client stays open; the one made for the retry is
-        // closed.
+        // The shared client stays open; the one made for the second
+        // request is closed.
         expect(made, hasLength(2));
         expect(made[0].closed, isFalse);
         expect(made[1].sent, 1);
@@ -443,55 +457,47 @@ void main() {
     });
 
     test('a lost connection: the authorizations of its socket id are not '
-        'asked again', () async {
-      final posts = <String, int>{};
-      final endpoint = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => endpoint.close(force: true));
-      endpoint.listen((request) async {
-        final form = Uri.splitQueryString(await utf8.decodeStream(request));
-        final socketId = form['socket_id']!;
-        final key = '$socketId ${form['channel_name']}';
-        posts[key] = (posts[key] ?? 0) + 1;
-        if (socketId == '1.1001') {
-          await Future<void>.delayed(const Duration(milliseconds: 300));
-        }
-        try {
-          request.response.write('{"auth":"k:s"}');
-          await request.response.close();
-        } on Object {
-          // The client went away.
-        }
-      });
+        'asked again and report nothing; the channels subscribe on the next '
+        'connection', () async {
+      final endpoint = await _HeldEndpoint.start(
+        hold: (form) => form['socket_id'] == '1.1001',
+      );
+      addTearDown(endpoint.close);
 
       final made = <_SpyClient>[];
       await counting(made, () async {
         final echo = Echo.reverb(
           key: 'k',
           host: server.host,
-          auth: EchoAuth.bearer(
-            () => 't',
-            endpoint: 'http://127.0.0.1:${endpoint.port}/broadcasting/auth',
-          ),
+          auth: EchoAuth.bearer(() => 't', endpoint: endpoint.url),
           reconnectBase: const Duration(milliseconds: 5),
           reconnectMax: const Duration(milliseconds: 10),
         );
         addTearDown(echo.disconnect);
+        final errors = <Map<String, Object?>>[];
+        final channelErrors = <Object>[];
+        echo.onError.listen(errors.add);
         final channels = [
-          for (final name in 'abc'.split('')) echo.private(name),
+          for (final name in 'abc'.split(''))
+            echo.private(name)..error(channelErrors.add),
         ];
-        await until(() => posts.length == 3, 'three requests');
+        await until(() => endpoint.requests.length == 3, 'three requests');
+        expect(endpoint.answered, 0);
+
         await server.drop(4200);
         await until(
           () =>
               echo.socketId == '2.1002' && channels.every((c) => c.subscribed),
           'subscribed again',
         );
-        await settle(400);
+        await settle();
 
-        expect(posts, {
+        expect(endpoint.count, {
           for (final socketId in ['1.1001', '2.1002'])
             for (final name in 'abc'.split('')) '$socketId private-$name': 1,
         });
+        expect(errors, isEmpty);
+        expect(channelErrors, isEmpty);
         expect(channels.every((c) => c.subscribed), isTrue);
         await echo.disconnect();
         expect(made.every((client) => client.closed), isTrue);
@@ -500,18 +506,7 @@ void main() {
 
     test('an authorization still awaiting its token when the connection is '
         'replaced sends nothing and leaves the new one alone', () async {
-      final posts = <String, int>{};
-      final endpoint = await _rawEndpoint((socket, form) async {
-        final socketId = form['socket_id']!;
-        final key = '$socketId ${form['channel_name']}';
-        posts[key] = (posts[key] ?? 0) + 1;
-        if (socketId == '1.1001') {
-          socket.destroy();
-          return;
-        }
-        await settle(250);
-        _respond(socket, '{"auth":"k:s"}');
-      });
+      final endpoint = await _HeldEndpoint.start();
       addTearDown(endpoint.close);
 
       var tokens = 0;
@@ -525,7 +520,7 @@ void main() {
             // The first connection's two authorizations wait; later ones
             // have their token at once.
             () => ++tokens <= 2 ? oldToken.future : 't',
-            endpoint: 'http://127.0.0.1:${endpoint.port}/broadcasting/auth',
+            endpoint: endpoint.url,
           ),
           reconnectBase: const Duration(milliseconds: 5),
           reconnectMax: const Duration(milliseconds: 10),
@@ -536,19 +531,123 @@ void main() {
         final channels = [echo.private('a'), echo.private('b')];
         await until(() => tokens == 2, 'two tokens asked');
         await server.drop(4200);
-        await until(() => posts.length == 2, 'the new requests');
+        await until(() => endpoint.requests.length == 2, 'the new requests');
+        expect(endpoint.answered, 0);
+
         oldToken.complete('t');
+        await settle();
+        expect(endpoint.count, {'2.1002 private-a': 1, '2.1002 private-b': 1});
+        expect(made, hasLength(1));
+        expect(made.single.closed, isFalse);
+
+        endpoint.release();
         await until(
           () => channels.every((c) => c.subscribed) || errors.isNotEmpty,
           'subscribed',
         );
-        await settle();
-
         expect(errors, isEmpty);
         expect(channels.every((c) => c.subscribed), isTrue);
-        expect(posts, {'2.1002 private-a': 1, '2.1002 private-b': 1});
-        expect(made, hasLength(1));
-        expect(made.single.closed, isFalse);
+        expect(endpoint.requests, hasLength(2));
+      });
+    });
+
+    group('two Echo instances on one authorizer: one loses its '
+        'connection', () {
+      /// Closes the first connection the server got, for good (4001).
+      Future<void> lose(Echo first) async {
+        await server.sockets.first.close(4001);
+        await until(
+          () => first.connectionState == EchoConnectionState.disconnected,
+          'the first disconnected',
+        );
+      }
+
+      Future<String> connected(Echo echo) =>
+          eventually(() => echo.socketId, 'connected');
+
+      test('while the other awaits its token: the other subscribes', () async {
+        final endpoint = await _HeldEndpoint.start(hold: (_) => false);
+        addTearDown(endpoint.close);
+
+        final asked = Completer<void>();
+        final token = Completer<String>();
+        final made = <_SpyClient>[];
+        await counting(made, () async {
+          final auth = EchoAuth.bearer(() {
+            asked.complete();
+            return token.future;
+          }, endpoint: endpoint.url);
+          final first = Echo.reverb(key: 'k', host: server.host, auth: auth);
+          addTearDown(first.disconnect);
+          final firstId = await connected(first);
+          final other = Echo.reverb(key: 'k', host: server.host, auth: auth);
+          addTearDown(other.disconnect);
+          final errors = <Map<String, Object?>>[];
+          other.onError.listen(errors.add);
+          final channel = other.private('b');
+          await asked.future;
+          final otherId = other.socketId!;
+          expect(endpoint.requests, isEmpty);
+
+          await lose(first);
+          token.complete('t');
+          await until(
+            () => channel.subscribed || errors.isNotEmpty,
+            'the other subscribed',
+          );
+          await settle();
+
+          expect(errors, isEmpty);
+          expect(channel.subscribed, isTrue);
+          expect(endpoint.count, {'$otherId private-b': 1});
+          expect(firstId, isNot(otherId));
+        });
+      });
+
+      test('while the other has a request on the shared client: the other '
+          'asks again and subscribes; the lost one asks no more', () async {
+        // The first request of each authorization is held.
+        final seen = <String>{};
+        final endpoint = await _HeldEndpoint.start(
+          hold: (form) =>
+              seen.add('${form['socket_id']} ${form['channel_name']}'),
+        );
+        addTearDown(endpoint.close);
+
+        final made = <_SpyClient>[];
+        await counting(made, () async {
+          final auth = EchoAuth.bearer(() => 't', endpoint: endpoint.url);
+          final first = Echo.reverb(key: 'k', host: server.host, auth: auth);
+          addTearDown(first.disconnect);
+          final firstErrors = <Map<String, Object?>>[];
+          first.onError.listen(firstErrors.add);
+          final firstId = await connected(first);
+          first.private('a');
+          await until(() => endpoint.requests.length == 1, 'its request');
+
+          final other = Echo.reverb(key: 'k', host: server.host, auth: auth);
+          addTearDown(other.disconnect);
+          final errors = <Map<String, Object?>>[];
+          other.onError.listen(errors.add);
+          final channel = other.private('b');
+          await until(() => endpoint.requests.length == 2, 'both requests');
+          final otherId = other.socketId!;
+          expect(endpoint.answered, 0);
+
+          await lose(first);
+          await until(
+            () => channel.subscribed || errors.isNotEmpty,
+            'the other subscribed',
+          );
+          await settle();
+
+          expect(errors, isEmpty);
+          expect(firstErrors, isEmpty);
+          expect(channel.subscribed, isTrue);
+          expect(endpoint.count['$otherId private-b'], inInclusiveRange(1, 2));
+          expect(endpoint.count['$firstId private-a'], 1);
+          expect(endpoint.count, hasLength(2));
+        });
       });
     });
 
@@ -580,8 +679,6 @@ void main() {
         expect(made, hasLength(2));
         expect(made[0].closed, isFalse);
         expect(made[1].closed, isTrue);
-        (auth as ClosableEchoAuth).close();
-        expect(made[0].closed, isTrue);
       });
     });
 
@@ -597,11 +694,7 @@ void main() {
       );
       await expectLater(
         auth.authorize('1.1', 'private-orders'),
-        throwsA(
-          isA<EchoAuthException>()
-              .having((e) => e.status, 'status', 0)
-              .having((e) => e.message, 'message', contains('network down')),
-        ),
+        throwsA(refused(contains('network down'))),
       );
       expect(sent, 1);
     });
@@ -626,52 +719,162 @@ void main() {
         addTearDown(endpoint.close);
 
         var tokens = 0;
-        final auth = EchoAuth.bearer(() {
-          tokens++;
-          return 't';
-        }, endpoint: 'http://127.0.0.1:${endpoint.port}/broadcasting/auth');
-        addTearDown((auth as ClosableEchoAuth).close);
-        await expectLater(
-          auth.authorize('1.1', 'private-orders'),
-          throwsA(
-            isA<EchoAuthException>().having((e) => e.status, 'status', 0),
-          ),
-        );
-        await settle(100);
-        expect(posts, 1);
-        expect(tokens, 1);
+        final made = <_SpyClient>[];
+        await counting(made, () async {
+          final auth = EchoAuth.bearer(() {
+            tokens++;
+            return 't';
+          }, endpoint: 'http://127.0.0.1:${endpoint.port}/broadcasting/auth');
+          await expectLater(
+            auth.authorize('1.1', 'private-orders'),
+            throwsA(refused(anything)),
+          );
+          await settle();
+          expect(posts, 1);
+          expect(tokens, 1);
+          expect(made, hasLength(1));
+        });
       });
     }
 
-    test('both attempts share one timeout', () async {
+    test('both requests share one timeout', () async {
+      const timeout = Duration(seconds: 2);
       var posts = 0;
+      final failFirst = Completer<void>();
       final endpoint = await _rawEndpoint((socket, form) async {
         if (++posts == 1) {
-          await settle(800);
+          await failFirst.future;
           socket.destroy();
         }
         // The second request is never answered.
       });
       addTearDown(endpoint.close);
 
+      final made = <_SpyClient>[];
+      await counting(made, () async {
+        final auth = EchoAuth.endpoint(
+          'http://127.0.0.1:${endpoint.port}/broadcasting/auth',
+          timeout: timeout,
+        );
+        final watch = Stopwatch()..start();
+        final result = expectLater(
+          auth.authorize('1.1', 'private-orders'),
+          throwsA(refused('timeout')),
+        );
+        await until(() => posts == 1, 'the first request');
+        // The first request fails with most of the timeout spent: a
+        // timeout of its own for the second would end well after
+        // timeout + 50 %.
+        await Future<void>.delayed(timeout * 0.6 - watch.elapsed);
+        failFirst.complete();
+        await result;
+
+        expect(watch.elapsed, lessThan(timeout * 1.5));
+        expect(posts, 2);
+        expect(made, hasLength(2));
+        expect(made[1].closed, isTrue);
+      });
+    });
+
+    test('a response that arrives after the timeout is read and '
+        'discarded', () async {
+      final sending = Completer<http.StreamedResponse>();
+      final body = StreamController<List<int>>();
       final auth = EchoAuth.endpoint(
-        'http://127.0.0.1:${endpoint.port}/broadcasting/auth',
-        timeout: const Duration(seconds: 1),
+        'http://127.0.0.1:9/broadcasting/auth',
+        client: _LateClient(sending.future),
+        timeout: const Duration(milliseconds: 100),
       );
-      addTearDown((auth as ClosableEchoAuth).close);
-      final watch = Stopwatch()..start();
       await expectLater(
         auth.authorize('1.1', 'private-orders'),
-        throwsA(
-          isA<EchoAuthException>()
-              .having((e) => e.status, 'status', 0)
-              .having((e) => e.message, 'message', 'timeout'),
-        ),
+        throwsA(refused('timeout')),
       );
-      expect(watch.elapsed, lessThan(const Duration(milliseconds: 1500)));
-      expect(posts, 2);
+      expect(body.hasListener, isFalse);
+
+      sending.complete(http.StreamedResponse(body.stream, 200));
+      await until(() => body.hasListener, 'the late response read');
+      // Its failure is nobody's any more.
+      body.addError(http.ClientException('cut off'));
+      await body.close();
     });
   });
+}
+
+/// A client whose one answer comes when the test gives it.
+final class _LateClient extends http.BaseClient {
+  _LateClient(this._answer);
+
+  final Future<http.StreamedResponse> _answer;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) => _answer;
+}
+
+/// An auth endpoint that records every request and answers `{"auth": ...}`:
+/// at once, or, for a request [hold] says to keep (every one by default),
+/// when the test calls [release].
+final class _HeldEndpoint {
+  _HeldEndpoint._(this._server, this._hold);
+
+  static Future<_HeldEndpoint> start({
+    bool Function(Map<String, String> form)? hold,
+  }) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final endpoint = _HeldEndpoint._(server, hold ?? (_) => true);
+    server.listen(endpoint._handle);
+    return endpoint;
+  }
+
+  final HttpServer _server;
+  final bool Function(Map<String, String> form) _hold;
+  final Completer<void> _released = Completer<void>();
+
+  /// The forms of the requests received, in order.
+  final List<Map<String, String>> requests = [];
+
+  /// How many requests were answered.
+  int answered = 0;
+
+  String get url => 'http://127.0.0.1:${_server.port}/broadcasting/auth';
+
+  /// The requests received, counted by `<socket id> <channel>`.
+  Map<String, int> get count {
+    final count = <String, int>{};
+    for (final form in requests) {
+      final key = '${form['socket_id']} ${form['channel_name']}';
+      count[key] = (count[key] ?? 0) + 1;
+    }
+    return count;
+  }
+
+  /// Answers the requests held, and those still to come.
+  void release() {
+    if (!_released.isCompleted) {
+      _released.complete();
+    }
+  }
+
+  Future<void> close() {
+    release();
+    return _server.close(force: true);
+  }
+
+  Future<void> _handle(HttpRequest request) async {
+    final form = Uri.splitQueryString(await utf8.decodeStream(request));
+    requests.add(form);
+    if (_hold(form)) {
+      await _released.future;
+    }
+    try {
+      request.response
+        ..headers.contentType = ContentType.json
+        ..write('{"auth":"k:s"}');
+      await request.response.close();
+      answered++;
+    } on Object {
+      // The client went away.
+    }
+  }
 }
 
 /// A client that counts what it sends and whether it was closed.

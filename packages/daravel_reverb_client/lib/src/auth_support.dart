@@ -6,8 +6,11 @@ import 'auth.dart';
 /// [EchoAuth.endpoint] keep one HTTP client): `Echo.disconnect` closes it,
 /// and so does a lost connection. Not exported.
 abstract interface class ClosableEchoAuth {
-  /// Releases what the authorizer holds; it can be used again afterwards.
-  void close();
+  /// Releases what the authorizer holds; it can be used again afterwards,
+  /// by the connection that follows and by others sharing it. [socketId]
+  /// is that of the connection that is gone (null when it never had one):
+  /// what still runs for it is ended.
+  void close(String? socketId);
 }
 
 /// [answer] as the authorization of [channel], or [EchoAuthException] with

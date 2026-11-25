@@ -170,8 +170,9 @@ final class Echo {
     _stopTimers();
     final socket = _socket;
     _socket = null;
+    final socketId = _socketId;
     _socketId = null;
-    _release();
+    _release(socketId);
     await _subscription?.cancel();
     _subscription = null;
     await socket?.sink.close(1000);
@@ -369,8 +370,9 @@ final class Echo {
     _stopTimers();
     _socket = null;
     _subscription = null;
+    final socketId = _socketId;
     _socketId = null;
-    _release();
+    _release(socketId);
     if (_closing) {
       return;
     }
@@ -399,15 +401,15 @@ final class Echo {
   /// subscribed or on its way, and the authorizer's HTTP client is closed
   /// (the next authorization makes one again). Closing it drops its idle
   /// keep-alive sockets, whose server may be gone too, and ends the
-  /// authorizations still running for the old socket id.
-  void _release() {
+  /// authorizations still running for [socketId], the one it had.
+  void _release(String? socketId) {
     for (final channel in _channels.values) {
       channel
         .._subscribed = false
         .._pending = false;
     }
     if (auth case final ClosableEchoAuth closable) {
-      closable.close();
+      closable.close(socketId);
     }
   }
 
@@ -589,6 +591,22 @@ base class EchoChannel {
   Future<Map<String, Object?>> _authorization() async =>
       const <String, Object?>{};
 
+  /// Whether the connection an authorization was for ([socketId]) is no
+  /// longer the current one, so that what the authorization ends with, an
+  /// error too, counts for nothing and is not reported. A newer connection
+  /// subscribes for itself, and [_pending] is its; with none (closed, lost,
+  /// or one without a socket id) nothing is on its way.
+  bool _outdated(String socketId) {
+    final current = _echo.socketId;
+    if (current == socketId) {
+      return false;
+    }
+    if (current == null) {
+      _pending = false;
+    }
+    return true;
+  }
+
   Future<void> _subscribe() async {
     final socketId = _echo.socketId;
     if (socketId == null) {
@@ -599,12 +617,10 @@ base class EchoChannel {
     try {
       authorization = await _authorization();
     } on Object catch (error) {
-      // A newer connection subscribes for itself, and [_pending] is its.
-      final current = _echo.socketId;
-      if (current != null && current != socketId) {
+      // Its connection is gone: a failure there is not one of the channel.
+      if (_outdated(socketId)) {
         return;
       }
-      // This connection's, or there is none: nothing is on its way.
       _pending = false;
       if (_cancelled) {
         _echo.leaveChannel(name);
@@ -619,14 +635,7 @@ base class EchoChannel {
       }
       return;
     }
-    final current = _echo.socketId;
-    if (current != socketId) {
-      // A newer connection subscribes for itself, and [_pending] is its.
-      // With none (closed, lost, or one without a socket id) nothing is on
-      // its way, and this authorization is of no use.
-      if (current == null) {
-        _pending = false;
-      }
+    if (_outdated(socketId)) {
       return;
     }
     if (!_echo._channels.containsKey(name)) {
