@@ -609,6 +609,9 @@ final class Check {
         return _asNum(value) == null ? message : null;
       case 'boolean':
         return _asBool(value) == null ? message : null;
+      case 'boolean_strict':
+        // `boolean:strict`: only the Dart values `true` and `false`.
+        return value is bool ? null : message;
       case 'array':
         return value is List || value is Map ? null : message;
       case 'list':

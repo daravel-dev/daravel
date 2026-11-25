@@ -73,6 +73,14 @@ void main() {
       expect(await rejects1('boolean'), isFalse);
     });
 
+    test('the parameter is compared after the parser trims spaces', () async {
+      // As for every rule: the rule segment and each parameter are trimmed.
+      expect(await rejects1('boolean: strict'), isTrue);
+      expect(await rejects1('boolean:strict '), isTrue);
+      expect(await rejects1('boolean: strict ,x'), isTrue);
+      expect(await rejects1('boolean:s trict'), isFalse);
+    });
+
     test('a lenient form still accepts what plain boolean accepts', () async {
       for (final rule in ['boolean:x,strict', 'boolean:STRICT', 'boolean:']) {
         for (final value in <Object?>[true, false, 1, 0, '1', '0', 'true']) {
