@@ -298,7 +298,7 @@ void main() {
   }
 
   test('300 seeded inputs of lists: the same failures as the rule before '
-      'this change, for distinct and distinct:ignore_case, '
+      'this change, for distinct, '
       'but for an item that lacks the field (counted)', () async {
     final random = Random(20261119);
     const values = <Object?>[1, 2, '1', '2', 'a', 'A', null, true, 1.0, ''];
@@ -356,7 +356,7 @@ void main() {
       )) {
         changed++;
       }
-      for (final rule in ['distinct', 'distinct:ignore_case']) {
+      for (final rule in ['distinct']) {
         final errors = await Validator(data, {pattern: rule}).run();
         expect(
           errors.keys.toSet(),
@@ -369,7 +369,7 @@ void main() {
         failing++;
       }
     }
-    expect(compared, 600);
+    expect(compared, 300);
     expect(failing, greaterThan(60));
     // The inputs whose answer changed: an item without `id` next to a
     // `null` or `"null"` one, which failed before (7 of these 300).
@@ -386,8 +386,7 @@ void main() {
     ('a.*.b.id', 108),
   ]) {
     test('300 seeded inputs under $pattern: each new failure is a duplicate '
-        'within one parent, for distinct and '
-        'distinct:ignore_case', () async {
+        'within one parent, for distinct', () async {
       // A fixed seed per pattern (a string's hashCode is not one).
       final random = Random(20261119 + pattern.length);
       const values = <Object?>[1, 2, '1', 'a', 'A', null, true];
@@ -435,7 +434,7 @@ void main() {
           for (final attribute in attributes)
             if (_failedBefore(data, attribute)) attribute,
         };
-        for (final rule in ['distinct', 'distinct:ignore_case']) {
+        for (final rule in ['distinct']) {
           final errors = await Validator(data, {pattern: rule}).run();
           expect(
             errors.keys.toSet(),

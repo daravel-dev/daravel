@@ -9,8 +9,8 @@ import 'package:test/test.dart';
 /// ```
 ///
 /// With `strict`, two values are duplicates only when PHP's `===` holds.
-/// Any other parameter is ignored (`STRICT` is not `strict`, nor is
-/// `ignore_case`, which this version still reads as plain `distinct`).
+/// Any other parameter is ignored (`STRICT` is not `strict`); `ignore_case`
+/// is covered by `distinct_ignore_case_test.dart`, and wins over `strict`.
 void main() {
   // The values of the tables, in the order of the rows and columns.
   const labels = <String>[

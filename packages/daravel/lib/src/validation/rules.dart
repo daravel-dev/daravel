@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show max;
+import 'dart:typed_data';
 
 import '../database/database_manager.dart';
 import '../database/query/query_builder.dart';
 import '../foundation/clock.dart';
 import '../http/uploaded_file.dart';
+import 'case_folding.dart';
 import 'php_date_format.dart';
 import 'rule.dart';
 import 'validator.dart' show Validator;
@@ -270,8 +273,10 @@ abstract final class Rules {
 
   /// `distinct`: no duplicates among the list's items (`items.*`). With
   /// [strict] (`distinct:strict`), values are duplicates only when PHP's
-  /// `===` holds: `1` is not `'1'`.
-  static Rule distinct({bool strict = false}) => DistinctRule(strict: strict);
+  /// `===` holds: `1` is not `'1'`. [ignoreCase] (`distinct:ignore_case`)
+  /// compares the case-folded string form and wins over [strict].
+  static Rule distinct({bool strict = false, bool ignoreCase = false}) =>
+      DistinctRule(strict: strict, ignoreCase: ignoreCase);
 
   /// `confirmed`: equals `<field>_confirmation`, or [field] when given.
   static Rule confirmed([String? field]) => ConfirmedRule(field);
@@ -1150,11 +1155,15 @@ final class InRule extends Rule {
 /// `distinct`: see [Rules.distinct].
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
-  const DistinctRule({this.strict = false});
+  const DistinctRule({this.strict = false, this.ignoreCase = false});
 
   /// `distinct:strict`: values are duplicates only by `===` (`1` is not
   /// `'1'`, nor `1.0`), as Laravel's `in_array(..., strict: true)`.
   final bool strict;
+
+  /// `distinct:ignore_case`: the case-folded string forms are compared (`1`
+  /// equals `'1'`, `'a'` equals `'A'`); wins over [strict], as in Laravel.
+  final bool ignoreCase;
   @override
   String get name => 'distinct';
   @override
@@ -1173,8 +1182,10 @@ final class DistinctRule extends Rule {
     if (own == null) {
       return null;
     }
-    if (strict) {
-      return _passesStrict(c, patternSegments, own);
+    if (ignoreCase || strict) {
+      return ignoreCase
+          ? _passesKeyed(c, patternSegments, own, _foldKey, #ignoreCase)
+          : _passesKeyed(c, patternSegments, own, _strictKey, #strict);
     }
     Map<String, Map<String, int>> build() {
       final groups = <String, Map<String, int>>{};
@@ -1203,12 +1214,85 @@ final class DistinctRule extends Rule {
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
   }
 
-  /// The strict path: the groups of plain `distinct`, with each value
-  /// compared by a key that is equal only when PHP's `===` holds.
-  String? _passesStrict(
+  /// Equal for two values exactly when PHP's `/^…$/iu` takes them for equal:
+  /// the string PHP writes, case folded (`f`). A value PHP cannot write that
+  /// way and text with an unpaired surrogate equal only their own kind.
+  static String _foldKey(Object? value) {
+    final text = switch (value) {
+      null || false => '',
+      true => '1',
+      final int i => '$i',
+      final double d => _phpDouble(d),
+      final String s => s,
+      _ => null,
+    };
+    if (text == null) {
+      return 'z${_strictKey(value)}';
+    }
+    final folded = tryCaseFold(text);
+    return folded == null ? 'u$text' : 'f$folded';
+  }
+
+  /// PHP 8 `(string) $float` (`precision` 14): 14 digits, no trailing zeros;
+  /// fixed for a decimal exponent of -4 to 13 (after rounding), else `1.5E+20`.
+  static String _phpDouble(double d) {
+    if (!d.isFinite) {
+      return d.isNaN ? 'NAN' : (d < 0 ? '-INF' : 'INF');
+    }
+    final sign = d.isNegative ? '-' : '';
+    final abs = d.abs();
+    if (abs == 0) {
+      return '${sign}0';
+    }
+    final long = abs.toStringAsExponential(14);
+    // Dart rounds an exact tie up, PHP to the even digit.
+    final down =
+        long.codeUnitAt(15) == 0x35 &&
+        long.codeUnitAt(14).isEven &&
+        _isExactly(abs, long);
+    final text = down
+        ? long.replaceRange(15, 16, '')
+        : abs.toStringAsExponential(13);
+    final exp = int.parse(text.substring(text.indexOf('e') + 1));
+    var digits = text[0] + text.substring(2, text.indexOf('e'));
+    // zend_dtoa keeps the zeros of an integer rounded down at a tie.
+    while (!(down && exp == 14) && digits.length > 1 && digits.endsWith('0')) {
+      digits = digits.substring(0, digits.length - 1);
+    }
+    if (exp < -4 || exp > 13) {
+      final rest = digits.length > 1 ? digits.substring(1) : '0';
+      return '$sign${digits[0]}.${rest}E${exp < 0 ? '-' : '+'}${exp.abs()}';
+    }
+    final whole = exp + 1;
+    if (whole <= 0) {
+      return '${sign}0.${'0' * -whole}$digits';
+    }
+    return digits.length <= whole
+        ? '$sign$digits${'0' * (whole - digits.length)}'
+        : '$sign${digits.substring(0, whole)}.${digits.substring(whole)}';
+  }
+
+  /// Whether [d] is exactly the 15 digits of [long] (`1.23456789012345e+14`).
+  static bool _isExactly(double d, String long) {
+    final n = BigInt.parse('${long[0]}${long.substring(2, 16)}');
+    final k = int.parse(long.substring(17)) - 14;
+    final bits = (ByteData(8)..setFloat64(0, d)).getUint64(0);
+    final e = bits >> 52;
+    final m = BigInt.from(bits & 0xFFFFFFFFFFFFF | (e == 0 ? 0 : 1 << 52));
+    final b = (e == 0 ? 1 : e) - 1075;
+    // m * 2^b == n * 10^k, each power on the side where it is positive.
+    return m * BigInt.two.pow(max(b, 0)) * BigInt.from(10).pow(max(-k, 0)) ==
+        n * BigInt.from(10).pow(max(k, 0)) * BigInt.two.pow(max(-b, 0));
+  }
+
+  /// The groups of plain `distinct`, each value compared by [keyOf]: equal
+  /// only when PHP's `===` holds ([_strictKey]), or its `/iu` ([_foldKey]).
+  String? _passesKeyed(
     ValidationContext c,
     List<String> patternSegments,
     ({String key, bool counted}) own,
+    String Function(Object?) keyOf,
+    Symbol kind,
   ) {
     ({Map<String, Map<String, int>> groups, Map<String, String> keys}) build() {
       final groups = <String, Map<String, int>>{};
@@ -1221,7 +1305,7 @@ final class DistinctRule extends Rule {
           continue;
         }
         final counts = groups.putIfAbsent(group.key, () => {});
-        final key = _strictKey(ValidationContext.dig(c.data, attribute));
+        final key = keyOf(ValidationContext.dig(c.data, attribute));
         keys[attribute] = key;
         counts[key] = (counts[key] ?? 0) + 1;
       }
@@ -1231,12 +1315,12 @@ final class DistinctRule extends Rule {
     final memo = c.memo;
     final built = memo == null
         ? build()
-        : memo.putIfAbsent(('distinct', c.data, c.pattern, #strict), build)!
+        : memo.putIfAbsent(('distinct', c.data, c.pattern, kind), build)!
               as ({
                 Map<String, Map<String, int>> groups,
                 Map<String, String> keys,
               });
-    final key = built.keys[c.attribute] ?? _strictKey(c.value);
+    final key = built.keys[c.attribute] ?? keyOf(c.value);
     final seen = built.groups[own.key]?[key] ?? 0;
     return seen - (own.counted ? 1 : 0) > 0 ? 'distinct' : null;
   }
