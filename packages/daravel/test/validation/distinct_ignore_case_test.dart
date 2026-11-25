@@ -641,6 +641,55 @@ void main() {
       ], {});
     });
 
+    // The key of a list or a map is the text of its `===` form: `[1]` is
+    // `a1{s1:0i1;}` and `{'a': 1}` is `a1{s1:ai1;}`. A string with that very
+    // text is still a string.
+    test('a string spelling the key of a list or a map is not it', () async {
+      await same([
+        [1],
+        'a1{s1:0i1;}',
+      ], {});
+      await same([
+        [1],
+        'A1{S1:0I1;}',
+      ], {});
+      await same([
+        {'a': 1},
+        'a1{s1:ai1;}',
+      ], {});
+      await same([<Object?>[], 'a0{}'], {});
+      // The same with an unpaired surrogate in the list and in the string.
+      await same([
+        [lone],
+        'a1{s1:0s1:$lone}',
+      ], {});
+      await same([
+        {'a': lone},
+        'a1{s1:as1:$lone}',
+      ], {});
+      // The marks of the three kinds of key are not part of the text.
+      await same(['u$lone', lone], {});
+      await same(['f$lone', lone], {});
+      await same(['za0{}', <Object?>[]], {});
+      await same(['ua0{}', <Object?>[]], {});
+      await same(['fa0{}', <Object?>[]], {});
+    });
+
+    test('a list equals a map with the same keys in the same order', () async {
+      await same(
+        [
+          ['x'],
+          {'0': 'x'},
+        ],
+        {'items.0', 'items.1'},
+      );
+      await same([<Object?>[], <String, Object?>{}], {'items.0', 'items.1'});
+      await same([
+        ['x'],
+        {'1': 'x'},
+      ], {});
+    });
+
     test('two files are never equal; one file is equal to itself', () async {
       UploadedFile file() => UploadedFile.fake.withContent('a.txt', 'x');
       await same([file(), file()], {});
