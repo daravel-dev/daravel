@@ -9,6 +9,11 @@
 /// On `1.x` the notes can also come one file per pull request from
 /// `changelog.d/` ([readFragments], the format of `main`), and a release
 /// writes them in the order of the 1.27.x patches ([assembleRelease]).
+///
+/// Every line of the notes reaches the version's section exactly once, or
+/// the input is refused with the file, the line number and the line
+/// ([validateReleaseInput]): `--preview`, `tool/changelog_check.dart` and
+/// `tool/release.dart` all go through that one function.
 library;
 
 import 'dart:io';
@@ -32,26 +37,225 @@ const String unreleasedTemplate =
     '### Fixed\n'
     '\n';
 
-final RegExp _unreleased = RegExp(
-  r'^## Unreleased\n(.*?)(?=^## )',
-  multiLine: true,
-  dotAll: true,
-);
+/// [text] as the functions of this library read it: without a byte order
+/// mark at its start and with `\n` line endings (for `\r\n`; normalizing
+/// twice changes nothing more).
+String normalizeChangelogText(String text) {
+  final mark = String.fromCharCode(0xFEFF);
+  final start = text.startsWith(mark) ? text.substring(1) : text;
+  return start.replaceAll(_lineEnding, '\n');
+}
+
+final RegExp _lineEnding = RegExp(r'\r+\n');
+
+/// Whether [line] opens or closes a fenced code block. Inside one, `#`
+/// lines and `- ` lines are text of the note, not headers or notes.
+bool _isFence(String line) => line.trimLeft().startsWith('```');
+
+/// [line] in quotes for a message, a stray carriage return made visible.
+String _quoted(String line) => '"${line.replaceAll('\r', r'\r')}"';
+
+/// The header of a released version: where `## Unreleased` ends.
+final RegExp _versionHeader = RegExp(r'^## \d+\.\d+\.\d+([-+ ].*)?$');
+
+const String _noUnreleased =
+    'CHANGELOG.md has no "## Unreleased" section above the releases.';
+
+const String _noNotes =
+    'CHANGELOG.md has no notes under "## Unreleased" and changelog.d/ no '
+    'fragment; write them first.';
+
+/// The `## Unreleased` section of a changelog, read once: where it is,
+/// what is wrong with its lines, and its notes by section.
+final class _Unreleased {
+  _Unreleased(this.lines, this.start);
+
+  /// The lines of the whole (normalized) file.
+  final List<String> lines;
+
+  /// The index in [lines] of `## Unreleased`.
+  final int start;
+
+  /// The index in [lines] of the next version's header, or `lines.length`
+  /// when `## Unreleased` is the last section of the file.
+  late final int end;
+
+  /// What is wrong with a line, each with its 1-based line number.
+  final List<String> problems = [];
+
+  /// The sub-headers (and the upgrade label) the section has.
+  final Set<String> headers = {};
+
+  /// The opening paragraph: the text above the first sub-header.
+  final List<String> intro = [];
+
+  /// The lines of each section: notes, each followed by its own lines.
+  final Map<String, List<String>> notes = {
+    for (final s in ['Security', ...fragmentSections]) s: <String>[],
+  };
+
+  /// Adds note [line] of [section] where it belongs; returns that list.
+  List<String> add(String section, String line) {
+    if (section != 'Upgrade notes' &&
+        section != 'Security' &&
+        line.startsWith('- $securityPrefix')) {
+      final rest = line.substring(2 + securityPrefix.length);
+      final security = notes['Security']!;
+      return security..add(
+        rest.isEmpty ? '- ' : '- ${rest[0].toUpperCase()}${rest.substring(1)}',
+      );
+    }
+    return notes[section]!..add(line);
+  }
+
+  /// The text under `## Unreleased`, as it is in the file.
+  String get body =>
+      lines.sublist(start + 1, end).map((line) => '$line\n').join();
+}
+
+/// Reads `## Unreleased` of [changelog] (normalized), or null when there
+/// is none. Fenced code blocks are followed from the top of the file.
+_Unreleased? _scan(String changelog) {
+  final lines = changelog.split('\n');
+  var start = -1;
+  var fenced = false;
+  for (var i = 0; i < lines.length; i++) {
+    if (_isFence(lines[i])) {
+      fenced = !fenced;
+    } else if (!fenced && lines[i] == '## Unreleased') {
+      start = i;
+      break;
+    }
+  }
+  if (start == -1) {
+    return null;
+  }
+  final section = _Unreleased(lines, start);
+  String where(int i) => 'CHANGELOG.md:${i + 1}: ${_quoted(lines[i])}';
+
+  // The section a line belongs to; null above the first sub-header.
+  String? current;
+  // Under a header that was refused: its lines are not judged again.
+  var refused = false;
+  // The note the next continuation line belongs to.
+  List<String>? last;
+  // Where the lines of an open code block go (nowhere when the line that
+  // opened it was refused).
+  List<String>? block;
+  var fenceStart = -1;
+  var blankBefore = false;
+  var end = lines.length;
+  fenced = false;
+  for (var i = start + 1; i < lines.length; i++) {
+    final line = lines[i];
+    if (fenced) {
+      block?.add(line);
+      if (_isFence(line)) {
+        fenced = false;
+      }
+      continue;
+    }
+    if (_versionHeader.hasMatch(line)) {
+      end = i;
+      break;
+    }
+    if (line.trim().isEmpty) {
+      blankBefore = true;
+      continue;
+    }
+    final header = switch (line) {
+      '### Security' => 'Security',
+      '### Added' => 'Added',
+      '### Changed' => 'Changed',
+      upgradeLabel => 'Upgrade notes',
+      '### Fixed' => 'Fixed',
+      _ => null,
+    };
+    block = null;
+    if (header != null) {
+      current = header;
+      refused = false;
+      last = null;
+      section.headers.add(line);
+    } else if (line.startsWith('## ')) {
+      section.problems.add(
+        '${where(i)} under "## Unreleased" is neither a sub-header '
+        '("### Security", "### Added", "### Changed", "### Fixed") nor the '
+        'header of a released version ("## 1.2.3").',
+      );
+      refused = true;
+      last = null;
+    } else if (line.startsWith('#')) {
+      section.problems.add(
+        'CHANGELOG.md:${i + 1}: unknown header ${_quoted(line)} under '
+        '"## Unreleased" (expected "### Security", "### Added", '
+        '"### Changed" or "### Fixed").',
+      );
+      refused = true;
+      last = null;
+    } else if (refused) {
+      // Reported with its header.
+    } else if (line.startsWith('* ')) {
+      section.problems.add(
+        '${where(i)}: a note starts with "- ", not with "* ".',
+      );
+    } else if (current == null) {
+      section.intro.add(line);
+      block = section.intro;
+    } else if (line.startsWith('- ')) {
+      last = section.add(current, line);
+      block = last;
+    } else if (last != null &&
+        (line.startsWith(' ') || line.startsWith('\t') || !blankBefore)) {
+      // A note's continuation line stays with the note.
+      last.add(line);
+      block = last;
+    } else {
+      section.problems.add(
+        '${where(i)}: text under a sub-header is a "- " note or the '
+        'continuation of one (indented, or on the line right after it); '
+        'the opening paragraph goes above the first sub-header.',
+      );
+    }
+    if (_isFence(line)) {
+      fenced = true;
+      fenceStart = i;
+    }
+    blankBefore = false;
+  }
+  if (fenced) {
+    section.problems.add(
+      '${where(fenceStart)}: this code block is never closed.',
+    );
+  }
+  section.end = end;
+  return section;
+}
 
 /// The text under `## Unreleased`, or `null` when there is no such section.
 String? unreleasedBody(String changelog) =>
-    _unreleased.firstMatch(changelog)?[1];
+    _scan(normalizeChangelogText(changelog))?.body;
 
-/// Whether [body] holds at least one note (a `- ` line).
-bool hasNotes(String body) =>
-    body.split('\n').any((line) => line.startsWith('- '));
+/// Whether [body] holds at least one note (a `- ` line outside a code
+/// block).
+bool hasNotes(String body) {
+  var fenced = false;
+  for (final line in normalizeChangelogText(body).split('\n')) {
+    if (_isFence(line)) {
+      fenced = !fenced;
+    } else if (!fenced && line.startsWith('- ')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// What is wrong with the `## Unreleased` section of [changelog]: missing,
 /// or without one of its sub-headers or the upgrade label.
 List<String> unreleasedProblems(String changelog) {
-  final body = unreleasedBody(changelog);
-  if (body == null) {
-    return ['CHANGELOG.md has no "## Unreleased" section above the releases.'];
+  final section = _scan(normalizeChangelogText(changelog));
+  if (section == null) {
+    return [_noUnreleased];
   }
   return [
     for (final header in [
@@ -60,25 +264,39 @@ List<String> unreleasedProblems(String changelog) {
       '### Fixed',
       upgradeLabel,
     ])
-      if (!body.split('\n').contains(header))
+      if (!section.headers.contains(header))
         '"## Unreleased" in CHANGELOG.md lacks "$header".',
   ];
 }
 
+/// Everything wrong with the `## Unreleased` section of [changelog]: what
+/// [unreleasedProblems] finds, and each line that a release could not
+/// place, with its 1-based line number in `CHANGELOG.md` and its text:
+///
+/// - a `## ` line that is not the header of a released version, which
+///   would end the section early;
+/// - a `#` header other than `### Security`, `### Added`, `### Changed`
+///   and `### Fixed`;
+/// - a `* ` bullet;
+/// - text under a sub-header that is neither a `- ` note nor the
+///   continuation of one;
+/// - a code block that is never closed.
+///
+/// Inside a fenced code block (between two lines that start with three
+/// backticks) every line is text of the note it belongs to.
+List<String> unreleasedInputProblems(String changelog) {
+  final text = normalizeChangelogText(changelog);
+  return [...unreleasedProblems(text), ...?_scan(text)?.problems];
+}
+
 /// The notes listed under [upgradeLabel] in the `## Unreleased` section of
 /// [changelog]: the `- ` lines after it, up to the next header.
-List<String> upgradeNotes(String changelog) {
-  final lines = (unreleasedBody(changelog) ?? '').split('\n');
-  final start = lines.indexOf(upgradeLabel);
-  if (start == -1) {
-    return const [];
-  }
-  return [
-    for (final line
-        in lines.skip(start + 1).takeWhile((l) => !l.startsWith('#')))
-      if (line.startsWith('- ')) line,
-  ];
-}
+List<String> upgradeNotes(String changelog) => [
+  for (final line
+      in _scan(normalizeChangelogText(changelog))?.notes['Upgrade notes'] ??
+          const <String>[])
+    if (line.startsWith('- ')) line,
+];
 
 /// The `daravelVersion` declared in [source] (the text of
 /// `packages/daravel/lib/src/foundation/version.dart`), or null.
@@ -90,7 +308,7 @@ String? daravelVersionIn(String source) =>
 /// [changelog], as [releaseChangelog] leaves them: the `- ` lines after the
 /// label, up to the next header.
 List<String> releasedUpgradeNotes(String changelog, String version) {
-  final lines = changelog.split('\n');
+  final lines = normalizeChangelogText(changelog).split('\n');
   final section = lines.indexOf('## $version');
   if (section == -1) {
     return const [];
@@ -174,92 +392,32 @@ List<String> addedExportsIn(String diff) {
   return added;
 }
 
-/// Unknown `#` headers under `## Unreleased` in [changelog], each with its
-/// 1-based line number in `CHANGELOG.md`. Recognised headers are
-/// `### Security`, `### Added`, `### Changed` and `### Fixed`.
-List<String> unknownUnreleasedHeaders(String changelog) {
-  final lines = changelog.split('\n');
-  final start = lines.indexOf('## Unreleased');
-  if (start == -1) {
-    return const [];
-  }
-  const known = {'### Security', '### Added', '### Changed', '### Fixed'};
-  final problems = <String>[];
-  for (var i = start + 1; i < lines.length; i++) {
-    final line = lines[i];
-    if (line.startsWith('## ')) {
-      break;
-    }
-    if (line.startsWith('#') && !known.contains(line)) {
-      problems.add(
-        'CHANGELOG.md:${i + 1}: unknown header "$line" under "## Unreleased" '
-        '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
-      );
-    }
-  }
-  return problems;
-}
-
 /// [changelog] with `## Unreleased` released as [version]: the section's
 /// notes with those of [fragments], arranged by [assembleRelease], under
 /// `## <version>`, without the sub-headers (and the upgrade label) that
 /// stayed empty, and a fresh [unreleasedTemplate] above it.
+///
+/// Throws a [StateError] with the lines of [unreleasedInputProblems] when
+/// there are any, and when there is no note to release.
 String releaseChangelog(
   String changelog,
   String version, {
   List<Fragment> fragments = const [],
 }) {
-  final match = _unreleased.firstMatch(changelog);
-  if (match == null) {
-    throw StateError('CHANGELOG.md has no "## Unreleased" section.');
+  final text = normalizeChangelogText(changelog);
+  final notes = assembleRelease(text, fragments);
+  if (!hasNotes(notes)) {
+    throw StateError(_noNotes);
   }
-  final unknown = unknownUnreleasedHeaders(changelog);
-  if (unknown.isNotEmpty) {
-    throw StateError(unknown.join('\n'));
-  }
-  final body = assembleRelease(match[1]!, fragments);
-  if (!hasNotes(body)) {
-    throw StateError(
-      'CHANGELOG.md has no notes under "## Unreleased" and changelog.d/ no '
-      'fragment; write them first.',
-    );
-  }
-  final released = '## $version\n\n${_withoutEmptyParts(body)}';
-  return changelog.replaceRange(
-    match.start,
-    match.end,
-    '$unreleasedTemplate$released',
-  );
-}
-
-/// [body] without headers (`### ...`) and the upgrade label when no note
-/// follows them before the next header, and without runs of blank lines.
-String _withoutEmptyParts(String body) {
-  // The text before the first sub-header, then one block per sub-header.
-  final blocks = <List<String>>[[]];
-  for (final line in body.split('\n')) {
-    if (line.startsWith('### ')) {
-      blocks.add([line]);
-    } else {
-      blocks.last.add(line);
-    }
-  }
-  final kept = <String>[];
-  for (final block in blocks) {
-    var lines = block;
-    final label = lines.indexOf(upgradeLabel);
-    if (label != -1 && !lines.skip(label + 1).any((l) => l.startsWith('- '))) {
-      lines = [...lines]..removeAt(label);
-    }
-    final header = lines.isNotEmpty && lines.first.startsWith('### ');
-    final content = header ? lines.skip(1) : lines;
-    if (!content.any((l) => l.trim().isNotEmpty)) {
-      continue;
-    }
-    final text = lines.join('\n').trim();
-    kept.add(text.replaceAll(RegExp(r'\n{3,}'), '\n\n'));
-  }
-  return '${kept.join('\n\n')}\n\n';
+  final section = _scan(text)!;
+  final before = section.lines
+      .sublist(0, section.start)
+      .map((line) => '$line\n')
+      .join();
+  final after = section.lines.sublist(section.end).join('\n');
+  final released = '$before$unreleasedTemplate## $version\n\n$notes';
+  // As the last section of the file, it ends the file with one newline.
+  return after.isEmpty ? '${released.trimRight()}\n' : '$released$after';
 }
 
 /// The sections a fragment may have (as on `main`).
@@ -293,8 +451,9 @@ final class Fragment {
 
 /// What is wrong with fragment [fileName] holding [text]: a name that is
 /// not a slug, a header other than those of [fragmentSections], a section
-/// without a `- ` line, text outside the lists, a `## ` header, an empty
-/// file.
+/// without a `- ` line, text outside the lists (a code block too: a
+/// fragment's notes are one line each), a `## ` header, an empty file.
+/// Each line's problem names the line and its text.
 List<String> fragmentProblems(String fileName, String text) {
   final problems = <String>[];
   final where = '$fragmentsDirectory/$fileName';
@@ -307,8 +466,20 @@ List<String> fragmentProblems(String fileName, String text) {
   }
   String? section;
   final counts = <String, int>{};
-  for (final (i, line) in text.split('\n').indexed) {
+  var fenced = false;
+  for (final (i, line) in normalizeChangelogText(text).split('\n').indexed) {
     if (line.trim().isEmpty) {
+      continue;
+    }
+    final fence = _isFence(line);
+    if (fenced || fence) {
+      if (fence) {
+        fenced = !fenced;
+      }
+      problems.add(
+        '$where:${i + 1}: ${_quoted(line)}: a fragment holds only "- " '
+        'notes under its section headers.',
+      );
       continue;
     }
     if (line.startsWith('### ')) {
@@ -327,14 +498,16 @@ List<String> fragmentProblems(String fileName, String text) {
     }
     if (line.startsWith('#')) {
       problems.add(
-        '$where:${i + 1}: only "### " section headers belong in a fragment.',
+        '$where:${i + 1}: ${_quoted(line)} is not a fragment section: only '
+        '"### " section headers belong in a fragment '
+        '(${fragmentSections.map((s) => '"### $s"').join(', ')}).',
       );
       continue;
     }
     if (section == null || !line.startsWith('- ')) {
       problems.add(
-        '$where:${i + 1}: a fragment holds only "- " notes under its '
-        'section headers.',
+        '$where:${i + 1}: ${_quoted(line)}: a fragment holds only "- " '
+        'notes under its section headers.',
       );
       continue;
     }
@@ -355,7 +528,7 @@ List<String> fragmentProblems(String fileName, String text) {
 Fragment parseFragment(String name, String text) {
   final lines = <String, List<String>>{};
   String? section;
-  for (final line in text.split('\n')) {
+  for (final line in normalizeChangelogText(text).split('\n')) {
     if (line.startsWith('### ')) {
       section = line.substring(4).trim();
       lines.putIfAbsent(section, () => []);
@@ -366,23 +539,31 @@ Fragment parseFragment(String name, String text) {
   return Fragment(name, lines);
 }
 
-/// The fragments of [directory], by name; [problems] receives what is
-/// wrong with any of them (an invalid one is left out).
-List<Fragment> readFragments(Directory directory, {List<String>? problems}) {
+/// The files of [directory] that are fragments, name → text, by name
+/// (`README.md` is not one; none when there is no such directory).
+Map<String, String> readFragmentFiles(Directory directory) {
   if (!directory.existsSync()) {
-    return const [];
+    return const {};
   }
   final files = [
     for (final entity in directory.listSync())
       if (entity is File) entity,
   ]..sort((a, b) => a.uri.pathSegments.last.compareTo(b.uri.pathSegments.last));
+  return {
+    for (final file in files)
+      if (file.uri.pathSegments.last != 'README.md')
+        file.uri.pathSegments.last: file.readAsStringSync(),
+  };
+}
+
+/// The fragments of [directory], by name; [problems] receives what is
+/// wrong with any of them (an invalid one is left out).
+List<Fragment> readFragments(Directory directory, {List<String>? problems}) =>
+    _fragments(readFragmentFiles(directory), problems);
+
+List<Fragment> _fragments(Map<String, String> files, List<String>? problems) {
   final fragments = <Fragment>[];
-  for (final file in files) {
-    final fileName = file.uri.pathSegments.last;
-    if (fileName == 'README.md') {
-      continue;
-    }
-    final text = file.readAsStringSync();
+  for (final MapEntry(key: fileName, value: text) in files.entries) {
     final found = fragmentProblems(fileName, text);
     if (found.isNotEmpty) {
       problems?.addAll(found);
@@ -395,6 +576,44 @@ List<Fragment> readFragments(Directory directory, {List<String>? problems}) {
   return fragments;
 }
 
+/// What a release reads: CHANGELOG.md and the fragments, checked.
+final class ReleaseInput {
+  /// The [changelog] and [fragments] with their [problems].
+  const ReleaseInput(this.changelog, this.fragments, this.problems);
+
+  /// The text of CHANGELOG.md ([normalizeChangelogText]).
+  final String changelog;
+
+  /// The valid fragments, in the order their files were given.
+  final List<Fragment> fragments;
+
+  /// What is wrong with the input, each with its file, and for a line its
+  /// 1-based number and text. A release is refused unless this is empty.
+  final List<String> problems;
+}
+
+/// The one check of what a release reads, for `--preview`,
+/// `tool/changelog_check.dart` and `tool/release.dart`: the text of
+/// CHANGELOG.md ([unreleasedInputProblems]) and of each fragment in
+/// [fragmentFiles], file name → text ([fragmentProblems]). A byte order
+/// mark at the start and `\r\n` line endings are read as if absent.
+ReleaseInput validateReleaseInput(
+  String changelog, {
+  Map<String, String> fragmentFiles = const {},
+}) {
+  final text = normalizeChangelogText(changelog);
+  final problems = unreleasedInputProblems(text);
+  final fragments = _fragments(fragmentFiles, problems);
+  return ReleaseInput(text, fragments, problems);
+}
+
+/// [validateReleaseInput] of `CHANGELOG.md` and `changelog.d/` under
+/// [root] (the current directory by default).
+ReleaseInput readReleaseInput({String root = '.'}) => validateReleaseInput(
+  File('$root/CHANGELOG.md').readAsStringSync(),
+  fragmentFiles: readFragmentFiles(Directory('$root/$fragmentsDirectory')),
+);
+
 /// The upgrade notes of [changelog] and [fragments] together, in the order
 /// [assembleRelease] writes them: what the rule on new exports counts.
 List<String> allUpgradeNotes(String changelog, List<Fragment> fragments) => [
@@ -405,108 +624,74 @@ List<String> allUpgradeNotes(String changelog, List<Fragment> fragments) => [
     ...?fragment.lines['Upgrade notes'],
 ];
 
-/// A version's notes from the `## Unreleased` [body] and [fragments], in
-/// the order of the 1.27.x patches: the text before the first sub-header
-/// (the opening paragraph, written by hand), then `### Security`,
-/// `### Fixed`, `### Added` and `### Changed` with [upgradeLabel] and the
-/// upgrade notes. In each section the body's own notes come first, then
-/// the fragments' by file name. A note that starts with [securityPrefix]
-/// goes under `### Security` without it, from any section but the upgrade
-/// notes; a line under a note that does not start a new one stays with it.
-/// Empty parts are left for [releaseChangelog] to drop.
-String assembleRelease(String body, List<Fragment> fragments) {
-  final intro = <String>[];
-  final notes = {
-    for (final s in ['Security', ...fragmentSections]) s: <String>[],
-  };
-  // Adds note [line] of [section] where it belongs; returns that list.
-  List<String> add(String section, String line) {
-    if (section != 'Upgrade notes' &&
-        section != 'Security' &&
-        line.startsWith('- $securityPrefix')) {
-      final rest = line.substring(2 + securityPrefix.length);
-      final security = notes['Security']!;
-      return security..add(
-        rest.isEmpty ? '- ' : '- ${rest[0].toUpperCase()}${rest.substring(1)}',
-      );
-    }
-    return notes[section]!..add(line);
+/// A version's notes from `## Unreleased` of [changelog] and [fragments],
+/// in the order of the 1.27.x patches: the text before the first
+/// sub-header (the opening paragraph, written by hand), then
+/// `### Security`, `### Fixed`, `### Added` and `### Changed` with
+/// [upgradeLabel] and the upgrade notes. In each section the changelog's
+/// own notes come first, then the fragments' by file name. A note that
+/// starts with [securityPrefix] goes under `### Security` without it, from
+/// any section but the upgrade notes; a line under a note that does not
+/// start a new one stays with it, a fenced code block as it is. A section
+/// without a note is left out, and so is the label without an upgrade
+/// note; blank lines outside code blocks are not kept.
+///
+/// Throws a [StateError] with the lines of [unreleasedInputProblems] when
+/// there are any: no line is dropped or moved in silence.
+String assembleRelease(String changelog, List<Fragment> fragments) {
+  final text = normalizeChangelogText(changelog);
+  final problems = unreleasedInputProblems(text);
+  if (problems.isNotEmpty) {
+    throw StateError(problems.join('\n'));
   }
-
-  String? section;
-  List<String>? last;
-  final bodyLines = body.split('\n');
-  for (var i = 0; i < bodyLines.length; i++) {
-    final line = bodyLines[i];
-    final header = switch (line) {
-      '### Security' => 'Security',
-      '### Added' => 'Added',
-      '### Changed' => 'Changed',
-      upgradeLabel => 'Upgrade notes',
-      '### Fixed' => 'Fixed',
-      _ => null,
-    };
-    if (header != null) {
-      section = header;
-      last = null;
-    } else if (line.startsWith('#')) {
-      throw StateError(
-        'line ${i + 1}: unknown header "$line" under "## Unreleased" '
-        '(expected "### Security", "### Added", "### Changed" or "### Fixed").',
-      );
-    } else if (line.trim().isEmpty) {
-      continue;
-    } else if (section == null) {
-      intro.add(line);
-    } else if (line.startsWith('- ')) {
-      last = add(section, line);
-    } else {
-      // A note's continuation line stays with the note.
-      (last ?? notes[section]!).add(line);
-    }
-  }
+  final section = _scan(text)!;
   final sorted = [...fragments]..sort((a, b) => a.name.compareTo(b.name));
   for (final fragment in sorted) {
     for (final s in fragmentSections) {
       for (final line in fragment.lines[s] ?? const <String>[]) {
-        add(s, line);
+        section.add(s, line);
       }
     }
   }
-  String block(String header, List<String> lines) =>
-      lines.isEmpty ? '$header\n\n' : '$header\n\n${lines.join('\n')}\n\n';
-
-  return '\n'
-      '${intro.isEmpty ? '' : '${intro.join('\n')}\n\n'}'
-      '${block('### Security', notes['Security']!)}'
-      '${block('### Fixed', notes['Fixed']!)}'
-      '${block('### Added', notes['Added']!)}'
-      '${block('### Changed', notes['Changed']!)}'
-      '${block(upgradeLabel, notes['Upgrade notes']!)}';
+  List<String> of(String name) => section.notes[name]!;
+  final parts = [
+    if (section.intro.isNotEmpty) section.intro.join('\n'),
+    for (final name in ['Security', 'Fixed', 'Added'])
+      if (of(name).isNotEmpty) '### $name\n\n${of(name).join('\n')}',
+    if (of('Changed').isNotEmpty || of('Upgrade notes').isNotEmpty)
+      [
+        '### Changed',
+        if (of('Changed').isNotEmpty) of('Changed').join('\n'),
+        // The label stays as long as a line stands under it.
+        if (of('Upgrade notes').isNotEmpty) ...[
+          upgradeLabel,
+          of('Upgrade notes').join('\n'),
+        ],
+      ].join('\n\n'),
+  ];
+  return parts.isEmpty
+      ? ''
+      : '${parts.map((p) => p.trimRight()).join('\n\n')}\n\n';
 }
 
 /// `dart run tool/changelog.dart --preview`: prints the notes the next
 /// release writes from `## Unreleased` of CHANGELOG.md and the fragments
-/// of `changelog.d/`.
+/// of `changelog.d/`, or what is wrong with them (exit code 1).
 void main(List<String> args) {
   if (!args.contains('--preview')) {
     stderr.writeln('Usage: dart run tool/changelog.dart --preview');
     exitCode = 64;
     return;
   }
-  final changelog = File('CHANGELOG.md').readAsStringSync();
-  final problems = <String>[...unknownUnreleasedHeaders(changelog)];
-  final fragments = readFragments(
-    Directory(fragmentsDirectory),
-    problems: problems,
-  );
-  for (final problem in problems) {
+  final input = readReleaseInput();
+  for (final problem in input.problems) {
     stderr.writeln(problem);
   }
-  if (problems.isNotEmpty) {
+  if (input.problems.isNotEmpty) {
     exitCode = 1;
     return;
   }
-  final body = assembleRelease(unreleasedBody(changelog) ?? '', fragments);
-  stdout.write('## <next>\n\n${_withoutEmptyParts(body)}');
+  stdout.write(
+    '## <next>\n\n${assembleRelease(input.changelog, input.fragments)}',
+  );
 }

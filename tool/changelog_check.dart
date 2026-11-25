@@ -5,7 +5,10 @@ import 'changelog.dart';
 /// Checks CHANGELOG.md for a change (KEP-04.3):
 ///
 /// - `## Unreleased` is there with `### Added`, `### Changed` (and its
-///   upgrade label) and `### Fixed`;
+///   upgrade label) and `### Fixed`, and a release can place every line
+///   under it: no other header, no `* ` bullet, no text that is not part
+///   of a `- ` note (`validateReleaseInput`, the check that `--preview`
+///   and `tool/release.dart` make as well);
 /// - every fragment in `changelog.d/` is valid (its name, its sections,
 ///   notes only);
 /// - a change that adds an `export` to a package's top-level library
@@ -27,12 +30,11 @@ Future<void> main(List<String> args) async {
   final String base =
       given ?? (await _git(['merge-base', 'origin/main', 'HEAD'])).trim();
 
-  final head = File('CHANGELOG.md').readAsStringSync();
-  final problems = [...unreleasedProblems(head)];
-  final headFragments = readFragments(
-    Directory(fragmentsDirectory),
-    problems: problems,
-  );
+  // What `--preview` and tool/release.dart refuse, this refuses too.
+  final input = readReleaseInput();
+  final head = input.changelog;
+  final problems = [...input.problems];
+  final headFragments = input.fragments;
 
   final diff = await _git([
     'diff',
