@@ -54,7 +54,7 @@ So Daravel differs from Laravel in three ways:
 
 - **`'true'` and `'false'`** pass. This is written in the code (`asBool` documents it) and is the difference this record is about.
 - **`1.0` and `0.0`** pass, because the `switch` in `asBool` matches `1` and `0` as constant patterns, which compare with `==`, and `1.0 == 1` in Dart. PHP's strict comparison rejects them. This is an observation of the code's behaviour; this record does not say whether it was intended.
-- **`boolean:strict`** is not implemented: the rule parser ignores arguments for `boolean`, so `boolean:strict` behaves as plain `boolean` and accepts everything in the second column. (The parser also accepts `bool` as an alias, which Laravel does not have.)
+- **`boolean:strict`** is not implemented: the rule parser ignores arguments for `boolean`, so `boolean:strict` behaves as plain `boolean` and accepts everything in the second column. (`bool` is an alias of `boolean` in both: Laravel maps `Bool` to `Boolean` in `ValidationRuleParser::normalizeRule`.)
 
 `validated()` and the typed accessors read the same way (`ValidatedData.boolean`, `maybeBoolean`), so a value that passes the rule is read back as the matching `bool`.
 
