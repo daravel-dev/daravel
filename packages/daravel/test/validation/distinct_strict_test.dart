@@ -497,7 +497,9 @@ void main() {
 
     Future<int> best(List<Object?> items) async {
       var least = await micros(items);
-      for (var i = 0; i < 2; i++) {
+      // A first run warms the code up; the best of five keeps a pause of
+      // the machine out of the ratio.
+      for (var i = 0; i < 4; i++) {
         final next = await micros(items);
         least = next < least ? next : least;
       }
@@ -505,9 +507,10 @@ void main() {
     }
 
     test('distinct integers', () async {
-      final small = await best([for (var i = 0; i < 2000; i++) i]);
-      final large = await best([for (var i = 0; i < 8000; i++) i]);
-      expect(large, lessThan(8 * small), reason: '$small us -> $large us');
+      final small = await best([for (var i = 0; i < 10000; i++) i]);
+      final large = await best([for (var i = 0; i < 40000; i++) i]);
+      // Four times the items: linear work is 4 times, quadratic 16.
+      expect(large, lessThan(10 * small), reason: '$small us -> $large us');
     });
 
     test('distinct strings of 200 characters', () async {
@@ -515,9 +518,10 @@ void main() {
         for (var i = 0; i < n; i++)
           '${'x' * 195}${i.toString().padLeft(5, '0')}',
       ];
-      final small = await best(strings(2000));
-      final large = await best(strings(8000));
-      expect(large, lessThan(8 * small), reason: '$small us -> $large us');
+      final small = await best(strings(10000));
+      final large = await best(strings(40000));
+      // Four times the items: linear work is 4 times, quadratic 16.
+      expect(large, lessThan(10 * small), reason: '$small us -> $large us');
     });
   });
 }
