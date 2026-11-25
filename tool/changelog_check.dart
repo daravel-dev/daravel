@@ -27,16 +27,49 @@ Future<void> main(List<String> args) async {
       .where((a) => a.startsWith('--base='))
       .map((a) => a.substring(7))
       .firstOrNull;
-  final String base =
-      given ?? (await _git(['merge-base', 'origin/main', 'HEAD'])).trim();
+  exitCode = await checkChangelog('.', given, stdout, stderr);
+}
 
+/// The check of the repository under [root] against commit [base] (the
+/// merge base with `origin/main` when null): what is in order to [out],
+/// the problems to [err]. The exit code: 1 with problems, 2 when git
+/// fails.
+Future<int> checkChangelog(
+  String root,
+  String? base,
+  StringSink out,
+  StringSink err,
+) async {
+  try {
+    final problems = <String>[];
+    final summary = await _check(
+      root,
+      base ?? (await _git(root, ['merge-base', 'origin/main', 'HEAD'])).trim(),
+      problems,
+    );
+    if (problems.isEmpty) {
+      out.writeln(summary);
+      return 0;
+    }
+    for (final problem in problems) {
+      err.writeln(problem);
+    }
+    return 1;
+  } on _GitFailure catch (e) {
+    err.writeln(e.message);
+    return 2;
+  }
+}
+
+/// Adds what is wrong to [problems]; what to say when nothing is.
+Future<String> _check(String root, String base, List<String> problems) async {
   // What `--preview` and tool/release.dart refuse, this refuses too.
-  final input = readReleaseInput();
+  final input = readReleaseInput(root: root);
   final head = input.changelog;
-  final problems = [...input.problems];
+  problems.addAll(input.problems);
   final headFragments = input.fragments;
 
-  final diff = await _git([
+  final diff = await _git(root, [
     'diff',
     '--unified=0',
     base,
@@ -50,53 +83,45 @@ Future<void> main(List<String> args) async {
       if (topLevel.hasMatch(e)) e,
   ];
   if (exports.isNotEmpty) {
-    final before = await _git(['show', '$base:CHANGELOG.md']);
+    final before = await _git(root, ['show', '$base:CHANGELOG.md']);
     // A release commit (tool/release.dart) moves the notes under the new
-    // version and leaves `## Unreleased` empty.
-    const versionFile = 'packages/daravel/lib/src/foundation/version.dart';
-    final version = daravelVersionIn(File(versionFile).readAsStringSync());
+    // version and leaves `## Unreleased` empty, above the new version's
+    // header: the section ends at the version the workspace is at now.
+    final version = input.currentVersion;
     final baseVersion = daravelVersionIn(
-      await _git(['show', '$base:$versionFile']),
+      await _git(root, ['show', '$base:$versionFile']),
     );
     final released =
         version != null &&
         version != baseVersion &&
-        !hasNotes(unreleasedBody(head) ?? '');
+        !hasNotes(unreleasedBody(head, currentVersion: version) ?? '');
     problems.addAll(
       upgradeNoteProblems(
         baseChangelog: before,
         headChangelog: head,
         addedExports: exports,
         releasedVersion: released ? version : null,
-        baseFragments: await _fragmentsAt(base),
+        baseFragments: await _fragmentsAt(root, base),
         headFragments: headFragments,
+        baseVersion: baseVersion,
+        headVersion: version,
       ),
     );
   }
-
-  if (problems.isEmpty) {
-    stdout.writeln(
-      'CHANGELOG.md is in order'
+  return 'CHANGELOG.md is in order'
       '${headFragments.isEmpty ? '' : ', ${headFragments.length} fragment(s)'}'
-      '${exports.isEmpty ? '' : ' (${exports.length} new export line(s), upgrade note present)'}.',
-    );
-    return;
-  }
-  for (final problem in problems) {
-    stderr.writeln(problem);
-  }
-  exitCode = 1;
+      '${exports.isEmpty ? '' : ' (${exports.length} new export line(s), upgrade note present)'}.';
 }
 
 /// The valid fragments of `changelog.d/` at commit [ref] (none before the
 /// directory existed).
-Future<List<Fragment>> _fragmentsAt(String ref) async {
+Future<List<Fragment>> _fragmentsAt(String root, String ref) async {
   final listing = await Process.run('git', [
     'ls-tree',
     '--name-only',
     ref,
     '$fragmentsDirectory/',
-  ]);
+  ], workingDirectory: root);
   if (listing.exitCode != 0) {
     return const [];
   }
@@ -106,7 +131,7 @@ Future<List<Fragment>> _fragmentsAt(String ref) async {
     if (!name.endsWith('.md') || name == 'README.md') {
       continue;
     }
-    final text = await _git(['show', '$ref:$path']);
+    final text = await _git(root, ['show', '$ref:$path']);
     if (fragmentProblems(name, text).isEmpty) {
       fragments.add(parseFragment(name.substring(0, name.length - 3), text));
     }
@@ -114,11 +139,17 @@ Future<List<Fragment>> _fragmentsAt(String ref) async {
   return fragments;
 }
 
-Future<String> _git(List<String> args) async {
-  final result = await Process.run('git', args);
+/// A git command that failed: the check cannot tell (exit code 2).
+final class _GitFailure implements Exception {
+  _GitFailure(this.message);
+
+  final String message;
+}
+
+Future<String> _git(String root, List<String> args) async {
+  final result = await Process.run('git', args, workingDirectory: root);
   if (result.exitCode != 0) {
-    stderr.writeln('git ${args.join(' ')} failed: ${result.stderr}');
-    exit(2);
+    throw _GitFailure('git ${args.join(' ')} failed: ${result.stderr}');
   }
   return result.stdout as String;
 }

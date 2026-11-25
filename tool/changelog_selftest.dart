@@ -2,12 +2,13 @@ import 'dart:io';
 import 'dart:math';
 
 import 'changelog.dart';
+import 'changelog_check.dart';
 import 'release.dart';
 
 /// Tests of tool/changelog.dart and tool/release.dart, run in CI:
 /// `dart run tool/changelog_selftest.dart`. The workspace root has no
 /// `package:test`, so this is a plain program that exits 1 on a failure.
-void main() {
+Future<void> main() async {
   var failures = 0;
   void check(String name, Object? actual, Object? expected) {
     final ok = '$actual' == '$expected';
@@ -43,7 +44,7 @@ void main() {
       .replaceFirst('### Fixed\n\n', '### Fixed\n\n- A bug.\n\n');
   check(
     'release drops empty Changed and the empty label',
-    releaseChangelog(withNotes, '1.1.0'),
+    _release(withNotes, '1.1.0'),
     '$head$unreleasedTemplate'
         '## 1.1.0\n\n### Fixed\n\n- A bug.\n\n### Added\n\n- A thing.\n\n'
         '$older',
@@ -54,14 +55,14 @@ void main() {
   );
   check(
     'release keeps Changed with its upgrade note',
-    releaseChangelog(withUpgrade, '1.1.0'),
+    _release(withUpgrade, '1.1.0'),
     '$head$unreleasedTemplate'
         '## 1.1.0\n\n### Changed\n\n$upgradeLabel\n\n- `X` is exported now.\n\n'
         '$older',
   );
   var refused = false;
   try {
-    releaseChangelog(empty, '1.1.0');
+    _release(empty, '1.1.0');
   } on StateError {
     refused = true;
   }
@@ -118,7 +119,7 @@ void main() {
   );
 
   // A release commit: tool/release.dart moved the notes under the version.
-  final released = releaseChangelog(withUpgrade, '1.1.0');
+  final released = _release(withUpgrade, '1.1.0');
   check(
     'a release with its note under the version passes',
     upgradeNoteProblems(
@@ -129,7 +130,7 @@ void main() {
     ),
     <String>[],
   );
-  final releasedWithoutNote = releaseChangelog(withNotes, '1.1.0');
+  final releasedWithoutNote = _release(withNotes, '1.1.0');
   check(
     'a release without a note under the version is a problem',
     upgradeNoteProblems(
@@ -169,6 +170,7 @@ void main() {
   _inputChecks(check);
   _propertyChecks(check);
   _releaseChecks(check);
+  await _entryPointChecks(check);
 
   if (failures > 0) {
     stderr.writeln('$failures failure(s).');
@@ -217,7 +219,7 @@ void _fragmentChecks(
       );
   check(
     'zero fragments: opening paragraph, Security, Fixed, Added, Changed',
-    section(releaseChangelog(byHand, '1.27.8'), '1.27.8'),
+    section(_release(byHand, '1.27.8'), '1.27.8'),
     '## 1.27.8\n\n'
         'A patch. Upgrade every application.\n\n'
         '### Security\n\n- A hole, closed.\n  (a line under the note)\n\n'
@@ -227,7 +229,7 @@ void _fragmentChecks(
   );
   check(
     'a release leaves a fresh template on top',
-    releaseChangelog(byHand, '1.27.8').startsWith('$head$unreleasedTemplate'),
+    _release(byHand, '1.27.8').startsWith('$head$unreleasedTemplate'),
     true,
   );
 
@@ -243,7 +245,7 @@ void _fragmentChecks(
   ];
   check(
     'fragments without a prefix: by file name, no Security section',
-    section(releaseChangelog(empty, '1.27.8', fragments: plain), '1.27.8'),
+    section(_release(empty, '1.27.8', fragments: plain), '1.27.8'),
     '## 1.27.8\n\n'
         '### Fixed\n\n- First fix.\n- Second fix.\n\n'
         '### Changed\n\n- Behaves otherwise.\n\n$upgradeLabel\n\n- Say so.\n\n',
@@ -251,7 +253,7 @@ void _fragmentChecks(
   check(
     'the body\'s own notes come before the fragments\'',
     section(
-      releaseChangelog(byHand, '1.27.8', fragments: plain),
+      _release(byHand, '1.27.8', fragments: plain),
       '1.27.8',
     ).contains('### Fixed\n\n- A bug.\n- First fix.\n- Second fix.\n'),
     true,
@@ -269,7 +271,7 @@ void _fragmentChecks(
   check(
     'Security notes from fragments, prefix dropped, first letter upper '
         '(a fragment\'s in the order of its sections)',
-    section(releaseChangelog(empty, '1.27.8', fragments: secure), '1.27.8'),
+    section(_release(empty, '1.27.8', fragments: secure), '1.27.8'),
     '## 1.27.8\n\n'
         '### Security\n\n- A default, tightened.\n- `Thing` leaked.\n\n'
         '### Fixed\n\n- Plain fix.\n\n'
@@ -277,7 +279,7 @@ void _fragmentChecks(
   );
   var refused = false;
   try {
-    releaseChangelog(empty, '1.27.8');
+    _release(empty, '1.27.8');
   } on StateError {
     refused = true;
   }
@@ -340,7 +342,7 @@ void _fragmentChecks(
   );
   check(
     'hand-written ### Security under ## Unreleased is preserved verbatim',
-    releaseChangelog(withSecurityHeader, '1.1.0'),
+    _release(withSecurityHeader, '1.1.0'),
     '$head$unreleasedTemplate'
         '## 1.1.0\n\n### Security\n\n- `foo` rejects bad input.\n\n'
         '### Added\n\n- X.\n\n$older',
@@ -352,7 +354,7 @@ void _fragmentChecks(
   );
   String? unknownError;
   try {
-    releaseChangelog(withUnknownHeader, '1.1.0');
+    _release(withUnknownHeader, '1.1.0');
   } on StateError catch (e) {
     unknownError = '$e';
   }
@@ -370,7 +372,7 @@ void _fragmentChecks(
     );
     String? err;
     try {
-      releaseChangelog(text, '1.1.0');
+      _release(text, '1.1.0');
     } on StateError catch (e) {
       err = '$e';
     }
@@ -385,7 +387,13 @@ void _fragmentChecks(
   // notes as "Security: " notes under Fixed) and their opening paragraph
   // by hand give back the section as released.
   final changelog = File('CHANGELOG.md').readAsStringSync();
-  for (final version in ['1.27.5', '1.27.6', '1.27.7']) {
+  for (final (previous, version) in [
+    ('1.27.4', '1.27.5'),
+    ('1.27.5', '1.27.6'),
+    ('1.27.6', '1.27.7'),
+  ]) {
+    // Above the version that was the current one before the release.
+    final above = empty.replaceFirst('## 1.0.0\n', '## $previous\n');
     final released = section(changelog, version);
     final intro = <String>[];
     final parts = <String, List<String>>{};
@@ -432,21 +440,23 @@ void _fragmentChecks(
           text.write('### $name\n\n${lines.join('\n')}\n\n');
         }
       }
-      rebuilt = releaseChangelog(
-        empty.replaceFirst('## Unreleased\n\n', opening),
+      rebuilt = _release(
+        above.replaceFirst('## Unreleased\n\n', opening),
         version,
+        current: previous,
         fragments: [fragment('patch-${version.replaceAll('.', '-')}', '$text')],
       );
     } else {
       String lines(int i) =>
           sections[i].$2.isEmpty ? '' : '${sections[i].$2.join('\n')}\n\n';
-      rebuilt = releaseChangelog(
-        empty.replaceFirst(
+      rebuilt = _release(
+        above.replaceFirst(
           unreleasedTemplate,
           '$opening### Added\n\n${lines(0)}### Changed\n\n${lines(1)}'
           '$upgradeLabel\n\n${lines(2)}### Fixed\n\n${lines(3)}',
         ),
         version,
+        current: previous,
       );
     }
     check(
@@ -477,9 +487,14 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     String changelog,
     List<String> naming, {
     Map<String, String> fragments = const {},
+    String current = '1.0.0',
   }) {
     try {
-      final input = validateReleaseInput(changelog, fragmentFiles: fragments);
+      final input = _validate(
+        changelog,
+        fragments: fragments,
+        current: current,
+      );
       final text = input.problems.join('\n');
       check('$name: refused, naming the line', [
         for (final part in naming)
@@ -488,7 +503,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
       if (fragments.isEmpty) {
         String? error;
         try {
-          releaseChangelog(changelog, '9.9.9');
+          _release(changelog, '9.9.9', current: current);
         } on StateError catch (e) {
           error = e.message;
         }
@@ -506,11 +521,20 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     String changelog,
     List<String> markers, {
     Map<String, String> fragments = const {},
+    String current = '1.0.0',
   }) {
     try {
-      final input = validateReleaseInput(changelog, fragmentFiles: fragments);
+      final input = _validate(
+        changelog,
+        fragments: fragments,
+        current: current,
+      );
       check('$name: accepted', input.problems, <String>[]);
-      final section = assembleRelease(input.changelog, input.fragments);
+      final section = _assemble(
+        input.changelog,
+        input.fragments,
+        current: current,
+      );
       check(
         '$name: every note once in the section, in order',
         [
@@ -523,10 +547,11 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
           for (var i = 1; i < markers.length; i++) true,
         ],
       );
-      final released = releaseChangelog(
+      final released = _release(
         changelog,
         '9.9.9',
         fragments: input.fragments,
+        current: current,
       );
       check(
         '$name: every note once in the released file',
@@ -547,26 +572,26 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
   const rest = '### Added\n\n### Changed\n\n$upgradeLabel\n\n### Fixed\n\n';
   const top = '### Added\n\n### Changed\n\n$upgradeLabel\n\n';
 
-  // T1_02 to T1_07, T1_13b: headers the check let through.
-  for (final (id, header) in [
-    ('T1_02', '### security'),
-    ('T1_03', '###Security'),
-    ('T1_04', '#### Security'),
-    ('T1_05', '### Security '),
+  // Headers the check let through.
+  for (final header in [
+    '### security',
+    '###Security',
+    '#### Security',
+    '### Security ',
   ]) {
     refused(
-      '$id header "$header"',
+      'header "$header"',
       _withOlder('## Unreleased\n\n$header\n\n- A note [N1].\n\n$rest'),
       ['CHANGELOG.md:5: unknown header "$header" under'],
     );
   }
   refused(
-    'T1_06 header "### Removed"',
+    'header "### Removed"',
     _withOlder('## Unreleased\n\n$rest### Removed\n\n- Dropped [N1].\n\n'),
     ['CHANGELOG.md:13: unknown header "### Removed" under'],
   );
   refused(
-    'T1_07 header "### Upgrade notes" in CHANGELOG.md',
+    'header "### Upgrade notes" in CHANGELOG.md',
     _withOlder(
       '## Unreleased\n\n### Added\n\n### Changed\n\n### Upgrade notes\n\n'
       '- Direct [N1].\n\n$upgradeLabel\n\n### Fixed\n\n',
@@ -574,7 +599,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:9: unknown header "### Upgrade notes" under'],
   );
   refused(
-    'T1_13b a "# " line at the start of a line of a note',
+    'a "# " line at the start of a line of a note',
     _withOlder(
       '## Unreleased\n\n### Added\n\n- First note [N1]\n# comment [N2]\n\n'
       '### Changed\n\n$upgradeLabel\n\n### Fixed\n\n',
@@ -582,9 +607,9 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:8: unknown header "# comment [N2]" under'],
   );
 
-  // T1_14: a known header inside a code block is text of the note.
+  // A known header inside a code block is text of the note.
   final hijack = accepted(
-    'T1_14 "### Added" inside a code block',
+    '"### Added" inside a code block',
     _withOlder(
       '## Unreleased\n\n$top### Fixed\n\n'
       '- Note before [N1]\n\n'
@@ -599,17 +624,17 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['[N1]', '[N2]', '[N3]'],
   );
   check(
-    'T1_14: the block stays whole under "### Fixed"',
+    'the block stays whole under "### Fixed"',
     hijack,
     '### Fixed\n\n- Note before [N1]\n  ```markdown\n### Added\n'
         '  - Inside [N2]\n\n\n  ```\n- Note after [N3]\n\n',
   );
 
-  // T1_15, T1_16: headers inside a code block are not headers. A block
+  // Headers inside a code block are not headers. A block
   // that is not indented under its note, after an empty line, belongs to
   // no note: refused, by the line that opens it.
   refused(
-    'T1_15 a code block that belongs to no note',
+    'a code block that belongs to no note',
     _withOlder(
       '## Unreleased\n\n$top### Fixed\n\n- A note [N1]:\n\n'
       '```markdown\n### Custom\n- inside [N2]\n```\n\n',
@@ -617,7 +642,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:15: "```markdown": text under a sub-header is'],
   );
   accepted(
-    'T1_15 "### Custom" inside a code block of a note',
+    '"### Custom" inside a code block of a note',
     _withOlder(
       '## Unreleased\n\n$top### Fixed\n\n- A note [N1]:\n\n'
       '  ```markdown\n### Custom [N2]\n- inside [N3]\n  ```\n\n',
@@ -625,7 +650,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['[N1]', '[N2]', '[N3]'],
   );
   refused(
-    'T1_16 a code block with "## 2.0.0" that belongs to no note',
+    'a code block with "## 2.0.0" that belongs to no note',
     _withOlder(
       '## Unreleased\n\n$top### Fixed\n\n- First fix [N1]:\n\n'
       '```markdown\n## 2.0.0\n- Example [N2]\n```\n\n- A fix after [N3]\n\n',
@@ -633,7 +658,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:15: "```markdown": text under a sub-header is'],
   );
   final fenced = accepted(
-    'T1_16 "## 2.0.0" inside a code block of a note',
+    '"## 2.0.0" inside a code block of a note',
     _withOlder(
       '## Unreleased\n\n$top### Fixed\n\n- First fix [N1]:\n'
       '  ```markdown\n## 2.0.0\n- Example [N2]\n  ```\n\n'
@@ -642,7 +667,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['[N1]', '[N2]', '[N3]'],
   );
   check(
-    'T1_16: "## 2.0.0" in the block is kept, once',
+    '"## 2.0.0" in the block is kept, once',
     _count(fenced ?? '', '\n## 2.0.0\n'),
     1,
   );
@@ -652,9 +677,9 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:14: "  ```dart": this code block is never closed.'],
   );
 
-  // T1_27: a "## " line that is not a version.
+  // A "## " line that is not a version.
   refused(
-    'T1_27 a "## " line under "## Unreleased"',
+    'a "## " line under "## Unreleased"',
     _withOlder(
       '## Unreleased\n\n### Fixed\n\n- Before [N1].\n\n'
       '## Breaking Notes\n\n- Hidden [N2].\n\n$top',
@@ -662,9 +687,9 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:9: "## Breaking Notes" under "## Unreleased" is neither'],
   );
 
-  // T1_21, T1_21c, T1_21d: "* " bullets and loose text.
+  // "* " bullets and loose text.
   refused(
-    'T1_21 a "* " bullet and loose text',
+    'a "* " bullet and loose text',
     _withOlder(
       '## Unreleased\n\n### Added\n\n* Star [N1]\n\nLoose text [N2]\n\n'
       '### Changed\n\n$upgradeLabel\n\n* Upgrade star [N3]\n\n'
@@ -677,12 +702,12 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ],
   );
   refused(
-    'T1_21c only a "* " bullet',
+    'only a "* " bullet',
     _withOlder('## Unreleased\n\n$top### Fixed\n\n* Only star [N1].\n\n'),
     ['CHANGELOG.md:13: "* Only star [N1].": a note starts with "- "'],
   );
   refused(
-    'T1_21d a "* " bullet under the upgrade label',
+    'a "* " bullet under the upgrade label',
     _withOlder(
       '## Unreleased\n\n$top* Upgrade via star [N1].\n\n'
       '### Fixed\n\n- A fix [N2].\n\n',
@@ -690,7 +715,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:11: "* Upgrade via star [N1].": a note starts with "- "'],
   );
   refused(
-    'T1_21d text under the upgrade label',
+    'text under the upgrade label',
     _withOlder(
       '## Unreleased\n\n${top}Upgrade in prose [N1].\n\n'
       '### Fixed\n\n- A fix [N2].\n\n',
@@ -698,7 +723,7 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['CHANGELOG.md:11: "Upgrade in prose [N1].": text under a sub-header'],
   );
   final labelled = accepted(
-    'T1_21 the upgrade label with a note of several lines',
+    'the upgrade label with a note of several lines',
     _withOlder(
       '## Unreleased\n\n$top- Upgrading [N1]:\n  * nested [N2]\nnext line '
       '[N3]\n\n  after an empty line [N4]\n\n### Fixed\n\n',
@@ -706,23 +731,22 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['[N1]', '[N2]', '[N3]', '[N4]'],
   );
   check(
-    'T1_21: the label stays above every line under it',
+    'the label stays above every line under it',
     labelled,
     '### Changed\n\n$upgradeLabel\n\n- Upgrading [N1]:\n  * nested [N2]\n'
         'next line [N3]\n  after an empty line [N4]\n\n',
   );
 
-  // T1_22, T1_23: line endings.
+  // Line endings.
   const endings =
       '## Unreleased\n\n### Security\n\n- Sec [N1].\n\n'
       '### Added\n\n### Changed\n\n$upgradeLabel\n\n### Fixed\n\n- Fix [N2].\n\n';
+  accepted('CRLF line endings', _withOlder(endings).replaceAll('\n', '\r\n'), [
+    '[N1]',
+    '[N2]',
+  ]);
   accepted(
-    'T1_22 CRLF line endings',
-    _withOlder(endings).replaceAll('\n', '\r\n'),
-    ['[N1]', '[N2]'],
-  );
-  accepted(
-    'T1_23 CRLF on some lines',
+    'CRLF on some lines',
     _withOlder(
       endings.replaceFirst(
         '### Security\n\n- Sec [N1].\n',
@@ -732,50 +756,53 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
     ['[N1]', '[N2]'],
   );
   refused(
-    'T1_23 a carriage return that is not a line ending',
+    'a carriage return that is not a line ending',
     _withOlder(endings.replaceFirst('### Security\n\n', '### Security\r\r')),
-    ['CHANGELOG.md:5: unknown header "### Security\\r\\r- Sec [N1]." under'],
+    [
+      'CHANGELOG.md:5: "### Security\\r\\r- Sec [N1]." holds a carriage '
+          'return',
+    ],
   );
 
-  // T1_25b: "## Unreleased" is the last section of the file.
+  // "## Unreleased" is the last section of the file.
   const last =
       '# Changelog\n\n## Unreleased\n\n$top### Fixed\n\n- Initial note [N1].';
   for (final (name, text) in [
     ('without a newline at the end', last),
     ('with a newline at the end', '$last\n'),
   ]) {
-    accepted('T1_25b the last section, $name', text, ['[N1]']);
+    accepted('the last section, $name', text, ['[N1]']);
     String? released;
     try {
-      released = releaseChangelog(text, '9.9.9');
+      released = _release(text, '9.9.9');
     } on StateError catch (e) {
       released = 'refused: ${e.message}';
     }
     check(
-      'T1_25b the last section, $name: released',
+      'the last section, $name: released',
       released,
       '# Changelog\n\n$unreleasedTemplate'
           '## 9.9.9\n\n### Fixed\n\n- Initial note [N1].\n',
     );
   }
 
-  // T1_26b: a byte order mark at the start of the text.
+  // A byte order mark at the start of the text.
   final mark = String.fromCharCode(0xFEFF);
   final marked =
       '$mark## Unreleased\n\n$top### Fixed\n\n- A fix [N1].\n\n'
       '## 1.0.0\n\n- Old [OLD].\n';
   check(
-    'T1_26b a byte order mark: the section is found',
+    'a byte order mark: the section is found',
     unreleasedProblems(marked),
     <String>[],
   );
-  accepted('T1_26b a byte order mark', marked, ['[N1]']);
+  accepted('a byte order mark', marked, ['[N1]']);
 
-  // T1_09, T1_10: a fragment's wrong header is named.
+  // A fragment's wrong header is named.
   final empty = _withOlder(unreleasedTemplate);
-  for (final (id, header) in [('T1_09', '###Fixed'), ('T1_10', '#### Fixed')]) {
+  for (final header in ['###Fixed', '#### Fixed']) {
     refused(
-      '$id fragment header "$header"',
+      'fragment header "$header"',
       empty,
       ['changelog.d/bad.md:1: "$header" is not a fragment section'],
       fragments: {'bad.md': '$header\n\n- A note [N1].\n'},
@@ -807,7 +834,190 @@ void _inputChecks(void Function(String, Object?, Object?) check) {
           '- Security: a hole [N2].\r\n',
     },
   );
+
+  // Where "## Unreleased" ends: at the header of the version the workspace
+  // is at, and at no other line.
+  String upTo(String header, String notes) =>
+      '# Changelog\n\n## Unreleased\n\n$top### Fixed\n\n$notes$header\n\n'
+      '- Old [OLD].\n';
+  refused(
+    'a section of a later version under "## Unreleased"',
+    upTo(
+      '## 1.27.7',
+      '- A fix [N1].\n\n## 1.27.8\n\n### Security\n\n- A hole [N2].\n\n',
+    ),
+    [
+      'CHANGELOG.md:15: "## 1.27.8" under "## Unreleased" is neither',
+      'the header that ends the section, "## 1.27.7" (the version',
+    ],
+    current: '1.27.7',
+  );
+  refused(
+    'a line of a note that reads as a version header',
+    upTo(
+      '## 1.27.7',
+      '- A fix [N1].\n## 2.0.0 will drop it\n\n- Another [N2].\n\n',
+    ),
+    ['CHANGELOG.md:14: "## 2.0.0 will drop it" under "## Unreleased" is'],
+    current: '1.27.7',
+  );
+  refused(
+    'the header of an older version than the workspace is at',
+    upTo('## 1.27.6', '- A fix [N1].\n\n'),
+    ['CHANGELOG.md:15: "## 1.27.6" under "## Unreleased" is neither'],
+    current: '1.27.7',
+  );
+  refused(
+    'a version that only starts like the one the workspace is at',
+    upTo('## 1.27.70', '- A fix [N1].\n\n'),
+    ['CHANGELOG.md:15: "## 1.27.70" under "## Unreleased" is neither'],
+    current: '1.27.7',
+  );
+  accepted(
+    'the header of the current version, followed by text',
+    upTo('## 1.0.0-beta.1 (first release)', '- A fix [N1].\n\n'),
+    ['[N1]'],
+    current: '1.0.0-beta.1',
+  );
+  accepted(
+    'the header of the current version inside a code block',
+    upTo(
+      '## 1.27.7',
+      '- A fix [N1]:\n  ```\n## 1.27.7\ntext [N2]\n  ```\n- After [N3].\n\n',
+    ),
+    ['[N1]', '[N2]', '[N3]'],
+    current: '1.27.7',
+  );
+
+  // Code blocks as CommonMark reads them: backticks or tildes, closed only
+  // by a fence of the same character, at least as long, with no text.
+  String fixed(String notes) =>
+      _withOlder('## Unreleased\n\n$top### Fixed\n\n$notes\n');
+  for (final (name, block) in [
+    (
+      'a block fenced with tildes',
+      '~~~\n- Security: inside [N2]\n## 3.0.0\n~~~',
+    ),
+    (
+      'a block of four backticks holding a fence of three',
+      '````md\n```\n- Security: in code [N2]\n```\n````',
+    ),
+    (
+      'a closing fence followed by text',
+      '```\n``` not a close\n- Security: in code [N2]\n```',
+    ),
+    (
+      'a closing fence longer than the opening one',
+      '~~~\n- Security: inside [N2]\n```\n~~~~~',
+    ),
+  ]) {
+    final section = accepted(
+      name,
+      fixed('- Example [N1]:\n$block\n- After [N3].\n'),
+      ['[N1]', '[N2]', '[N3]'],
+    );
+    check(
+      '$name: the block stays whole under its note',
+      section,
+      '### Fixed\n\n- Example [N1]:\n$block\n- After [N3].\n\n',
+    );
+  }
+  refused(
+    'a block that only a shorter fence follows',
+    fixed('- Example [N1]:\n````\n```\n'),
+    ['CHANGELOG.md:14: "````": this code block is never closed.'],
+  );
+  accepted(
+    '"## Unreleased" inside a code block above the section',
+    '# Changelog\n\n````\n```\n## Unreleased\n````\n\n'
+        '## Unreleased\n\n$top### Fixed\n\n- A fix [N1].\n\n'
+        '## 1.0.0\n\n- Old [OLD].\n',
+    ['[N1]'],
+  );
+  check(
+    'a "- " line inside a block of tildes is no note',
+    hasNotes('~~~\n- inside\n~~~\n'),
+    false,
+  );
+  refused(
+    'a block of tildes in a fragment',
+    empty,
+    [
+      'changelog.d/bad.md:4: "~~~": a fragment holds only',
+      'changelog.d/bad.md:5: "### Added": a fragment holds only',
+      'changelog.d/bad.md:6: "```": a fragment holds only',
+      'changelog.d/bad.md:7: "~~~": a fragment holds only',
+    ],
+    fragments: {
+      'bad.md': '### Fixed\n\n- A note [N1].\n~~~\n### Added\n```\n~~~\n',
+    },
+  );
+
+  // A "- Security: " note without text, and a stray carriage return.
+  refused('a "- Security: " note without text', fixed('- Security: \n'), [
+    'CHANGELOG.md:13: "- Security: ": the note has no text after',
+  ]);
+  refused(
+    'a "- Security: " note without text in a fragment',
+    empty,
+    ['changelog.d/bad.md:3: "- Security: ": the note has no text after'],
+    fragments: {'bad.md': '### Fixed\n\n- Security: \n'},
+  );
+  refused(
+    'a carriage return inside a line',
+    fixed('- A fix [N1].\r- Another [N2].\n'),
+    [
+      'CHANGELOG.md:13: "- A fix [N1].\\r- Another [N2]." holds a carriage '
+          'return',
+    ],
+  );
+  refused(
+    'a carriage return inside a line of a code block',
+    fixed('- A fix [N1]:\n  ```\ncode\rmore\n  ```\n'),
+    ['CHANGELOG.md:15: "code\\rmore" holds a carriage return'],
+  );
+  refused(
+    'a carriage return inside a line of a fragment',
+    empty,
+    [
+      'changelog.d/bad.md:3: "- A fix [N1].\\r- Another [N2]." holds a '
+          'carriage return',
+    ],
+    fragments: {'bad.md': '### Fixed\n\n- A fix [N1].\r- Another [N2].\n'},
+  );
 }
+
+/// [validateReleaseInput] at [current], the version the changelogs of
+/// these tests end with unless they say otherwise.
+ReleaseInput _validate(
+  String changelog, {
+  Map<String, String> fragments = const {},
+  String current = '1.0.0',
+}) => validateReleaseInput(
+  changelog,
+  currentVersion: current,
+  fragmentFiles: fragments,
+);
+
+/// [assembleRelease] at [current].
+String _assemble(
+  String changelog,
+  List<Fragment> fragments, {
+  String current = '1.0.0',
+}) => assembleRelease(changelog, fragments, currentVersion: current);
+
+/// [releaseChangelog] at [current].
+String _release(
+  String changelog,
+  String version, {
+  List<Fragment> fragments = const [],
+  String current = '1.0.0',
+}) => releaseChangelog(
+  changelog,
+  version,
+  currentVersion: current,
+  fragments: fragments,
+);
 
 /// Generated input: each note carries a marker, and either every marker is
 /// in the section once, in the order of the sections, or the input is
@@ -820,8 +1030,25 @@ void _propertyChecks(void Function(String, Object?, Object?) check) {
   const runs = 400;
   final located = RegExp(r'^CHANGELOG\.md:(\d+): ');
   final marker = RegExp(r'\[M\d+\]');
+  final shapes = {
+    for (final shape in const [
+      'backtick fence',
+      'tilde fence',
+      'fence of four backticks holding a shorter fence line',
+      '"- Security: " note inside a fence',
+      'fence at column 0 right under a note',
+      'header of the current version',
+      'header of the current version, followed by text',
+      'header of another version outside a fence',
+      'line of a note that reads as another version',
+    ])
+      shape: 0,
+  };
   for (var run = 0; run < runs; run++) {
     final input = _GeneratedInput(random);
+    for (final shape in input.shapes) {
+      shapes[shape] = shapes[shape]! + 1;
+    }
     void fail(String what) {
       if (wrong.length < 3) {
         wrong.add('run $run: $what\n${input.text}');
@@ -829,10 +1056,7 @@ void _propertyChecks(void Function(String, Object?, Object?) check) {
     }
 
     try {
-      final read = validateReleaseInput(
-        input.text,
-        fragmentFiles: input.fragments,
-      );
+      final read = _validate(input.text, fragments: input.fragments);
       final lines = {
         for (final problem in read.problems)
           int.parse(located.firstMatch(problem)?[1] ?? '-1'),
@@ -840,11 +1064,7 @@ void _propertyChecks(void Function(String, Object?, Object?) check) {
       String? error;
       String? released;
       try {
-        released = releaseChangelog(
-          input.text,
-          '9.9.9',
-          fragments: read.fragments,
-        );
+        released = _release(input.text, '9.9.9', fragments: read.fragments);
       } on StateError catch (e) {
         error = e.message;
       }
@@ -863,7 +1083,7 @@ void _propertyChecks(void Function(String, Object?, Object?) check) {
         fail('refused: ${read.problems}');
         continue;
       }
-      final section = assembleRelease(read.changelog, read.fragments);
+      final section = _assemble(read.changelog, read.fragments);
       final found = [for (final m in marker.allMatches(section)) m[0]!];
       if ('$found' != '${input.expected}') {
         fail('markers $found, expected ${input.expected}');
@@ -892,6 +1112,9 @@ void _propertyChecks(void Function(String, Object?, Object?) check) {
     accepted >= 100 && refused >= 100,
     true,
   );
+  for (final MapEntry(key: shape, value: count) in shapes.entries) {
+    check('generated input: $shape, in $count of $runs', count >= 15, true);
+  }
 }
 
 /// One changelog and its fragments from a small grammar: sub-headers known
@@ -913,24 +1136,45 @@ final class _GeneratedInput {
     }
 
     void codeBlock(String indent, List<String> into) {
-      lines.add('$indent```markdown');
+      // The fence, and fence lines that do not close it: shorter ones, the
+      // other character, or one followed by text.
+      final (fence, inner, shape) = switch (random.nextInt(4)) {
+        0 => ('```', const ['~~~', '``` not a close'], 'backtick fence'),
+        1 => ('~~~', const ['```', '~~~ not a close'], 'tilde fence'),
+        2 => (
+          '````',
+          const ['```', '```dart'],
+          'fence of four backticks holding a shorter fence line',
+        ),
+        _ => ('~~~~~', const ['~~~', '~~~~', '`````'], 'tilde fence'),
+      };
+      shapes.add(shape);
+      lines.add('$indent$fence${chance(50) ? 'markdown' : ''}');
       for (var i = random.nextInt(4) + 1; i > 0; i--) {
         final m = marker();
         into.add(m);
-        lines.add(switch (random.nextInt(7)) {
+        final kind = i == 1 && fence == '````' ? 8 : random.nextInt(10);
+        lines.add(switch (kind) {
           0 => '### Added',
           1 => '## 1.0.0',
           2 => '# comment $m',
           3 => '- inner $m',
           4 => '* star $m',
           5 => '',
-          _ => '$upgradeLabel $m',
+          6 => '$upgradeLabel $m',
+          7 => '- Security: inner $m',
+          8 => inner[random.nextInt(inner.length)],
+          _ => '## 2.0.0',
         });
+        if (kind == 7) {
+          shapes.add('"- Security: " note inside a fence');
+        }
         if (!lines.last.contains(m)) {
           lines.add('text $m');
         }
       }
-      lines.add('$indent```');
+      // A closing fence may be longer than the opening one.
+      lines.add('$indent$fence${chance(20) ? fence[0] : ''}');
     }
 
     if (chance(50)) {
@@ -959,8 +1203,15 @@ final class _GeneratedInput {
           '## Notes',
           '# Top',
           '### fixed',
-        ][random.nextInt(6)],
+          '## 2.0.0',
+          '## 1.0.1',
+          '## 1.0.0-beta.1',
+          '## 1.0.00',
+        ][random.nextInt(10)],
       );
+      if (lines.last.startsWith('## ') && lines.last != '## Notes') {
+        shapes.add('header of another version outside a fence');
+      }
       lines.addAll(['', '- Under it ${marker()}', '']);
     }
 
@@ -977,6 +1228,10 @@ final class _GeneratedInput {
         final into = notes[moved ? 'Security' : name]!..add(m);
         lines.add(moved ? '- Security: a note $m' : '- A note $m');
         hasNote = true;
+        if (chance(12)) {
+          shapes.add('fence at column 0 right under a note');
+          codeBlock('', into);
+        }
         if (chance(25)) {
           final w = marker();
           into.add(w);
@@ -1018,13 +1273,31 @@ final class _GeneratedInput {
       if (!hasNote && chance(4)) {
         wrongLine('  indented under no note ${marker()}');
       }
+      if (chance(5)) {
+        // Reads as the header of another version: what follows it in the
+        // section is not judged.
+        shapes.add('line of a note that reads as another version');
+        wrongLine('## 2.0.0 will drop it ${marker()}');
+        lines.add('- The rest of it ${marker()}');
+      }
       lines.add('');
     }
     if (unknownAt == sections.length) {
       unknownHeader();
     }
     if (chance(70)) {
-      lines.addAll(['## 1.0.0', '', '- Old [OLD].']);
+      // The header of the version the tests are at ends the section.
+      final dated = chance(30);
+      shapes.add(
+        dated
+            ? 'header of the current version, followed by text'
+            : 'header of the current version',
+      );
+      lines.addAll([
+        dated ? '## 1.0.0 (2026-01-01)' : '## 1.0.0',
+        '',
+        '- Old [OLD].',
+      ]);
     }
     var all = '${lines.join('\n')}${chance(70) ? '\n' : ''}';
     if (chance(30)) {
@@ -1077,6 +1350,9 @@ final class _GeneratedInput {
   /// The 1-based numbers of the lines that must be refused.
   final Set<int> wrongLines = {};
 
+  /// The shapes this input holds, for the count over all inputs.
+  final Set<String> shapes = {};
+
   /// The markers in the order the section must hold them.
   late final List<String> expected;
 }
@@ -1088,11 +1364,15 @@ void _releaseChecks(void Function(String, Object?, Object?) check) {
   void refusedUntouched(
     String name,
     void Function(Directory root) prepare,
-    String naming,
-  ) {
+    String naming, {
+    bool commit = true,
+  }) {
     final root = _workspace();
     try {
       prepare(root);
+      if (commit) {
+        _commit(root, 'A prepared workspace');
+      }
       final before = _snapshot(root);
       final errors = StringBuffer();
       final code = release(
@@ -1124,6 +1404,7 @@ void _releaseChecks(void Function(String, Object?, Object?) check) {
       'changelog.d/c-untracked.md',
     ).writeAsStringSync('### Fixed\n\n- Not committed [R9].\n'),
     'changelog.d/c-untracked.md is not tracked by git',
+    commit: false,
   );
   refusedUntouched(
     'a fragment with a change that is not committed',
@@ -1132,6 +1413,38 @@ void _releaseChecks(void Function(String, Object?, Object?) check) {
       'changelog.d/a-fix.md',
     ).writeAsStringSync('### Fixed\n\n- Fragment fix [R2], edited.\n'),
     '"git rm" would refuse the fragments',
+    commit: false,
+  );
+  // A release runs only on a tree without uncommitted changes: its commit
+  // holds what the tool wrote and nothing else.
+  refusedUntouched(
+    'a tracked file with a change that is not committed',
+    (root) => file(
+      root,
+      'packages/extra/example/main.dart',
+    ).writeAsStringSync('void main() {} // edited\n'),
+    'commit or stash these first.\n M packages/extra/example/main.dart\n',
+    commit: false,
+  );
+  refusedUntouched(
+    'notes in CHANGELOG.md that are not committed',
+    (root) => file(root, 'CHANGELOG.md').writeAsStringSync(
+      file(root, 'CHANGELOG.md').readAsStringSync().replaceFirst(
+        '- By hand [R1].\n',
+        '- By hand [R1].\n- Another by hand [R8].\n',
+      ),
+    ),
+    'commit or stash these first.\n M CHANGELOG.md\n',
+    commit: false,
+  );
+  refusedUntouched(
+    'a change that is staged',
+    (root) {
+      file(root, 'notes.txt').writeAsStringSync('Staged.\n');
+      _git(root, ['add', 'notes.txt']);
+    },
+    'commit or stash these first.\nA  notes.txt\n',
+    commit: false,
   );
   refusedUntouched(
     'a package changelog without its header',
@@ -1177,12 +1490,14 @@ void _releaseChecks(void Function(String, Object?, Object?) check) {
   refusedUntouched(
     'input the check refuses',
     (root) => file(root, 'CHANGELOG.md').writeAsStringSync(star),
-    validateReleaseInput(star).problems.firstOrNull ?? 'a problem',
+    _validate(star).problems.firstOrNull ?? 'a problem',
   );
 
-  // And one that goes through, from the first check to the last file.
+  // And one that goes through, from the first check to the last file. A
+  // file git does not track is no change to a tracked one.
   final root = _workspace();
   try {
+    file(root, 'untracked.txt').writeAsStringSync('Not a fragment.\n');
     final errors = StringBuffer();
     final code = release(
       root.path,
@@ -1253,9 +1568,112 @@ void _releaseChecks(void Function(String, Object?, Object?) check) {
   }
 }
 
+/// The three entry points refuse the same input with the same text: the
+/// preview, the check and the release, each run on a workspace whose
+/// committed CHANGELOG.md holds a header of another version under
+/// `## Unreleased`.
+Future<void> _entryPointChecks(
+  void Function(String, Object?, Object?) check,
+) async {
+  const top =
+      '# Changelog\n\n## Unreleased\n\n### Added\n\n### Changed\n\n'
+      '$upgradeLabel\n\n### Fixed\n\n';
+  for (final (name, changelog, naming) in [
+    (
+      'a section of a later version under "## Unreleased"',
+      '$top- By hand [R1].\n\n## 1.0.1\n\n### Security\n\n- A hole [R5].\n\n'
+          '## 1.0.0\n\n- First.\n',
+      'CHANGELOG.md:15: "## 1.0.1" under "## Unreleased" is neither',
+    ),
+    (
+      'a line of a note that reads as a version header',
+      '$top- By hand [R1].\n## 2.0.0 will drop it\n\n- Another [R5].\n\n'
+          '## 1.0.0\n\n- First.\n',
+      'CHANGELOG.md:14: "## 2.0.0 will drop it" under "## Unreleased" is',
+    ),
+  ]) {
+    final root = _workspace(replace: {'CHANGELOG.md': changelog});
+    try {
+      final problems = _validate(
+        changelog,
+        fragments: readFragmentFiles(Directory('${root.path}/changelog.d')),
+      ).problems;
+      final text = problems.map((p) => '$p\n').join();
+      final before = _snapshot(root);
+      final previewErrors = StringBuffer();
+      final previewCode = preview(root.path, StringBuffer(), previewErrors);
+      final checkErrors = StringBuffer();
+      final checkCode = await checkChangelog(
+        root.path,
+        'HEAD',
+        StringBuffer(),
+        checkErrors,
+      );
+      final releaseErrors = StringBuffer();
+      final releaseCode = release(
+        root.path,
+        '1.0.1',
+        summary: 'A patch',
+        summaryId: 'Sebuah patch',
+        out: StringBuffer(),
+        err: releaseErrors,
+      );
+      check(
+        'entry points, $name: the input is refused, naming the line',
+        [problems.length, text.contains(naming) ? naming : text],
+        [1, naming],
+      );
+      check(
+        'entry points, $name: the preview refuses with that text',
+        '$previewCode $previewErrors',
+        '1 $text',
+      );
+      check(
+        'entry points, $name: the check refuses with that text',
+        '$checkCode $checkErrors',
+        '1 $text',
+      );
+      check(
+        'entry points, $name: the release refuses with that text',
+        '$releaseCode $releaseErrors',
+        '1 Fix these before the release:\n'
+            '${problems.map((p) => '- $p\n').join()}'
+            'No file was changed.\n',
+      );
+      check(
+        'entry points, $name: no file changed',
+        _snapshot(root) == before,
+        true,
+      );
+    } on Object catch (e) {
+      check('entry points, $name: refused', 'threw $e', 'three refusals');
+    } finally {
+      _delete(root);
+    }
+  }
+}
+
+/// Commits everything under [root] as [message].
+void _commit(Directory root, String message) {
+  _git(root, ['add', '-A']);
+  _git(root, [
+    '-c',
+    'user.name=Self-test',
+    '-c',
+    'user.email=selftest@example.com',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    message,
+  ]);
+}
+
 /// A workspace of two packages and an application at 1.0.0, with a note
-/// by hand and two fragments, committed in a git repository of its own.
-Directory _workspace() {
+/// by hand and two fragments, committed in a git repository of its own;
+/// [replace] gives other texts for some of its files.
+Directory _workspace({Map<String, String> replace = const {}}) {
   final root = Directory.systemTemp.createTempSync('daravel_release_');
   const files = {
     'pubspec.yaml':
@@ -1295,26 +1713,17 @@ Directory _workspace() {
         '<!-- source: releases.md sha256:000000000000 -->\n# Rilis\n\n'
         '| Versi | Ringkasan |\n| --- | --- |\n| `1.0.0` | Pertama |\n',
   };
-  for (final MapEntry(key: path, value: text) in files.entries) {
+  for (final MapEntry(key: path, value: text) in {
+    ...files,
+    ...replace,
+  }.entries) {
     File('${root.path}/$path')
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(text);
   }
   _git(root, ['init', '-q']);
   _git(root, ['config', 'core.autocrlf', 'false']);
-  _git(root, ['add', '-A']);
-  _git(root, [
-    '-c',
-    'user.name=Self-test',
-    '-c',
-    'user.email=selftest@example.com',
-    '-c',
-    'commit.gpgsign=false',
-    'commit',
-    '-q',
-    '-m',
-    'A workspace at 1.0.0',
-  ]);
+  _commit(root, 'A workspace at 1.0.0');
   return root;
 }
 

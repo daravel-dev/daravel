@@ -68,7 +68,6 @@ void main(List<String> args) {
   );
 }
 
-const String _versionFile = 'packages/daravel/lib/src/foundation/version.dart';
 const String _bugReport = '.github/ISSUE_TEMPLATE/bug_report.yml';
 const String _releases = 'docs/guide/releases.md';
 const String _releasesId = 'docs/guide/id/releases.md';
@@ -105,6 +104,8 @@ final class ReleasePlan {
 /// works out every file it writes, without changing a file:
 ///
 /// - `daravelVersion` is declared and is not [version] yet;
+/// - no tracked file has a change that is not committed: the release
+///   commit contains only what the tool writes;
 /// - CHANGELOG.md and the fragments pass `validateReleaseInput` and hold a
 ///   note;
 /// - every fragment is tracked by git and `git rm` would take it (no
@@ -143,13 +144,13 @@ ReleasePlan planRelease(
     problems: problems,
   );
 
-  final versionSource = read(_versionFile);
+  final versionSource = read(versionFile);
   final current = versionSource == null
       ? null
-      : RegExp(r"daravelVersion = '([^']+)'").firstMatch(versionSource)?[1];
+      : daravelVersionIn(versionSource);
   if (current == null) {
     if (versionSource != null) {
-      problems.add('$_versionFile does not declare daravelVersion.');
+      problems.add('$versionFile does not declare daravelVersion.');
     }
     return plan();
   }
@@ -157,6 +158,8 @@ ReleasePlan planRelease(
     problems.add('The workspace is already at $version.');
     return plan(current: current);
   }
+
+  problems.addAll(_uncommittedChanges(root));
 
   // The notes: CHANGELOG.md and one fragment per pull request (as on main).
   String? changelog;
@@ -169,6 +172,7 @@ ReleasePlan planRelease(
         changelog = releaseChangelog(
           input.changelog,
           version,
+          currentVersion: current,
           fragments: input.fragments,
         );
       } on StateError catch (e) {
@@ -221,10 +225,7 @@ ReleasePlan planRelease(
         .replaceFirst(ownVersion, 'version: $version')
         .replaceAllMapped(dependency, (m) => '${m[1]}: ^$version');
   }
-  writes[_versionFile] = versionSource!.replaceFirst(
-    "'$current'",
-    "'$version'",
-  );
+  writes[versionFile] = versionSource!.replaceFirst("'$current'", "'$version'");
   final bugReport = read(_bugReport);
   if (bugReport != null) {
     if (bugReport.contains('placeholder: $current')) {
@@ -290,6 +291,33 @@ ReleasePlan planRelease(
   return plan(current: current, members: members, fragments: fragments);
 }
 
+/// The problem when a tracked file under [root] has a change that is not
+/// committed (staged or not): the release commit holds only what the tool
+/// writes, and the commands printed after a failure half-way restore
+/// files to their committed state, which must then be the state the
+/// release started from. Files git does not track do not count (a
+/// fragment among them is refused by [_fragmentRemovalProblems]).
+List<String> _uncommittedChanges(String root) {
+  final status = Process.runSync('git', [
+    'status',
+    '--porcelain',
+    '--untracked-files=no',
+  ], workingDirectory: root);
+  if (status.exitCode != 0) {
+    return [
+      '"git status" failed, so the tree cannot be checked for changes that '
+          'are not committed:\n${'${status.stderr}'.trimRight()}',
+    ];
+  }
+  final changes = '${status.stdout}'.trimRight();
+  return [
+    if (changes.isNotEmpty)
+      'The tree has changes that are not committed. The release commit '
+          'must contain only what the tool writes: commit or stash these '
+          'first.\n$changes',
+  ];
+}
+
 /// Why `git rm` would not remove [fragments] (paths under [root]): one
 /// that git does not track, or one with a change that is not committed.
 List<String> _fragmentRemovalProblems(String root, List<String> fragments) {
@@ -332,7 +360,10 @@ List<String> _fragmentRemovalProblems(String root, List<String> fragments) {
 /// Nothing is written unless [planRelease] and the publish checks find no
 /// problem. The fragments are removed first, so a `git rm` that still
 /// fails leaves every file as it was; should a write fail after that, the
-/// message lists what was modified and how to restore it.
+/// message lists what was modified and how to restore it. The release
+/// starts from a tree without uncommitted changes to tracked files
+/// ([planRelease]), so those commands discard only what the tool wrote,
+/// never an edit of the user's.
 int release(
   String root,
   String version, {
