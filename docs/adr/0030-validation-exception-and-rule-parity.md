@@ -1,6 +1,6 @@
 # ADR-030: Validation exception type and rule parity
 
-- **Status:** accepted 2026-11-25.
+- **Status:** accepted 2026-11-25; revised 2026-11-25: `boolean:strict` now follows Laravel (section 2), and the plain `boolean` deviation stands.
 - **Context:** Daravel and Laravel are meant to run side by side, and an application that validates the same payload in both expects the same answer. Two things decide how closely that holds: what type a failed validation is thrown as, and how each rule reads its input. This record fixes the first for the whole 1.x line and records one rule where the two differ today, so neither is left to be found by accident.
 
 ## Decision
@@ -24,7 +24,7 @@ Laravel's `Illuminate\Validation\ValidationException` extends `Exception`, not a
 - `ValidationException`, `errors`, `withMessages` and `summarize` keep their names and meaning.
 - Code that wants to treat validation failures apart from other HTTP errors should test for `ValidationException` first (or register its renderer for it: the first matching renderer wins). That ordering stays correct if the types are separated in 2.0.
 
-### 2. Rule parity: `boolean` accepts more than Laravel
+### 2. Rule parity: `boolean` accepts more than Laravel (`boolean:strict` does not)
 
 Laravel 12.x `validateBoolean` (`src/Illuminate/Validation/Concerns/ValidatesAttributes.php`, branch `12.x`, lines 494 to 503):
 
@@ -42,28 +42,31 @@ The comparison is strict, so only those exact values pass, and `boolean:strict` 
 
 Daravel's `BooleanRule` (`packages/daravel/lib/src/validation/rules.dart`) reads its input through `BooleanRule.asBool`, which accepts `true`, `false`, `1`, `0`, `'1'`, `'0'`, `'true'` and `'false'`. A run of `Validator({'f': value}, {'f': 'boolean'})` on Daravel 1.27.7 gives:
 
-| Input | Laravel 12.x `boolean` | Daravel `boolean` | Laravel `boolean:strict` | Daravel `boolean:strict` |
+| Input | Laravel 12.x `boolean` | Daravel `boolean` | Laravel `boolean:strict` | Daravel `boolean:strict` (from this revision) |
 | :-- | :-- | :-- | :-- | :-- |
 | `true`, `false` | passes | passes | passes | passes |
-| `1`, `0`, `'1'`, `'0'` | passes | passes | fails | passes |
-| `'true'`, `'false'` | fails | **passes** | fails | **passes** |
-| `1.0`, `0.0` (a JSON `1.0` decodes to a double) | fails | **passes** | fails | **passes** |
+| `1`, `0`, `'1'`, `'0'` | passes | passes | fails | fails |
+| `'true'`, `'false'` | fails | **passes** | fails | fails |
+| `1.0`, `0.0` (a JSON `1.0` decodes to a double) | fails | **passes** | fails | fails |
 | `'yes'` | fails | fails | fails | fails |
 
-So Daravel differs from Laravel in three ways:
+The Daravel `boolean` column is the behaviour of 1.27.7 and is unchanged. Before this revision `boolean:strict` gave the Daravel `boolean` column too. So Daravel `boolean` differs from Laravel in two ways:
 
 - **`'true'` and `'false'`** pass. This is written in the code (`asBool` documents it) and is the difference this record is about.
 - **`1.0` and `0.0`** pass, because the `switch` in `asBool` matches `1` and `0` as constant patterns, which compare with `==`, and `1.0 == 1` in Dart. PHP's strict comparison rejects them. This is an observation of the code's behaviour; this record does not say whether it was intended.
-- **`boolean:strict`** is not implemented: the rule parser ignores arguments for `boolean`, so `boolean:strict` behaves as plain `boolean` and accepts everything in the second column. (The parser also accepts `bool` as an alias, which Laravel does not have.)
+
+And one difference is closed:
+
+- **`boolean:strict`** is implemented as Laravel reads it: only the first parameter counts, and only when it is exactly `strict` (`boolean:strict` and `boolean:strict,x` are strict; `boolean:x,strict`, `boolean:STRICT`, `boolean:` and `boolean` are not), and then only the values `true` and `false` pass. The error key and message are those of `boolean`. `Rules.boolean(strict: true)` builds the same rule. (The parser also accepts `bool` as an alias, which Laravel does not have, and `bool:strict` is strict too.)
 
 `validated()` and the typed accessors read the same way (`ValidatedData.boolean`, `maybeBoolean`), so a value that passes the rule is read back as the matching `bool`.
 
-**Who is affected:** an application that validates the same payload in Laravel and in Daravel side by side gets different answers. `"true"` and `"false"` are a valid boolean in Daravel and a 422 in Laravel. The same holds for `1.0`, and for `boolean:strict` on `1`, `0`, `'1'` and `'0'`.
+**Who is affected:** an application that validates the same payload in Laravel and in Daravel side by side gets different answers. `"true"` and `"false"` are a valid boolean in Daravel and a 422 in Laravel. The same holds for `1.0`. `boolean:strict` matches Laravel, so a request that sent `1`, `0`, `'1'`, `'0'`, `'true'` or `'false'` to a rule written `boolean:strict` was accepted before this revision and is a 422 now.
 
-**Status of the deviation:** these are KNOWN deviations, and they stay through 1.28.x. Tightening `boolean` turns requests that pass today into 422 responses, which is not a change to make quietly in a minor release. Whether and how to align is left open and will be decided in a later revision of this ADR: for example a configuration switch that selects Laravel's list, or the change in 2.0. Until then:
+**Status of the deviation:** the two plain `boolean` differences are KNOWN deviations, and they stay through 1.28.x. Tightening `boolean` turns requests that pass today into 422 responses, which is not a change to make quietly in a minor release. Whether and how to align is left open and will be decided in a later revision of this ADR: for example a configuration switch that selects Laravel's list, or the change in 2.0. Until then:
 
 - Do not rely on `'true'` or `'false'` passing `boolean` if the same request must also pass in Laravel; send JSON `true` and `false`, or `1` and `0`.
-- `boolean:strict` does not give Laravel's answer in Daravel today (see above); a custom `Rule` is the way to get an exact match.
+- `boolean:strict` gives Laravel's answer. For the exact Laravel list on plain `boolean` (`true`, `false`, `0`, `1`, `'0'`, `'1'`), a custom `Rule` is the way until the alignment is decided.
 
 ### 3. Rule parity policy
 
@@ -77,5 +80,5 @@ A difference whose fix would reject input that is accepted today is recorded in 
 ## Consequences
 
 - `docs/guide/parity.md` lists the `boolean` rule with a note that points here.
-- Nothing in `lib/` changes with this record.
+- The first version of this record changed nothing in `lib/`. The revision implements `boolean:strict` (`BooleanRule.strict`, `Rules.boolean(strict:)`, the `RuleBuilder` step) and ships with an upgrade note.
 - A later revision of this ADR decides the `boolean` alignment; if it changes behaviour, it ships with an upgrade note.

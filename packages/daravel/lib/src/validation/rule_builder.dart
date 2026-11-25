@@ -102,7 +102,8 @@ final class RuleBuilder {
   RuleBuilder numeric() => _add(Rules.numeric());
 
   /// Appends [Rules.boolean].
-  RuleBuilder boolean() => _add(Rules.boolean());
+  RuleBuilder boolean({bool strict = false}) =>
+      _add(Rules.boolean(strict: strict));
 
   /// Appends [Rules.array].
   RuleBuilder array([List<String>? keys]) => _add(Rules.array(keys));
@@ -627,7 +628,7 @@ extension RuleChain on Rule {
   RuleBuilder numeric() => _chain.numeric();
 
   /// This rule followed by [Rules.boolean].
-  RuleBuilder boolean() => _chain.boolean();
+  RuleBuilder boolean({bool strict = false}) => _chain.boolean(strict: strict);
 
   /// This rule followed by [Rules.list].
   RuleBuilder list() => _chain.list();

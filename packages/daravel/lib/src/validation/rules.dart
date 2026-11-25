@@ -293,8 +293,14 @@ abstract final class Rules {
   /// `numeric`: a number, or a string of one.
   static Rule numeric() => const NumericRule();
 
-  /// `boolean`: `true`, `false`, `1`, `0`, `'1'` or `'0'`.
-  static Rule boolean() => const BooleanRule();
+  /// `boolean`: `true`, `false`, `1`, `0`, `'1'`, `'0'`, `'true'` or
+  /// `'false'` (Laravel accepts the first six and not the last two, nor
+  /// `1.0` and `0.0`, which this rule also accepts: ADR-030).
+  ///
+  /// With [strict] (`boolean:strict`), only the values `true` and `false`
+  /// pass, as in Laravel: `1`, `0`, `'1'`, `'0'`, `'true'` and `'false'`
+  /// fail.
+  static Rule boolean({bool strict = false}) => BooleanRule(strict: strict);
 
   /// `array`: a JSON array or a JSON object, as Laravel's `array` accepts
   /// any PHP array. With [keys] (`array:name,email`), every key of the
@@ -1055,14 +1061,17 @@ final class NumericRule extends Rule {
 /// `boolean`: see [Rules.boolean].
 final class BooleanRule extends Rule {
   /// The boolean rule; use [Rules.boolean].
-  const BooleanRule();
+  const BooleanRule({this.strict = false});
+
+  /// Whether only `true` and `false` pass (`boolean:strict`).
+  final bool strict;
   @override
   String get name => 'boolean';
   @override
   Map<String, Object?> get schemaHint => const {'type': 'boolean'};
   @override
   String? passes(ValidationContext c) =>
-      asBool(c.value) == null ? 'boolean' : null;
+      (strict ? c.value is bool : asBool(c.value) != null) ? null : 'boolean';
 
   /// [value] as a boolean, accepting `1`, `0`, `'1'`, `'0'`, `'true'` and
   /// `'false'`; null otherwise.
