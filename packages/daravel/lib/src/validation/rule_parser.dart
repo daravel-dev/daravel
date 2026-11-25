@@ -55,6 +55,8 @@ abstract final class RuleParser {
         : segment.substring(colon + 1).split(',').map((a) => a.trim()).toList();
     num number(int i) => num.parse(args[i]);
     int integer(int i) => int.parse(args[i]);
+    // Laravel's validateBoolean: only a first parameter that is exactly `strict`.
+    final strict = args.isNotEmpty && args[0] == 'strict';
     return switch (name) {
       'required' => Rules.required(),
       'nullable' => Rules.nullable(),
@@ -122,7 +124,7 @@ abstract final class RuleParser {
       'string' => Rules.string(),
       'integer' || 'int' => Rules.integer(),
       'numeric' => Rules.numeric(),
-      'boolean' || 'bool' => Rules.boolean(),
+      'boolean' || 'bool' => Rules.boolean(strict: strict),
       'array' => Rules.array(args.isEmpty ? null : args),
       'list' => Rules.list(),
       'map' || 'object' => Rules.map(),

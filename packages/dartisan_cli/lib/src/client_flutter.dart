@@ -1060,7 +1060,8 @@ final class _Generator {
       StringRule() => "Check.type('string', ${m('string')})",
       IntegerRule() => "Check.type('integer', ${m('integer')})",
       NumericRule() => "Check.type('numeric', ${m('numeric')})",
-      BooleanRule() => "Check.type('boolean', ${m('boolean')})",
+      BooleanRule(:final strict) =>
+        "Check.type('boolean${strict ? '_strict' : ''}', ${m('boolean')})",
       ArrayRule(keys: null) => "Check.type('array', ${m('array')})",
       ListRule() => "Check.type('list', ${m('list')})",
       EmailRule(:final pattern) => _pattern(pattern, 'email', m),
