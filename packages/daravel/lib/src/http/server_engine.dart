@@ -325,7 +325,8 @@ final class ServerEngine {
   static const Duration lagTick = Duration(milliseconds: 5);
 
   /// How long the engine must have been idle (nothing in flight) before the
-  /// lag timer stops itself. Not at once: a burst of synchronous requests is
+  /// lag timer stops itself, which it does not do while the measured lag is
+  /// over [ServeOptions.maxQueueDelay]. Not at once: a burst of synchronous requests is
   /// handled one after another and the in-flight count can touch zero
   /// between two of them, which must not reset the measured lag.
   static const Duration lagIdleStop = Duration(seconds: 1);
@@ -372,6 +373,7 @@ final class ServerEngine {
     _lagUs = 0;
     _lagExpectedUs = start + lagTick.inMicroseconds;
     _lagBusyUs = start;
+    final limitUs = options.maxQueueDelay!.inMicroseconds;
     _lagTimer = Timer.periodic(lagTick, (timer) {
       final now = _lagClock.elapsedMicroseconds;
       final late = (now - _lagExpectedUs).clamp(0, 1 << 40);
@@ -381,7 +383,10 @@ final class ServerEngine {
       _lagExpectedUs = now + lagTick.inMicroseconds;
       if (_inFlight > 0) {
         _lagBusyUs = now;
-      } else if (now - _lagBusyUs >= lagIdleStop.inMicroseconds) {
+      } else if (now - _lagBusyUs >= lagIdleStop.inMicroseconds &&
+          _lagUs <= limitUs) {
+        // Not while the loop is behind: work that blocked it without a
+        // request in flight still sheds the requests queued behind it.
         timer.cancel();
         _lagTimer = null;
         _lagUs = 0;

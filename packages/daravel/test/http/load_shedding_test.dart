@@ -340,17 +340,83 @@ void main() {
 
       // Block the loop while idle, far above the 30 ms limit.
       final blocked = Stopwatch()..start();
-      while (blocked.elapsed < const Duration(milliseconds: 100)) {}
+      while (blocked.elapsed < const Duration(milliseconds: 500)) {}
+
+      // The timer is stopped, so the first request is served whatever the
+      // loop did meanwhile.
+      final first = await getLagged('/fast');
+      expect(first.statusCode, 200);
+      await first.drain<void>();
+      expect(lagged.shedRequests, shedBefore);
 
       // The second request reads the lag measured since the restart: a
-      // timer restarted from where it stopped would see the whole idle gap
-      // as lag and shed it.
-      for (var i = 0; i < 2; i++) {
-        final response = await getLagged('/fast');
-        expect(response.statusCode, 200, reason: 'request ${i + 1}');
-        await response.drain<void>();
+      // timer restarted from where it stopped would see the whole gap (half
+      // a second and more) as lag and shed it. A slow runner's timer can
+      // run late by itself and shed here too, but by tens of milliseconds.
+      final second = await getLagged('/fast');
+      await second.drain<void>();
+      if (second.statusCode != 200) {
+        final warning = log.records.lastWhere(
+          (r) => r.message.contains('Load shedding'),
+        );
+        final behind = RegExp(r'(\d+)ms behind').firstMatch(warning.message);
+        expect(behind, isNotNull, reason: warning.message);
+        expect(
+          int.parse(behind!.group(1)!),
+          lessThan(400),
+          reason: 'the idle gap was read as lag: ${warning.message}',
+        );
       }
-      expect(lagged.shedRequests, shedBefore);
+    });
+
+    test('the lag timer keeps running for lagIdleStop after the last '
+        'request', () async {
+      // A runner that stalls between the request and the reading proves
+      // nothing either way: such an attempt is repeated.
+      for (var attempt = 0; attempt < 5; attempt++) {
+        final sinceRequest = Stopwatch()..start();
+        final response = await getLagged('/fast');
+        expect(response.statusCode, 200);
+        await response.drain<void>();
+        await waitFor(() => lagged.inFlight == 0);
+        // Twenty ticks with nothing in flight.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        final active = lagged.lagTimerActive;
+        if (sinceRequest.elapsed < const Duration(milliseconds: 600)) {
+          expect(active, isTrue, reason: 'stopped before lagIdleStop');
+          return;
+        }
+      }
+      fail('no attempt finished within 600 ms of its request');
+    });
+
+    test('the lag timer does not stop while the loop is behind', () async {
+      // Work that blocks the loop with no request in flight, for longer
+      // than lagIdleStop, while the timer still runs: the tick that follows
+      // finds the engine idle for long enough to stop, and far behind.
+      var blockedWhileActive = false;
+      for (var attempt = 0; attempt < 5 && !blockedWhileActive; attempt++) {
+        final response = await getLagged('/fast');
+        expect(response.statusCode, 200);
+        await response.drain<void>();
+        await waitFor(() => lagged.inFlight == 0);
+        if (!lagged.lagTimerActive) {
+          continue;
+        }
+        blockedWhileActive = true;
+        final blocked = Stopwatch()..start();
+        while (blocked.elapsed <
+            ServerEngine.lagIdleStop + const Duration(milliseconds: 200)) {}
+      }
+      expect(blockedWhileActive, isTrue);
+      // The overdue tick runs before this timer does.
+      await Future<void>.delayed(Duration.zero);
+      expect(lagged.lagTimerActive, isTrue);
+      expect(lagged.queueDelay, greaterThan(const Duration(milliseconds: 30)));
+
+      // Once the loop has caught up, the timer stops.
+      await waitFor(() => !lagged.lagTimerActive);
+      expect(lagged.queueDelay, Duration.zero);
     });
 
     test('an engine without maxQueueDelay never starts the timer', () async {
