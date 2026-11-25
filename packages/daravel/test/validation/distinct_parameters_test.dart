@@ -374,4 +374,77 @@ void main() {
     expect(debugDistinctFoldCalls, 100);
     expect(debugDistinctIdentityCalls, 0);
   });
+
+  Future<Set<String>> failing(String rule, List<Object?> items) async =>
+      (await Validator({'items': items}, {'items.*': rule}).run()).keys.toSet();
+  const both = {'items.0', 'items.1'};
+
+  // PHP writes `(string) -0.0` as `"-0"`: `zend_dtoa` sets the sign "for
+  // everything, including 0's and NaNs" and `zend_gcvt` writes it first
+  // (php-src 8.4 `Zend/zend_strtod.c`).
+  test('ignore_case writes -0.0 as "-0", as PHP does', () async {
+    expect(await failing('distinct:ignore_case', [-0.0, 0]), isEmpty);
+    expect(await failing('distinct:ignore_case', [-0.0, 0.0]), isEmpty);
+    expect(await failing('distinct:ignore_case', [-0.0, '-0']), both);
+    expect(await failing('distinct:ignore_case', [-0.0, -0.0]), both);
+  });
+
+  test('strict: an object is identical only to itself (PHP ===)', () async {
+    final first = UploadedFile.fake.withContent('a.txt', 'x');
+    final second = UploadedFile.fake.withContent('a.txt', 'y');
+    expect('$first', '$second');
+    for (final rule in ['distinct:strict', 'distinct:strict,ignore_case']) {
+      expect(await failing(rule, [first, second]), isEmpty, reason: rule);
+      expect(await failing(rule, [first, first]), both, reason: rule);
+    }
+  });
+
+  // What `tryCaseFold` cannot fold (an unpaired UTF-16 surrogate, as
+  // `jsonDecode` returns for a lone escape) or `_phpString` cannot write (a
+  // list) is compared as it is.
+  final loneHigh = String.fromCharCode(0xD800);
+  final otherHigh = String.fromCharCode(0xD801);
+  for (final rule in ['distinct:ignore_case', 'distinct:strict,ignore_case']) {
+    test('$rule: values that cannot be folded are compared as they '
+        'are', () async {
+      expect(tryCaseFold(loneHigh), isNull);
+      expect(await failing(rule, [loneHigh, loneHigh]), both);
+      expect(await failing(rule, [loneHigh, otherHigh]), isEmpty);
+      expect(
+        await failing(rule, [
+          [1, 'a'],
+          [1, 'a'],
+        ]),
+        both,
+      );
+      expect(
+        await failing(rule, [
+          [1, 'a'],
+          [1, 'b'],
+        ]),
+        isEmpty,
+      );
+    });
+
+    // Work, not time: each item is folded (and, with `strict`, encoded) once,
+    // so four times the items is four times the calls.
+    test('$rule: linear in work when no item can be folded', () async {
+      Future<int> work(int n) async {
+        debugResetDistinctCounters();
+        final errors = await Validator(
+          {
+            'items': [for (var i = 0; i < n; i++) 'Item-$i$loneHigh'],
+          },
+          {'items.*': rule},
+        ).run();
+        expect(errors, isEmpty);
+        expect(debugDistinctFoldCalls, n);
+        expect(debugDistinctIdentityCalls, rule.contains('strict') ? n : 0);
+        return debugDistinctFoldCalls + debugDistinctIdentityCalls;
+      }
+
+      final small = await work(1000);
+      expect(await work(4000), small * 4);
+    });
+  }
 }

@@ -1261,12 +1261,17 @@ final class DistinctRule extends Rule {
     _Way.foldedStrict => _foldedKey(value) ?? (#fallback, _identicalKey(value)),
   };
 
-  static String _identicalKey(Object? value) {
+  // An object equals only itself (`===`); nested in a list, by its text.
+  static final Expando<Object> _same = Expando();
+  static Object _identicalKey(Object? value) {
     assert(() {
       debugDistinctIdentityCalls++;
       return true;
     }());
-    return jsonEncode(_identity(value));
+    final tagged = _identity(value);
+    return tagged is List<Object?> && tagged.first == 'o' && value is! Record
+        ? _same[value!] ??= Object()
+        : jsonEncode(tagged);
   }
 
   static String? _foldedKey(Object? value) => switch (_phpString(value)) {
@@ -1302,6 +1307,7 @@ final class DistinctRule extends Rule {
   static String? _phpString(Object? value) => switch (value) {
     null || false => '',
     true => '1',
+    final double d when d == 0 && d.isNegative => '-0',
     final double d when d == d.truncateToDouble() && d.abs() < 1e15 =>
       '${d.toInt()}',
     final String s => s,
