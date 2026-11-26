@@ -103,15 +103,18 @@ void main() {
       expect(jsonDecode((await get('/scope')).$2), {'same': true});
 
       // Metrics are merged across workers by the coordinator (snapshots are
-      // published every second; the answering worker publishes fresh).
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      final metrics = (await get("/metrics")).$2;
-      expect(
-        metrics,
-        contains(
-          'http_requests_total{method="GET",route="/whoami",status="200"} 40',
-        ),
-      );
+      // published every second; the answering worker publishes fresh). On a
+      // busy runner the other worker's snapshot can be later than that, so
+      // the merged count is waited for, not read once after a fixed sleep.
+      const whoami =
+          'http_requests_total{method="GET",route="/whoami",status="200"} 40';
+      final mergedBy = DateTime.now().add(const Duration(seconds: 30));
+      var metrics = '';
+      do {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        metrics = (await get('/metrics')).$2;
+      } while (!metrics.contains(whoami) && DateTime.now().isBefore(mergedBy));
+      expect(metrics, contains(whoami));
       expect(
         RegExp(
           '^process_resident_memory_bytes ',

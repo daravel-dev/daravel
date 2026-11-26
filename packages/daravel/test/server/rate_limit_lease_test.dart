@@ -69,8 +69,12 @@ void main() {
     final channel = RemoteCoordinatorChannel(coordinator.listen());
     addTearDown(channel.close);
     // A lease TTL no CI hiccup reaches: nothing is given back mid-test.
+    // The same for the call timeout: its default is 50 ms, and one round
+    // trip slower than that on a busy runner is answered degraded (allowed,
+    // not counted), which is not what this test is about.
     final store = ProcessRateLimitStore(
       channel,
+      timeout: const Duration(seconds: 30),
       leaseTtl: const Duration(minutes: 1),
     );
     final before = coordinator.stats()['handled']! as int;
