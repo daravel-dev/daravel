@@ -356,8 +356,9 @@ final class ServerEngine {
   /// counts as lag already.
   int _currentLagUs() {
     if (_lagTimer == null) {
-      // Zero: every stop resets it.
-      return _lagUs;
+      // Stopped, by idleness or by stop(): nothing is measured, and the
+      // next start measures from zero.
+      return 0;
     }
     final overdue = _lagClock.elapsedMicroseconds - _lagExpectedUs;
     return overdue > _lagUs ? overdue : _lagUs;
@@ -381,17 +382,24 @@ final class ServerEngine {
       // shed, a saturated loop does within a few ticks.
       _lagUs = (_lagUs * 3 + late) ~/ 4;
       _lagExpectedUs = now + lagTick.inMicroseconds;
-      if (_inFlight > 0) {
-        _lagBusyUs = now;
-      } else if (now - _lagBusyUs >= lagIdleStop.inMicroseconds &&
+      if (_inFlight == 0 &&
+          now - _lagBusyUs >= lagIdleStop.inMicroseconds &&
           _lagUs <= limitUs) {
         // Not while the loop is behind: work that blocked it without a
         // request in flight still sheds the requests queued behind it.
         timer.cancel();
         _lagTimer = null;
-        _lagUs = 0;
       }
     });
+  }
+
+  /// A request took or gave back its slot: [lagIdleStop] counts from the
+  /// last such moment, also for a request that comes and goes between two
+  /// ticks.
+  void _markLagBusy() {
+    if (_lagTimer != null) {
+      _lagBusyUs = _lagClock.elapsedMicroseconds;
+    }
   }
 
   /// Completes once the server has stopped.
@@ -961,11 +969,13 @@ final class ServerEngine {
     // slot (see [openWebSockets]). Released exactly once on every path.
     _inFlight++;
     _startLagTimer();
+    _markLagBusy();
     var released = false;
     void release() {
       if (!released) {
         released = true;
         _inFlight--;
+        _markLagBusy();
       }
     }
 

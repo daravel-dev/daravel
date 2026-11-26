@@ -419,6 +419,81 @@ void main() {
       expect(lagged.queueDelay, Duration.zero);
     });
 
+    test('a request that comes and goes between two ticks counts: the timer '
+        'runs for lagIdleStop after it', () async {
+      // The second request arrives late in the first one's idle second. A
+      // timer that counted from the first would stop a moment after it,
+      // unless a tick happened to see the second in flight: so four
+      // readings, not one.
+      var readings = 0;
+      for (var attempt = 0; attempt < 8 && readings < 4; attempt++) {
+        if (attempt > 0) {
+          // Each reading starts from a stopped timer.
+          await waitFor(() => !lagged.lagTimerActive);
+        }
+        final first = await getLagged('/fast');
+        expect(first.statusCode, 200);
+        await first.drain<void>();
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (!lagged.lagTimerActive) {
+          // A stalled runner: the first second is already over.
+          continue;
+        }
+        final sinceSecond = Stopwatch()..start();
+        final second = await getLagged('/fast');
+        expect(second.statusCode, 200);
+        await second.drain<void>();
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        final active = lagged.lagTimerActive;
+        if (sinceSecond.elapsed < const Duration(milliseconds: 900)) {
+          expect(active, isTrue, reason: 'counted from the first request');
+          readings++;
+        }
+      }
+      expect(readings, 4, reason: 'readings within 900 ms of the request');
+    });
+
+    test('the lag timer runs for as long as a request is in flight', () async {
+      final pending = getLagged('/block');
+      await waitFor(() => lagged.inFlight == 1);
+      await Future<void>.delayed(
+        ServerEngine.lagIdleStop + const Duration(milliseconds: 300),
+      );
+      expect(lagged.inFlight, 1);
+      expect(lagged.lagTimerActive, isTrue);
+      final sinceRelease = Stopwatch()..start();
+      gate.complete();
+      final response = await pending;
+      expect(response.statusCode, 200);
+      await response.drain<void>();
+      await waitFor(() => lagged.inFlight == 0);
+      // The idle second counts from the moment the slot was given back,
+      // not from when it was taken (over a second ago).
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final active = lagged.lagTimerActive;
+      if (sinceRelease.elapsed < const Duration(milliseconds: 800)) {
+        expect(active, isTrue, reason: 'counted from when the slot was taken');
+      }
+      await waitFor(() => !lagged.lagTimerActive);
+    });
+
+    test('queueDelay is zero once the engine has stopped', () async {
+      final response = await getLagged('/fast');
+      expect(response.statusCode, 200);
+      await response.drain<void>();
+      // Put the loop behind while the timer runs, then let the late tick
+      // run: the measured lag is far from zero when stop() is called.
+      final blocked = Stopwatch()..start();
+      while (blocked.elapsed < const Duration(milliseconds: 300)) {}
+      await Future<void>.delayed(Duration.zero);
+      expect(lagged.lagTimerActive, isTrue);
+      expect(lagged.queueDelay, greaterThan(Duration.zero));
+
+      await lagged.stop();
+      expect(lagged.lagTimerActive, isFalse);
+      expect(lagged.queueDelay, Duration.zero);
+    });
+
     test('an engine without maxQueueDelay never starts the timer', () async {
       final response = await get('/fast');
       expect(response.statusCode, 200);
