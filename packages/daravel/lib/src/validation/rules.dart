@@ -1331,20 +1331,43 @@ final class DistinctRule extends Rule {
   static final Expando<int> _ids = Expando<int>();
   static int _unique = 0;
 
+  /// The deepest list or map `distinct:strict` and `distinct:ignore_case`
+  /// compare by content. The compared value itself is at depth 1 and the
+  /// lists and maps directly in a container at depth `d` are at `d + 1`;
+  /// a list or map at depth 512 is still compared by its content, one at
+  /// 513 or deeper equals only itself (the same object), as does a list
+  /// or map met again inside itself. The walk stays well within the stack.
+  static const int distinctKeyDepth = 512;
+
+  // The lists and maps on the path [_encode] is walking (cycle check);
+  // empty between two calls of [_strictKey].
+  static final Set<Object> _walking = Set<Object>.identity();
+
   /// A string equal for two values exactly when PHP's `===` holds: a type
   /// tag and the value (`1`, `1.0`, `'1'` and `true` differ, `-0.0` is
   /// `0.0`), a list or map by its keys in order (a list has the keys
   /// `0..n-1`), anything else by its number. One pass over the value.
+  /// A list or map deeper than [distinctKeyDepth], or one that contains
+  /// itself, is written by its number.
   static String _strictKey(Object? value) {
     final out = StringBuffer();
-    _encode(out, value);
+    try {
+      _encode(out, value, 1);
+    } finally {
+      _walking.clear();
+    }
     return '$out';
   }
 
   static void _text(StringBuffer out, String text) =>
       out.write('s${text.length}:$text');
 
-  static void _encode(StringBuffer out, Object? value) {
+  static void _encode(StringBuffer out, Object? value, int depth) {
+    if ((value is List<Object?> || value is Map<Object?, Object?>) &&
+        (depth > distinctKeyDepth || _walking.contains(value))) {
+      out.write('o${_ids[value!] ??= ++_unique};');
+      return;
+    }
     switch (value) {
       case null:
         out.write('n');
@@ -1359,23 +1382,27 @@ final class DistinctRule extends Rule {
       case final String s:
         _text(out, s);
       case final List<Object?> list:
+        _walking.add(list);
         out.write('a${list.length}{');
         for (var i = 0; i < list.length; i++) {
           _text(out, '$i');
-          _encode(out, list[i]);
+          _encode(out, list[i], depth + 1);
         }
         out.write('}');
+        _walking.remove(list);
       case final Map<Object?, Object?> map:
+        _walking.add(map);
         out.write('a${map.length}{');
         for (final MapEntry(:key, :value) in map.entries) {
           if (key is String || key is num || key is bool || key == null) {
             _text(out, '$key');
           } else {
-            _encode(out, key);
+            _encode(out, key, depth + 1);
           }
-          _encode(out, value);
+          _encode(out, value, depth + 1);
         }
         out.write('}');
+        _walking.remove(map);
       case Record _:
         out.write('o${++_unique};');
       case final Object o:
