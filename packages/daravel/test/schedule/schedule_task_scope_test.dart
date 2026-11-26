@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:daravel/daravel.dart';
@@ -236,6 +237,39 @@ void main() {
       expect(markers, hasLength(2));
       expect(identical(markers[0], App.make<Marker>()), isTrue);
       expect(identical(markers[1], App.make<Marker>()), isTrue);
+    });
+  });
+
+  test('a stray asynchronous error of a task does not end the task early: '
+      'it goes to the zone the scheduler runs in', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      var finished = false;
+      schedule
+          .call(() async {
+            // Fire and forget: fails while the task is still running.
+            unawaited(
+              Future<void>.delayed(
+                const Duration(milliseconds: 10),
+                () => throw StateError('stray'),
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            finished = true;
+          })
+          .everyMinute()
+          .named('stray');
+      final caught = <Object>[];
+      late final List<TaskRunResult> results;
+      var finishedAtReturn = false;
+      await runZonedGuarded(() async {
+        results = await app.scheduler().run(at);
+        finishedAtReturn = finished;
+      }, (error, _) => caught.add(error));
+      expect(finishedAtReturn, isTrue, reason: 'run() waited for the task');
+      expect(results.single.ran, isTrue);
+      expect(results.single.error, isNull);
+      expect(caught, [isA<StateError>()]);
     });
   });
 
