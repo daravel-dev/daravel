@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../foundation/clock.dart';
+import '../foundation/container.dart';
 
 import '../cache/cache.dart';
 import '../events/events.dart';
@@ -480,6 +481,7 @@ final class Scheduler {
     this.lockStore,
     this.commandRunner,
     this.logger,
+    this.container,
     DateTime Function()? clock,
   }) : _clock = clock ?? _utcNow;
 
@@ -503,6 +505,11 @@ final class Scheduler {
 
   /// Logs task failures.
   final Logger? logger;
+
+  /// Each task execution runs in its own scope of this container, as a
+  /// request or a queued job does; without one, tasks run in the caller's
+  /// scope.
+  final Container? container;
   final DateTime Function() _clock;
   bool _stop = false;
 
@@ -669,44 +676,21 @@ final class Scheduler {
     ScheduledTask task, {
     Lock? releaseLock,
   }) async {
-    final stopwatch = Stopwatch()..start();
     Object? error;
     try {
-      await _announce(ScheduledTaskStarting(task.name));
-      try {
-        for (final hook in task._before) {
-          await hook();
-        }
-        await _perform(task.action);
-        for (final hook in task._onSuccess) {
-          await hook();
-        }
-      } catch (e, stackTrace) {
-        error = e;
-        logger?.error(
-          'Scheduled task [${task.name}] failed',
-          error: e,
-          stackTrace: stackTrace,
+      final container = this.container;
+      if (container == null) {
+        error = await _executeInScope(task);
+      } else {
+        // A stray asynchronous error goes where it went before the task had
+        // its own scope: to the zone the scheduler runs in.
+        final outer = Zone.current;
+        error = await container.runScoped<Object?>(
+          'schedule',
+          (_) => _executeInScope(task),
+          onUncaughtError: outer.handleUncaughtError,
         );
-        for (final hook in task._onFailure) {
-          try {
-            await hook(e);
-          } catch (_) {
-            // Hooks must not mask the original failure.
-          }
-        }
-      } finally {
-        for (final hook in task._after) {
-          try {
-            await hook();
-          } catch (_) {
-            // ignore
-          }
-        }
       }
-      await _announce(
-        ScheduledTaskFinished(task.name, stopwatch.elapsed, error: error),
-      );
     } finally {
       try {
         await releaseLock?.release();
@@ -719,6 +703,49 @@ final class Scheduler {
       }
     }
     return TaskRunResult(task, ran: true, error: error);
+  }
+
+  /// One execution of [task]: its events, hooks and action. Returns the
+  /// error the task failed with, or null.
+  Future<Object?> _executeInScope(ScheduledTask task) async {
+    final stopwatch = Stopwatch()..start();
+    Object? error;
+    await _announce(ScheduledTaskStarting(task.name));
+    try {
+      for (final hook in task._before) {
+        await hook();
+      }
+      await _perform(task.action);
+      for (final hook in task._onSuccess) {
+        await hook();
+      }
+    } catch (e, stackTrace) {
+      error = e;
+      logger?.error(
+        'Scheduled task [${task.name}] failed',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      for (final hook in task._onFailure) {
+        try {
+          await hook(e);
+        } catch (_) {
+          // Hooks must not mask the original failure.
+        }
+      }
+    } finally {
+      for (final hook in task._after) {
+        try {
+          await hook();
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+    await _announce(
+      ScheduledTaskFinished(task.name, stopwatch.elapsed, error: error),
+    );
+    return error;
   }
 
   Future<void> _perform(ScheduledAction action) async {
