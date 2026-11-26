@@ -24,6 +24,8 @@ match Laravel more closely.
 - With `HTTP_MAX_QUEUE_DELAY` set, work that blocks the event loop while no request is in flight and the lag timer is stopped (a scheduled task, a WebSocket handler) is no longer counted as queue delay for the first requests after it: lag is measured again from the first request on.
 - New public name: `ServerEngine.lagTimerActive` and `ServerEngine.lagIdleStop`.
 - New public name: `DistinctRule.distinctKeyDepth`.
+- `BodyLimitsMiddleware` only lowers the body limit a request arrived with (`HTTP_MAX_BODY`, 50 MiB when unset; the test client and `Request.fake` start at 50 MiB too): the smaller of the two applies. An application whose `BodyLimitsMiddleware(other: ...)` (or `json:`, `form:`) is larger than `HTTP_MAX_BODY` is now held to `HTTP_MAX_BODY`: bodies between the two were accepted and are answered `413`. Raise `HTTP_MAX_BODY`, or set `.bodyLimit(n)` on the upload route: a route's `.bodyLimit(n)` replaces both limits and may be larger than `HTTP_MAX_BODY`. An application that set `HTTP_MAX_BODY` below 1 MiB and relied on JSON or form bodies up to 1 MiB passing must raise `HTTP_MAX_BODY`.
+- With `BodyLimitsMiddleware` as global middleware, a declared `Content-Length` over the limit is answered `413` after the route is looked up and the global middleware after `BodyLimitsMiddleware` has run, where it was answered before them. The answer is the same, and it still comes before the route's middleware and handler, the 404, the 405, the `OPTIONS` answer and `withUpstream`. A route whose `.bodyLimit(n)` allows the declared length is served.
 
 ### Fixed
 
@@ -32,6 +34,8 @@ match Laravel more closely.
 - With `HTTP_MAX_QUEUE_DELAY` set, each HTTP isolate woke 200 times a second while idle to measure event-loop lag. The timer now runs only while requests are being handled and for one second after the last one.
 - `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
 - `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
+- `BodyLimitsMiddleware` replaced the body limit a request arrived with by its content-type limit, so an `HTTP_MAX_BODY` below 1 MiB was raised to 1 MiB for JSON and form bodies, and one below 50 MiB to 50 MiB for every other body (with `HTTP_MAX_BODY=65536` a JSON body of 150 000 bytes was accepted). The middleware now only lowers the limit.
+- With `BodyLimitsMiddleware` as global middleware, a route's `.bodyLimit(n)` above the content-type limit did not apply to a body sent with a `Content-Length`: the middleware answered `413` before the route was known. The route's limit now decides: the body is served within it and answered `413` above it.
 
 ## 1.27.7
 

@@ -108,16 +108,34 @@ void main() {
 
   group('BodyLimitsMiddleware', () {
     test('rejects declared oversize bodies with 413 before reading', () async {
-      final request = Request.fake(
+      Request declared() => Request.fake(
         method: 'POST',
         body: 'x' * 10,
         headers: {'content-type': 'application/json', 'content-length': '5000'},
       );
+      // On a route (route middleware) the answer is immediate.
+      final router = Router()
+        ..post('/items', (_) => null)
+        ..compile(MiddlewareRegistry());
+      final routed = declared()
+        ..bindRoute(router.lookup('POST', '/items')!.value, const {});
       final response = await _run(
         const BodyLimitsMiddleware(json: 1024),
-        request,
+        routed,
       );
       expect(response.status, 413);
+      // Before the route is known (global middleware) the kernel answers
+      // once it has looked the route up: its bodyLimit may allow the body
+      // (test/http/body_limit_ceiling_test.dart). The limit is set, so a
+      // read past it is refused either way.
+      final unrouted = declared();
+      final passed = await _run(
+        const BodyLimitsMiddleware(json: 1024),
+        unrouted,
+        'next',
+      );
+      expect(passed.status, 200);
+      expect(unrouted.maxBodyBytes, 1024);
     });
 
     test('enforces the limit when the body is read', () async {

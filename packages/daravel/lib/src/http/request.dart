@@ -214,8 +214,9 @@ final class Request {
   /// The body limit every request starts with, served or synthetic
   /// (`Request.fake`, the test client), so both paths behave the same:
   /// 50 MiB, the widest limit `BodyLimitsMiddleware` applies. The engine
-  /// replaces it with `ServeOptions.maxBodyBytes` (`HTTP_MAX_BODY`), the
-  /// middleware and `RouteEntry.bodyLimit` with theirs.
+  /// replaces it with `ServeOptions.maxBodyBytes` (`HTTP_MAX_BODY`). The
+  /// middleware only lowers it (to its content-type limit when that is
+  /// smaller); `RouteEntry.bodyLimit` replaces it and may raise it.
   static const int defaultMaxBodyBytes = 50 << 20;
 
   /// The most nonempty pairs the query, and a URL-encoded form body, may
