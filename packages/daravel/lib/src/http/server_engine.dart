@@ -313,11 +313,28 @@ final class ServerEngine {
   final Stopwatch _lagClock = Stopwatch();
   int _lagExpectedUs = 0;
   int _lagUs = 0;
+  int _lagBusyUs = 0;
 
   /// How often the lag timer runs; the measured lag is at least this
   /// coarse, so the smallest useful [ServeOptions.maxQueueDelay] is a few
-  /// ticks.
+  /// ticks. The timer runs only while requests are being handled and for
+  /// [lagIdleStop] after the last one, so an idle isolate does not wake up
+  /// for it. An upgraded WebSocket holds no slot and does not keep it
+  /// running; a response still being written (a long streamed response)
+  /// does.
   static const Duration lagTick = Duration(milliseconds: 5);
+
+  /// How long the engine must have been idle (nothing in flight) before the
+  /// lag timer stops itself, which it does not do while the measured lag is
+  /// over [ServeOptions.maxQueueDelay]. Not at once: a burst of synchronous requests is
+  /// handled one after another and the in-flight count can touch zero
+  /// between two of them, which must not reset the measured lag.
+  static const Duration lagIdleStop = Duration(seconds: 1);
+
+  /// Whether the lag timer is running: only with
+  /// [ServeOptions.maxQueueDelay], from the first accepted request until the
+  /// engine has been idle for [lagIdleStop].
+  bool get lagTimerActive => _lagTimer != null;
 
   /// Requests this engine is handling right now (open WebSockets are not
   /// counted once upgraded; see [openWebSockets]).
@@ -329,7 +346,9 @@ final class ServerEngine {
 
   /// The event loop's current lag: how late the last lag tick ran, smoothed
   /// over the last few ticks, or how overdue the next tick already is when
-  /// that is more. Zero without [ServeOptions.maxQueueDelay].
+  /// that is more. Zero without [ServeOptions.maxQueueDelay], and zero while
+  /// the lag timer is stopped (it runs only while requests are being handled
+  /// and for [lagIdleStop] after the last one; see [lagTick]).
   Duration get queueDelay => Duration(microseconds: _currentLagUs());
 
   /// Requests queued behind synchronous work reach [_handle] before the late
@@ -337,26 +356,50 @@ final class ServerEngine {
   /// counts as lag already.
   int _currentLagUs() {
     if (_lagTimer == null) {
-      return _lagUs;
+      // Stopped, by idleness or by stop(): nothing is measured, and the
+      // next start measures from zero.
+      return 0;
     }
     final overdue = _lagClock.elapsedMicroseconds - _lagExpectedUs;
     return overdue > _lagUs ? overdue : _lagUs;
   }
 
   void _startLagTimer() {
-    if (options.maxQueueDelay == null || _lagTimer != null) {
+    if (options.maxQueueDelay == null || _lagTimer != null || _stopping) {
       return;
     }
     _lagClock.start();
-    _lagExpectedUs = lagTick.inMicroseconds;
-    _lagTimer = Timer.periodic(lagTick, (_) {
+    // The stopwatch may have run for a long time: an idle gap is not lag.
+    final start = _lagClock.elapsedMicroseconds;
+    _lagUs = 0;
+    _lagExpectedUs = start + lagTick.inMicroseconds;
+    _lagBusyUs = start;
+    final limitUs = options.maxQueueDelay!.inMicroseconds;
+    _lagTimer = Timer.periodic(lagTick, (timer) {
       final now = _lagClock.elapsedMicroseconds;
       final late = (now - _lagExpectedUs).clamp(0, 1 << 40);
       // A short moving average: a single late tick (a GC pause) does not
       // shed, a saturated loop does within a few ticks.
       _lagUs = (_lagUs * 3 + late) ~/ 4;
       _lagExpectedUs = now + lagTick.inMicroseconds;
+      if (_inFlight == 0 &&
+          now - _lagBusyUs >= lagIdleStop.inMicroseconds &&
+          _lagUs <= limitUs) {
+        // Not while the loop is behind: work that blocked it without a
+        // request in flight still sheds the requests queued behind it.
+        timer.cancel();
+        _lagTimer = null;
+      }
     });
+  }
+
+  /// A request took or gave back its slot: [lagIdleStop] counts from the
+  /// last such moment, also for a request that comes and goes between two
+  /// ticks.
+  void _markLagBusy() {
+    if (_lagTimer != null) {
+      _lagBusyUs = _lagClock.elapsedMicroseconds;
+    }
   }
 
   /// Completes once the server has stopped.
@@ -591,7 +634,6 @@ final class ServerEngine {
     _listenerAuthority = address.type == InternetAddressType.IPv6
         ? '[${address.host}]:${server.port}'
         : '${address.host}:${server.port}';
-    _startLagTimer();
     if (options.handleSignals) {
       _installSignalHandlers();
     }
@@ -926,11 +968,14 @@ final class ServerEngine {
     // WebSocket upgrade: a session can last hours and holds a socket, not a
     // slot (see [openWebSockets]). Released exactly once on every path.
     _inFlight++;
+    _startLagTimer();
+    _markLagBusy();
     var released = false;
     void release() {
       if (!released) {
         released = true;
         _inFlight--;
+        _markLagBusy();
       }
     }
 
