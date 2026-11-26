@@ -836,16 +836,27 @@ void main() {
       );
     }
 
-    test('non-ASCII text costs less than 8 times plain distinct', () async {
+    test('non-ASCII text costs less than 25 times plain distinct', () async {
       final items = [
         for (var i = 0; i < 8000; i++)
           '$i${zhe * 497}$eAcuteUpper${ya * 497}'.padRight(1000, ya),
       ];
-      final plain = await micros(items, 'distinct');
-      final folded = await micros(items);
+      // The two are measured in turns, so a busy stretch of the machine
+      // falls on both. The ratio is about 4 on a quiet machine and was 9.6
+      // once on a Windows CI runner with other test files running beside
+      // it: the bound is for folding that got an order of magnitude
+      // slower, not for a few percent.
+      var plain = 1 << 62;
+      var folded = 1 << 62;
+      for (var turn = 0; turn < 3; turn++) {
+        final p = await micros(items, 'distinct');
+        final f = await micros(items);
+        plain = p < plain ? p : plain;
+        folded = f < folded ? f : folded;
+      }
       // ignore: avoid_print
       print('8000 x 1000 chars: plain ${plain}us, ignore_case ${folded}us');
-      expect(folded, lessThan(8 * plain), reason: '$plain vs $folded');
+      expect(folded, lessThan(25 * plain), reason: '$plain vs $folded');
     });
   });
 }
