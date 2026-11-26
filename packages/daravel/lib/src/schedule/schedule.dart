@@ -683,13 +683,37 @@ final class Scheduler {
         error = await _executeInScope(task);
       } else {
         // A stray asynchronous error goes where it went before the task had
-        // its own scope: to the zone the scheduler runs in.
+        // its own scope: to the zone the scheduler runs in. A disposer of
+        // the task's scope that throws is the task's failure, not the
+        // run's: in that zone it ended `schedule:run` and `schedule:work`
+        // with the other tasks still under way.
         final outer = Zone.current;
-        error = await container.runScoped<Object?>(
+        Object? disposeError;
+        final taskError = await container.runScoped<Object?>(
           'schedule',
           (_) => _executeInScope(task),
-          onUncaughtError: outer.handleUncaughtError,
+          onUncaughtError: (uncaught, stackTrace) {
+            if (uncaught is! ScopeDisposeException) {
+              outer.handleUncaughtError(uncaught, stackTrace);
+              return;
+            }
+            disposeError ??= uncaught;
+            final logger = this.logger;
+            if (logger == null) {
+              outer.print(
+                'Scheduled task [${task.name}]: $uncaught\n$stackTrace',
+              );
+            } else {
+              logger.error(
+                'Scheduled task [${task.name}] left a scope disposer that '
+                'failed',
+                error: uncaught,
+                stackTrace: stackTrace,
+              );
+            }
+          },
         );
+        error = taskError ?? disposeError;
       }
     } finally {
       try {

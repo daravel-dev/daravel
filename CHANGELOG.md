@@ -24,7 +24,7 @@ match Laravel more closely.
 - With `HTTP_MAX_QUEUE_DELAY` set, work that blocks the event loop while no request is in flight and the lag timer is stopped (a scheduled task, a WebSocket handler) is no longer counted as queue delay for the first requests after it: lag is measured again from the first request on.
 - New public name: `ServerEngine.lagTimerActive` and `ServerEngine.lagIdleStop`.
 - New public name: `DistinctRule.distinctKeyDepth`.
-- Each scheduled task execution runs in its own scope (see Fixed). A task that relied on what an earlier task left in the scope (context, log context, the locale, the authenticated user, scoped instances) no longer sees it.
+- Each scheduled task execution runs in its own scope (see Fixed). A task that relied on what an earlier task left in the scope (context, log context, the locale, the authenticated user, scoped instances) no longer sees it, and neither does it see what the code that started the scheduler (`app.run`, a test) or a filter (`when`, `skip`) put in theirs. A callback the task registers for the commit of a transaction opened outside the scheduler runs after the task's scope is gone. A disposer of the task's scope (`Scope.onDispose`) that throws is logged and reported as the task's error (`TaskRunResult.error`); the other tasks still run.
 - New public name: `Scheduler.container` (and the constructor parameter).
 
 ### Fixed

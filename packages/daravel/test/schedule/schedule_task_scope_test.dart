@@ -273,6 +273,115 @@ void main() {
     });
   });
 
+  test('a disposer of the task scope that throws is the task\'s error: it '
+      'does not end the run, the other tasks finish and the lock is '
+      'released', () async {
+    // As `schedule:run` does: app.run() has no handler for uncaught errors,
+    // so one that reaches its zone fails it.
+    var secondFinished = false;
+    late final List<TaskRunResult> results;
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      schedule
+          .call(() {
+            Container.current.currentScope!.onDispose(
+              () => throw StateError('disposer'),
+            );
+          })
+          .everyMinute()
+          .withoutOverlapping()
+          .named('bad-disposer');
+      schedule
+          .call(() async {
+            await Future<void>.delayed(const Duration(milliseconds: 30));
+            secondFinished = true;
+          })
+          .everyMinute()
+          .named('after-it');
+      results = await app.scheduler().run(at);
+      expect(secondFinished, isTrue);
+      final lock = Cache.store('process')
+          .lock('schedule:bad-disposer:* * * * *', owner: 'probe');
+      expect(await lock.acquire(), isTrue, reason: 'the lock was released');
+      await lock.release();
+    });
+    expect(results.map((r) => r.ran), [true, true]);
+    expect(results.first.error, isA<ScopeDisposeException>());
+    expect(results.last.error, isNull);
+  });
+
+  test('a task does not see the locale or a once() value '
+      'of an earlier task', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      final before = currentLocale();
+      String? locale;
+      String? memo;
+      schedule
+          .call(() {
+            setCurrentLocale('id');
+            once('scope-test-memo', () => 'first');
+          })
+          .everyMinute()
+          .named('first');
+      schedule
+          .call(() {
+            locale = currentLocale();
+            memo = once('scope-test-memo', () => 'second');
+          })
+          .everyMinute()
+          .named('second');
+      await app.scheduler().run(at);
+      expect(before, isNot('id'));
+      expect(locale, before);
+      expect(memo, 'second');
+      expect(currentLocale(), before, reason: 'the caller keeps its own');
+    });
+  });
+
+  test('a background task keeps its scope and its overlap lock until it '
+      'ends, after run() has returned', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      final release = Completer<void>();
+      Marker? atStart;
+      Marker? afterWait;
+      Object? contextAfterWait;
+      final done = Completer<void>();
+      schedule
+          .call(() async {
+            atStart = App.make<Marker>();
+            Context.add('bg', 'kept');
+            await release.future;
+            afterWait = App.make<Marker>();
+            contextAfterWait = Context.all()['bg'];
+          })
+          .everyMinute()
+          .withoutOverlapping()
+          .runInBackground()
+          .after(done.complete)
+          .named('background');
+      final scheduler = app.scheduler();
+      final results = await scheduler.run(at);
+      expect(results.single.ran, isTrue);
+      expect(scheduler.runningTasks, 1);
+      final probe = Cache.store('process')
+          .lock('schedule:background:* * * * *', owner: 'probe');
+      expect(await probe.acquire(), isFalse, reason: 'still held');
+      release.complete();
+      await done.future;
+      // The lock is released after the scope is disposed.
+      for (var i = 0; i < 50 && scheduler.runningTasks > 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(scheduler.runningTasks, 0);
+      expect(identical(atStart, afterWait), isTrue);
+      expect(contextAfterWait, 'kept');
+      expect(await probe.acquire(), isTrue, reason: 'released at the end');
+      await probe.release();
+    });
+  });
+
   test('the overlap lock is released after a task ran in its scope, also '
       'when it failed', () async {
     await app.run(() async {
