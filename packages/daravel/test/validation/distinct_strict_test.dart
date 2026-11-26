@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -526,6 +528,48 @@ void main() {
       return a;
     }
 
+    // [depth] maps, one in the other; the innermost has a list as its key,
+    // which sits one level deeper than that map.
+    Map<Object?, Object?> listKeyedMap(int depth) {
+      var value = <Object?, Object?>{
+        <Object?>[1]: 'v',
+      };
+      for (var i = 1; i < depth; i++) {
+        value = <Object?, Object?>{'v': value};
+      }
+      return value;
+    }
+
+    test('a list or map used as a map key counts one level deeper than its '
+        'map', () async {
+      // The key is at the limit: compared by content.
+      expect(
+        await failing('distinct:strict', [
+          listKeyedMap(limit - 1),
+          listKeyedMap(limit - 1),
+        ]),
+        both,
+      );
+      // One level deeper: each key equals only itself.
+      expect(
+        await failing('distinct:strict', [
+          listKeyedMap(limit),
+          listKeyedMap(limit),
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('a list that validates something else while it is read keeps its '
+        'own walk', () async {
+      // The path of a walk belongs to that walk: another comparison started
+      // from inside an element read must not make the outer one forget
+      // where it is.
+      final list = _ValidatingSelfList();
+      expect(await failing('distinct:strict', [list, list]), both);
+      expect(list.reads, lessThan(20), reason: 'walked into itself');
+    });
+
     test('20 000 levels: no error, equal only to itself', () async {
       expect(
         await failing('distinct:strict', [
@@ -771,4 +815,40 @@ void main() {
       expect(large, lessThan(10 * small), reason: '$small us -> $large us');
     });
   });
+}
+
+/// A list of two elements, the second being the list itself, whose first
+/// read runs another `distinct:strict` validation before it answers.
+final class _ValidatingSelfList extends ListBase<Object?> {
+  int reads = 0;
+  bool _ran = false;
+
+  @override
+  int get length => 2;
+
+  @override
+  set length(int _) => throw UnsupportedError('fixed');
+
+  @override
+  Object? operator [](int index) {
+    reads++;
+    if (index == 0 && !_ran) {
+      _ran = true;
+      // Runs up to its first await at once, which is past the comparison.
+      Validator(
+        {
+          'inner': [
+            <Object?>[1],
+            <Object?>[2],
+          ],
+        },
+        {'inner.*': 'distinct:strict'},
+      ).run().ignore();
+    }
+    return index == 0 ? 'first' : this;
+  }
+
+  @override
+  void operator []=(int index, Object? value) =>
+      throw UnsupportedError('fixed');
 }

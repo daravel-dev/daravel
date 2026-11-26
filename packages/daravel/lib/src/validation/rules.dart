@@ -1339,10 +1339,6 @@ final class DistinctRule extends Rule {
   /// or map met again inside itself. The walk stays well within the stack.
   static const int distinctKeyDepth = 512;
 
-  // The lists and maps on the path [_encode] is walking (cycle check);
-  // empty between two calls of [_strictKey].
-  static final Set<Object> _walking = Set<Object>.identity();
-
   /// A string equal for two values exactly when PHP's `===` holds: a type
   /// tag and the value (`1`, `1.0`, `'1'` and `true` differ, `-0.0` is
   /// `0.0`), a list or map by its keys in order (a list has the keys
@@ -1351,20 +1347,27 @@ final class DistinctRule extends Rule {
   /// itself, is written by its number.
   static String _strictKey(Object? value) {
     final out = StringBuffer();
-    try {
-      _encode(out, value, 1);
-    } finally {
-      _walking.clear();
-    }
+    // The lists and maps on the path being walked (cycle check): one set
+    // per compared value, and none for a scalar. A list or map is only
+    // ever met inside another one, so the set is there when it is needed.
+    final walking = value is List<Object?> || value is Map<Object?, Object?>
+        ? Set<Object>.identity()
+        : null;
+    _encode(out, value, 1, walking);
     return '$out';
   }
 
   static void _text(StringBuffer out, String text) =>
       out.write('s${text.length}:$text');
 
-  static void _encode(StringBuffer out, Object? value, int depth) {
+  static void _encode(
+    StringBuffer out,
+    Object? value,
+    int depth,
+    Set<Object>? walking,
+  ) {
     if ((value is List<Object?> || value is Map<Object?, Object?>) &&
-        (depth > distinctKeyDepth || _walking.contains(value))) {
+        (depth > distinctKeyDepth || walking!.contains(value))) {
       out.write('o${_ids[value!] ??= ++_unique};');
       return;
     }
@@ -1382,27 +1385,27 @@ final class DistinctRule extends Rule {
       case final String s:
         _text(out, s);
       case final List<Object?> list:
-        _walking.add(list);
+        walking!.add(list);
         out.write('a${list.length}{');
         for (var i = 0; i < list.length; i++) {
           _text(out, '$i');
-          _encode(out, list[i], depth + 1);
+          _encode(out, list[i], depth + 1, walking);
         }
         out.write('}');
-        _walking.remove(list);
+        walking.remove(list);
       case final Map<Object?, Object?> map:
-        _walking.add(map);
+        walking!.add(map);
         out.write('a${map.length}{');
         for (final MapEntry(:key, :value) in map.entries) {
           if (key is String || key is num || key is bool || key == null) {
             _text(out, '$key');
           } else {
-            _encode(out, key, depth + 1);
+            _encode(out, key, depth + 1, walking);
           }
-          _encode(out, value, depth + 1);
+          _encode(out, value, depth + 1, walking);
         }
         out.write('}');
-        _walking.remove(map);
+        walking.remove(map);
       case Record _:
         out.write('o${++_unique};');
       case final Object o:
