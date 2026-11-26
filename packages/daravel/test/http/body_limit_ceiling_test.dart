@@ -355,6 +355,256 @@ void main() {
     });
   });
 
+  // Every application ends its global middleware with
+  // MethodOverrideMiddleware, which reads a POST form before routing on a
+  // path that also has a PUT, PATCH or DELETE route.
+  group('a form read for _method before routing', () {
+    /// `/form` with a POST and a PUT route; [seen] collects the exceptions
+    /// the handler reported or rendered and the handlers that ran.
+    Future<Application> forms(
+      List<String> seen, {
+      int? postLimit,
+      int? putLimit,
+      List<Middleware> global = const <Middleware>[BodyLimitsMiddleware()],
+      bool methodOverride = true,
+    }) async {
+      Future<Object?> Function(Request) handler(String via) => (request) async {
+        seen.add(via);
+        final input = await request.all();
+        final file = await request.file('file');
+        return <String, Object?>{
+          'via': via,
+          'method': request.method,
+          'data': (input['data'] as String?)?.length,
+          'file': file?.size,
+          'limit': request.maxBodyBytes,
+        };
+      };
+
+      final app = Application.configure(basePath: Directory.systemTemp.path)
+          .withEnv(const {'APP_ENV': 'testing', 'DB_DATABASE': ':memory:'})
+          .withLogLevel(LogLevel.critical)
+          .withRouting(
+            apiPrefix: '',
+            api: (router) {
+              final post = router.post('/form', handler('POST'));
+              final put = router.put('/form', handler('PUT'));
+              if (postLimit != null) {
+                post.bodyLimit(postLimit);
+              }
+              if (putLimit != null) {
+                put.bodyLimit(putLimit);
+              }
+            },
+          )
+          .withMiddleware((m) {
+            m.methodOverride = methodOverride;
+            m.use(global);
+          })
+          .create();
+      await app.boot();
+      addTearDown(app.shutdown);
+      app.kernel.exceptions
+        ..report<PayloadTooLargeHttpException>(
+          (error, stackTrace, request) => seen.add('reported'),
+        )
+        ..render<PayloadTooLargeHttpException>((error, request) {
+          seen.add('rendered');
+          return null;
+        });
+      return app;
+    }
+
+    /// A urlencoded POST whose `data` field is [size] bytes.
+    Request form(
+      int size, {
+      String? method = 'PUT',
+      int? arrived = Request.defaultMaxBodyBytes,
+      bool declare = true,
+    }) {
+      final request = Request.fake(
+        method: 'POST',
+        path: '/form',
+        form: {'_method': ?method, 'data': 'x' * size},
+      );
+      if (!declare) {
+        request.headers.remove('content-length');
+      }
+      request.maxBodyBytes = arrived;
+      return request;
+    }
+
+    Future<void> expectServed(
+      Response response,
+      String via, {
+      int? data,
+      int? file,
+      required int limit,
+    }) async {
+      expect(response.status, 200, reason: await response.bodyText());
+      expect(jsonDecode(await response.bodyText()), {
+        'via': via,
+        'method': via,
+        'data': data,
+        'file': file,
+        'limit': limit,
+      });
+    }
+
+    Future<void> expectDirectRefusal(Response response) async {
+      final direct = laravelErrorResponse(<String, Object?>{
+        'message': const PayloadTooLargeHttpException().message,
+      }, status: 413);
+      expect(response.status, 413);
+      expect(await response.bodyText(), await direct.bodyText());
+      expect(
+        response.headers.toSingleValueMap(),
+        direct.headers.toSingleValueMap(),
+      );
+    }
+
+    test('the PUT route bodyLimit serves a declared 2 MiB form', () async {
+      final seen = <String>[];
+      final app = await forms(seen, putLimit: 4 * _mib);
+      await expectServed(
+        await app.handle(form(2 * _mib)),
+        'PUT',
+        data: 2 * _mib,
+        limit: 4 * _mib,
+      );
+      expect(seen, ['PUT']);
+    });
+
+    test('no route has a bodyLimit: the direct 413, not the exception '
+        'handler', () async {
+      final seen = <String>[];
+      final app = await forms(seen);
+      final request = form(2 * _mib);
+      await expectDirectRefusal(await app.handle(request));
+      expect(seen, isEmpty);
+      expect(request.method, 'POST', reason: '_method was not read');
+    });
+
+    test('only the POST route has a bodyLimit: POST is served, _method=PUT '
+        'is refused by the kernel under the lowered limit', () async {
+      final seen = <String>[];
+      final app = await forms(seen, postLimit: 4 * _mib);
+      await expectServed(
+        await app.handle(form(2 * _mib, method: null)),
+        'POST',
+        data: 2 * _mib,
+        limit: 4 * _mib,
+      );
+      expect(seen, ['POST']);
+      seen.clear();
+      final request = form(2 * _mib);
+      await expectDirectRefusal(await app.handle(request));
+      expect(seen, isEmpty);
+      // The form was read under the POST route's limit to find _method;
+      // the PUT route it led to keeps the lowered limit.
+      expect(request.method, 'PUT');
+      expect(request.maxBodyBytes, _mib);
+    });
+
+    test('a declared length over the largest route limit: the direct '
+        '413', () async {
+      final seen = <String>[];
+      final app = await forms(seen, postLimit: 2 * _mib, putLimit: 4 * _mib);
+      final request = form(4 * _mib + 1);
+      await expectDirectRefusal(await app.handle(request));
+      expect(seen, isEmpty);
+      expect(request.method, 'POST', reason: '_method was not read');
+      // Between the two limits the larger one reads it.
+      await expectServed(
+        await app.handle(form(3 * _mib)),
+        'PUT',
+        data: 3 * _mib,
+        limit: 4 * _mib,
+      );
+    });
+
+    test('a multipart form over the arrived limit is served by the PUT '
+        'route bodyLimit', () async {
+      final seen = <String>[];
+      final app = await forms(seen, putLimit: 4 * _mib);
+      Request upload() => Request.fake(
+        method: 'POST',
+        path: '/form',
+        form: const {'_method': 'PUT', 'data': 'abc'},
+        files: {
+          'file': UploadedFile.fromBytes(
+            List<int>.filled(150000, 0x61),
+            name: 'a.txt',
+          ),
+        },
+      )..maxBodyBytes = _kib64;
+      await expectServed(
+        await app.handle(upload()),
+        'PUT',
+        data: 3,
+        file: 150000,
+        limit: 4 * _mib,
+      );
+      expect(seen, ['PUT']);
+      seen.clear();
+      final plain = await forms(seen);
+      await expectDirectRefusal(await plain.handle(upload()));
+      expect(seen, isEmpty);
+    });
+
+    test('MethodOverrideMiddleware without a router: the direct '
+        '413', () async {
+      final seen = <String>[];
+      final app = await forms(
+        seen,
+        putLimit: 4 * _mib,
+        methodOverride: false,
+        global: const [BodyLimitsMiddleware(), MethodOverrideMiddleware()],
+      );
+      final request = form(2 * _mib);
+      await expectDirectRefusal(await app.handle(request));
+      expect(seen, isEmpty);
+      expect(request.method, 'POST', reason: '_method was not read');
+      // Within the limit it reads the form as before.
+      await expectServed(
+        await app.handle(form(1000)),
+        'PUT',
+        data: 1000,
+        limit: 4 * _mib,
+      );
+    });
+
+    test('a form within the limits is read as before', () async {
+      final seen = <String>[];
+      final app = await forms(seen);
+      await expectServed(
+        await app.handle(form(1000)),
+        'PUT',
+        data: 1000,
+        limit: _mib,
+      );
+      await expectServed(
+        await app.handle(form(1000, method: null)),
+        'POST',
+        data: 1000,
+        limit: _mib,
+      );
+      expect(seen, ['PUT', 'POST']);
+    });
+
+    test('a form without Content-Length is read under the lowered limit, '
+        'as before', () async {
+      // Nothing is declared, so nothing is deferred: the read for _method
+      // is refused although the PUT route would allow the body.
+      final seen = <String>[];
+      final app = await forms(seen, putLimit: 4 * _mib);
+      final response = await app.handle(form(2 * _mib, declare: false));
+      expect(response.status, 413);
+      expect(await response.bodyText(), _refusal);
+      expect(seen, ['reported', 'rendered']);
+    });
+  });
+
   test('the 413 answer is the one the middleware always gave', () async {
     final before = laravelErrorResponse(<String, Object?>{
       'message': const PayloadTooLargeHttpException().message,

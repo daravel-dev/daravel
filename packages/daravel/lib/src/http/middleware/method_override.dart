@@ -1,5 +1,6 @@
 import '../../routing/route_entry.dart';
 import '../../routing/router.dart';
+import '../body_limit_refusal.dart';
 import '../http_exceptions.dart';
 import '../middleware.dart';
 import '../request.dart';
@@ -12,6 +13,11 @@ import '../response.dart';
 /// Only form bodies are read, so JSON and raw uploads stay untouched. Symfony
 /// takes any verb but GET, HEAD, CONNECT and TRACE; this takes the three that
 /// forms need.
+///
+/// A form whose declared length is over the limit of `BodyLimitsMiddleware`
+/// is read only when the `bodyLimit` of a route on its path (the POST, PUT,
+/// PATCH or DELETE one) allows that length; otherwise it is answered `413`
+/// unread.
 final class MethodOverrideMiddleware implements Middleware {
   /// Reads `_method` from a `POST` form, as Laravel does for HTML forms.
   ///
@@ -43,7 +49,10 @@ final class MethodOverrideMiddleware implements Middleware {
   @override
   Future<Response> handle(Request request, Next next) async {
     if (request.method == 'POST') {
-      final target = await _target(request);
+      final (target, refusal) = await _target(request);
+      if (refusal != null) {
+        return refusal;
+      }
       if (allowed.contains(target)) {
         request.overrideMethod(target!);
       }
@@ -51,33 +60,60 @@ final class MethodOverrideMiddleware implements Middleware {
     return next(request);
   }
 
-  Future<String?> _target(Request request) async {
+  /// The method [request] asks for, or the answer to give instead of
+  /// reading its form.
+  Future<(String?, Response?)> _target(Request request) async {
     final header = request.headers.first('x-http-method-override');
     if (header != null && header.isNotEmpty) {
-      return header.toUpperCase();
+      return (header.toUpperCase(), null);
     }
     final contentType = (request.headers.contentType ?? '').toLowerCase();
     final isForm =
         contentType.contains('application/x-www-form-urlencoded') ||
         contentType.contains('multipart/form-data');
     if (!isForm) {
-      return _queryTarget(request);
+      return (_queryTarget(request), null);
     }
     final routes = router?.call();
     Duration? timeout;
+    var reachable = const <RouteEntry>[];
     if (routes != null) {
       final candidates = [
         for (final method in allowed)
           ?routes.lookup(method, request.path, host: request.host)?.value,
       ];
       if (candidates.isEmpty) {
-        return _queryTarget(request);
+        return (_queryTarget(request), null);
       }
-      timeout = _timeoutFor([
+      reachable = [
         ...candidates,
         ?routes.lookup('POST', request.path, host: request.host)?.value,
-      ]);
+      ];
+      timeout = _timeoutFor(reachable);
     }
+    if (!bodyRefusalDeferred(request)) {
+      return (await _formTarget(request, timeout), null);
+    }
+    // BodyLimitsMiddleware saw a declared length over its limit and left
+    // the answer to the route's bodyLimit. The route is still unknown
+    // here, so the form is read only when a route it can reach allows the
+    // declared length, and under that limit for this read alone: the
+    // kernel then decides by the route that matches.
+    final widest = _widestBodyLimit(reachable);
+    final declared = request.contentLength;
+    if (widest == null || declared == null || declared > widest) {
+      return (null, payloadTooLargeResponse());
+    }
+    final lowered = request.maxBodyBytes;
+    request.maxBodyBytes = widest;
+    try {
+      return (await _formTarget(request, timeout), null);
+    } finally {
+      request.maxBodyBytes = lowered;
+    }
+  }
+
+  Future<String?> _formTarget(Request request, Duration? timeout) async {
     final reading = _read(request);
     final body = timeout == null
         ? await reading
@@ -85,7 +121,7 @@ final class MethodOverrideMiddleware implements Middleware {
             timeout,
             onTimeout: () {
               final error = ServiceUnavailableHttpException(
-                'The request did not complete within ${timeout!.inSeconds}s.',
+                'The request did not complete within ${timeout.inSeconds}s.',
               );
               request.abortBodyRead(error);
               throw error;
@@ -96,6 +132,18 @@ final class MethodOverrideMiddleware implements Middleware {
       final String method => method.toUpperCase(),
       _ => null,
     };
+  }
+
+  /// The largest `bodyLimit` among [routes]; `null` when none sets one.
+  int? _widestBodyLimit(List<RouteEntry> routes) {
+    int? widest;
+    for (final route in routes) {
+      final limit = route.bodyLimitBytes;
+      if (limit != null && (widest == null || limit > widest)) {
+        widest = limit;
+      }
+    }
+    return widest;
   }
 
   String? _queryTarget(Request request) =>
