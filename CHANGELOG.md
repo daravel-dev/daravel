@@ -23,12 +23,14 @@ match Laravel more closely.
 - New public name: `Rules.distinct({bool strict, bool ignoreCase})` (the new named parameter `ignoreCase`, default `false`) and `DistinctRule.ignoreCase` (a field of the rule).
 - With `HTTP_MAX_QUEUE_DELAY` set, work that blocks the event loop while no request is in flight and the lag timer is stopped (a scheduled task, a WebSocket handler) is no longer counted as queue delay for the first requests after it: lag is measured again from the first request on.
 - New public name: `ServerEngine.lagTimerActive` and `ServerEngine.lagIdleStop`.
+- New public name: `DistinctRule.distinctKeyDepth`.
 
 ### Fixed
 
 - `distinct:ignore_case` was read as `distinct`: it ignored its parameter, so `"a"` beside `"A"` passed. It now compares as Laravel 12.x `validateDistinct` does (`preg_grep('/^'.preg_quote($value, '/').'$/iu', $data)`): each value is written as PHP writes it in a string (a float as `(string) $float` with `precision` 14: `0.1 + 0.2` is `"0.3"`, `1e20` is `"1.0E+20"`) and the strings are compared with simple Unicode case folding. Items are grouped as before, and the work stays linear in the size of the input.
 - `distinct:strict` was read as `distinct`: it ignored its parameter. It now compares values by PHP's `===`, as Laravel 12.x `validateDistinct` does (`in_array($value, array_values($data), in_array('strict', $parameters))`): `1`, `1.0`, `"1"` and `true` are four different values, `-0.0` equals `0.0`, `NaN` equals nothing, a list equals a map with the same keys in the same order, and any other object equals only itself, however deep it sits in the compared values. Any other parameter is still ignored, and `STRICT` is not `strict`. Items are grouped as before, and the work stays linear in the size of the input.
 - With `HTTP_MAX_QUEUE_DELAY` set, each HTTP isolate woke 200 times a second while idle to measure event-loop lag. The timer now runs only while requests are being handled and for one second after the last one.
+- `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
 
 ## 1.27.7
 

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:daravel/daravel.dart';
 import 'package:test/test.dart';
 
@@ -483,6 +485,295 @@ void main() {
     });
   });
 
+  group('deep and self-containing values', () {
+    const limit = DistinctRule.distinctKeyDepth;
+    final both = {'items.0', 'items.1'};
+
+    // [depth] lists, one in the other, the innermost holding [leaf]: the
+    // outermost (the compared value) is at depth 1, the innermost at
+    // [depth]. Built with a loop, not recursion.
+    List<Object?> nestedList(int depth, [Object? leaf = 1]) {
+      var value = <Object?>[leaf];
+      for (var i = 1; i < depth; i++) {
+        value = <Object?>[value];
+      }
+      return value;
+    }
+
+    Map<String, Object?> nestedMap(int depth) {
+      var value = <String, Object?>{'v': 1};
+      for (var i = 1; i < depth; i++) {
+        value = <String, Object?>{'v': value};
+      }
+      return value;
+    }
+
+    List<Object?> selfList() {
+      final list = <Object?>[1];
+      list.add(list);
+      return list;
+    }
+
+    Map<String, Object?> selfMap() {
+      final map = <String, Object?>{'v': 1};
+      map['m'] = map;
+      return map;
+    }
+
+    // a contains b, b contains a.
+    List<Object?> twoCycle() {
+      final a = <Object?>['a'];
+      final b = <Object?>['b', a];
+      a.add(b);
+      return a;
+    }
+
+    // [depth] maps, one in the other; the innermost has a list as its key,
+    // which sits one level deeper than that map.
+    Map<Object?, Object?> listKeyedMap(int depth) {
+      var value = <Object?, Object?>{
+        <Object?>[1]: 'v',
+      };
+      for (var i = 1; i < depth; i++) {
+        value = <Object?, Object?>{'v': value};
+      }
+      return value;
+    }
+
+    test('a list or map used as a map key counts one level deeper than its '
+        'map', () async {
+      // The key is at the limit: compared by content.
+      expect(
+        await failing('distinct:strict', [
+          listKeyedMap(limit - 1),
+          listKeyedMap(limit - 1),
+        ]),
+        both,
+      );
+      // One level deeper: each key equals only itself.
+      expect(
+        await failing('distinct:strict', [
+          listKeyedMap(limit),
+          listKeyedMap(limit),
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('a list that validates something else while it is read keeps its '
+        'own walk', () async {
+      // The path of a walk belongs to that walk: another comparison started
+      // from inside an element read must not make the outer one forget
+      // where it is.
+      final list = _ValidatingSelfList();
+      expect(await failing('distinct:strict', [list, list]), both);
+      expect(list.reads, lessThan(20), reason: 'walked into itself');
+    });
+
+    test('20 000 levels: no error, equal only to itself', () async {
+      expect(
+        await failing('distinct:strict', [
+          nestedList(20000),
+          nestedList(20000),
+        ]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:strict', [nestedMap(20000), nestedMap(20000)]),
+        isEmpty,
+      );
+      final same = nestedList(20000);
+      expect(await failing('distinct:strict', [same, same]), both);
+    });
+
+    test(
+      'a container at the limit is compared, one level deeper not',
+      () async {
+        expect(
+          await failing('distinct:strict', [
+            nestedList(limit),
+            nestedList(limit),
+          ]),
+          both,
+        );
+        expect(
+          await failing('distinct:strict', [
+            nestedList(limit + 1),
+            nestedList(limit + 1),
+          ]),
+          isEmpty,
+        );
+        expect(
+          await failing('distinct:strict', [
+            nestedMap(limit),
+            nestedMap(limit),
+          ]),
+          both,
+        );
+        expect(
+          await failing('distinct:strict', [
+            nestedMap(limit + 1),
+            nestedMap(limit + 1),
+          ]),
+          isEmpty,
+        );
+        // At the limit the content still decides.
+        expect(
+          await failing('distinct:strict', [
+            nestedList(limit),
+            nestedList(limit, 2),
+          ]),
+          isEmpty,
+        );
+      },
+    );
+
+    test('a list or map that contains itself', () async {
+      expect(
+        await failing('distinct:strict', [selfList(), selfList()]),
+        isEmpty,
+      );
+      final list = selfList();
+      expect(await failing('distinct:strict', [list, list]), both);
+      expect(await failing('distinct:strict', [selfMap(), selfMap()]), isEmpty);
+      final map = selfMap();
+      expect(await failing('distinct:strict', [map, map]), both);
+    });
+
+    test('a list that contains itself twice is not walked again', () async {
+      // Walked again at every level, it would take 2^512 steps.
+      List<Object?> wide() {
+        final list = <Object?>[];
+        list
+          ..add(list)
+          ..add(list);
+        return list;
+      }
+
+      expect(await failing('distinct:strict', [wide(), wide()]), isEmpty);
+      final same = wide();
+      expect(await failing('distinct:strict', [same, same]), both);
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
+    test('a cycle through two lists', () async {
+      expect(
+        await failing('distinct:strict', [twoCycle(), twoCycle()]),
+        isEmpty,
+      );
+      final a = twoCycle();
+      expect(await failing('distinct:strict', [a, a]), both);
+    });
+
+    test('a list or map met twice side by side is not a cycle', () async {
+      final shared = <Object?>[
+        1,
+        <Object?>['x'],
+      ];
+      expect(
+        await failing('distinct:strict', [
+          [shared, shared],
+          [
+            [
+              1,
+              ['x'],
+            ],
+            [
+              1,
+              ['x'],
+            ],
+          ],
+        ]),
+        both,
+      );
+      final sharedMap = <String, Object?>{'k': 1};
+      expect(
+        await failing('distinct:strict', [
+          {'a': sharedMap, 'b': sharedMap},
+          {
+            'a': {'k': 1},
+            'b': {'k': 1},
+          },
+        ]),
+        both,
+      );
+    });
+
+    test('ignore_case: deep and self-containing values', () async {
+      expect(
+        await failing('distinct:ignore_case', [
+          nestedList(20000),
+          nestedList(20000),
+        ]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:ignore_case', [selfList(), selfList()]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:ignore_case', [selfMap(), selfMap()]),
+        isEmpty,
+      );
+      final list = selfList();
+      expect(await failing('distinct:ignore_case', [list, list]), both);
+      final map = selfMap();
+      expect(await failing('distinct:ignore_case', [map, map]), both);
+      expect(
+        await failing('distinct:ignore_case', [
+          nestedList(limit),
+          nestedList(limit),
+        ]),
+        both,
+      );
+    });
+
+    test('ordinary values keep their keys', () async {
+      expect(await failing('distinct:strict', [1, '1']), isEmpty);
+      expect(await failing('distinct:strict', [1, 1.0]), isEmpty);
+      expect(await failing('distinct:strict', ['a', 'a']), both);
+      expect(await failing('distinct:strict', [-0.0, 0.0]), both);
+      expect(
+        await failing('distinct:strict', [double.nan, double.nan]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:strict', [
+          ['a', 'b'],
+          {'0': 'a', '1': 'b'},
+        ]),
+        both,
+      );
+      expect(
+        await failing('distinct:strict', [
+          ['a', 'b'],
+          {'1': 'b', '0': 'a'},
+        ]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:strict', [
+          {'a': 1},
+          {'a': '1'},
+        ]),
+        isEmpty,
+      );
+      expect(
+        await failing('distinct:strict', [
+          [
+            1,
+            [2, '3'],
+          ],
+          [
+            1,
+            [2, '3'],
+          ],
+        ]),
+        both,
+      );
+      expect(await failing('distinct:ignore_case', ['a', 'A']), both);
+    });
+  });
+
   group('the work is linear', () {
     Future<int> micros(List<Object?> items) async {
       final watch = Stopwatch()..start();
@@ -524,4 +815,40 @@ void main() {
       expect(large, lessThan(10 * small), reason: '$small us -> $large us');
     });
   });
+}
+
+/// A list of two elements, the second being the list itself, whose first
+/// read runs another `distinct:strict` validation before it answers.
+final class _ValidatingSelfList extends ListBase<Object?> {
+  int reads = 0;
+  bool _ran = false;
+
+  @override
+  int get length => 2;
+
+  @override
+  set length(int _) => throw UnsupportedError('fixed');
+
+  @override
+  Object? operator [](int index) {
+    reads++;
+    if (index == 0 && !_ran) {
+      _ran = true;
+      // Runs up to its first await at once, which is past the comparison.
+      Validator(
+        {
+          'inner': [
+            <Object?>[1],
+            <Object?>[2],
+          ],
+        },
+        {'inner.*': 'distinct:strict'},
+      ).run().ignore();
+    }
+    return index == 0 ? 'first' : this;
+  }
+
+  @override
+  void operator []=(int index, Object? value) =>
+      throw UnsupportedError('fixed');
 }
