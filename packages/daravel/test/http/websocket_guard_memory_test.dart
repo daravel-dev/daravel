@@ -155,12 +155,22 @@ void main() {
     // The highest level before the 4x round, not the level just before it:
     // memory given back to the OS after a round lowers that one, and the
     // next round taking some of it again is not growth.
-    expect(
-      four - max(warm, once),
-      lessThan(8 << 20),
-      reason: 'grows with the attack',
-    );
-    expect(max(once, four) - start, lessThan(96 << 20));
+    var grown = four - max(warm, once);
+    var highest = max(once, four);
+    if (grown >= 8 << 20) {
+      // A level can also step up once without the attack being kept (the
+      // heap growing: 10 MiB on a Linux runner). What is kept grows again
+      // with every round, by about three times the 1x attack, so one more
+      // 4x round tells the two apart: it is measured against the level
+      // the first one reached.
+      await attack(4);
+      final again = await rss();
+      print('$name: after a second 4x ${again >> 20} MiB');
+      grown = again - four;
+      highest = max(highest, again);
+    }
+    expect(grown, lessThan(8 << 20), reason: 'grows with the attack');
+    expect(highest - start, lessThan(96 << 20));
   }
 
   test('fragments without end: closed at the limit, the server does not grow '
