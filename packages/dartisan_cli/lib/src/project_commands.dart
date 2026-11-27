@@ -916,9 +916,12 @@ final class DoctorCommand extends DaravelCommand {
         ),
       );
     }
-    // Measured on Dart 3.13 with the limit off: `distinct` over `a.*`
-    // answered 500 (a stack overflow) from 2 345 nested levels, a response
-    // echoing the input from 3 433. 1 024 keeps a wide margin.
+    // Measured on Dart 3.13 with the limit off, when `distinct` still
+    // walked a whole value: `distinct` over `a.*` answered 500 (a stack
+    // overflow) from 2 345 nested levels, a response echoing the input
+    // from 3 433. `distinct` now stops at its pattern's depth; `in_array`
+    // still walks to the bottom (on Linux `in_array:items.*` passed at
+    // 4 000 levels and overflowed at 8 000). 1 024 keeps a wide margin.
     const deepestSafeJson = 1024;
     final jsonDepth = Request.jsonMaxDepthFromEnv(app.env);
     if (jsonDepth == null || jsonDepth > deepestSafeJson) {

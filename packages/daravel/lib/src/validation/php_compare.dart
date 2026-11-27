@@ -214,6 +214,17 @@ bool _isEmptyArray(Object? value) => switch (value) {
   _ => false,
 };
 
+// A value that is none of null, a bool, a number, a string, a list or a
+// map: a PHP object (an uploaded file). A record is left out: it is a
+// value without an identity of its own.
+bool _isObject(Object? value) =>
+    value != null &&
+    value is! bool &&
+    value is! num &&
+    value is! String &&
+    value is! Record &&
+    !_isArray(value);
+
 /// PHP 8's `==` between two input values:
 /// - a bool against anything compares truthiness;
 /// - null against a string is `'' == string`, against anything else
@@ -222,7 +233,10 @@ bool _isEmptyArray(Object? value) => switch (value) {
 /// - a number against a non-numeric string compares the number's string;
 /// - two other strings compare as text;
 /// - two arrays compare key by key, loosely; an array against a number or
-///   a string is never equal.
+///   a string is never equal;
+/// - an object equals itself (the same instance). Two instances are never
+///   equal here, where PHP compares the properties of two objects of one
+///   class.
 bool phpLooseEquals(Object? a, Object? b) {
   if (a is bool || b is bool) {
     return phpTruthy(a) == phpTruthy(b);
@@ -253,11 +267,12 @@ bool phpLooseEquals(Object? a, Object? b) {
     return x.length == y.length &&
         x.keys.every((k) => y.containsKey(k) && phpLooseEquals(x[k], y[k]));
   }
-  return false;
+  return _isObject(a) && identical(a, b);
 }
 
 /// PHP's `===` between two input values: the same type and value; arrays
-/// with the same keys in the same order and identical values.
+/// with the same keys in the same order and identical values; an object
+/// only itself (the same instance).
 bool phpIdentical(Object? a, Object? b) => switch ((a, b)) {
   (null, null) => true,
   (final bool x, final bool y) => x == y,
@@ -273,7 +288,7 @@ bool phpIdentical(Object? a, Object? b) => switch ((a, b)) {
               y.keys.elementAt(e.$1) == e.$2 && phpIdentical(x[e.$2], y[e.$2]),
         );
   }(),
-  _ => false,
+  _ => _isObject(a) && identical(a, b),
 };
 
 Map<String, Object?> _entries(Object? array) => switch (array) {
@@ -322,6 +337,9 @@ final class PhpValueIndex {
   final Map<String, int> _otherStrings = {};
   final Map<String, int> _numberForms = {};
   final List<Object?> _arrays = [];
+  // By instance, not by `==`: a class may define `==` as it likes, and
+  // PHP's `===` of two objects asks for the same instance.
+  final Map<Object, int> _objects = Map.identity();
   final Map<Object, int> _identical = {};
   Map<String, int>? _folded;
   final List<Object?> _values = [];
@@ -348,9 +366,16 @@ final class PhpValueIndex {
       default:
         if (_isEmptyArray(value)) {
           _emptyArrays++;
-        } else {
+        } else if (_isObject(value)) {
+          // Counted by instance: scanning a list of them for every item
+          // took time quadratic in their number.
+          _count(_objects, value);
+        } else if (_isArray(value)) {
           _arrays.add(value);
         }
+      // Anything else (a record) equals nothing, itself included, and is
+      // kept nowhere: among [_arrays] each one was scanned against all the
+      // others, in time quadratic in their number.
     }
     if (_identityKey(value) case final key?) {
       _count(_identical, key);
@@ -398,15 +423,23 @@ final class PhpValueIndex {
             (_numberForms[s] ?? 0),
     },
     _ when _isEmptyArray(value) => _falseBools + _nulls + _emptyArrays,
-    _ =>
+    _ when _isObject(value) => _trueBools + (_objects[value] ?? 0),
+    _ when _isArray(value) =>
       _trueBools +
           _arrays.where((other) => phpLooseEquals(value, other)).length,
+    // A record: true like any value that is not empty (so it equals
+    // `true`, as `true` equals it), and nothing else.
+    _ => _trueBools,
   };
 
   /// How many of the values `===` [value].
   int identical(Object? value) => switch (_identityKey(value)) {
     final key? => _identical[key] ?? 0,
-    _ => _arrays.where((other) => phpIdentical(value, other)).length,
+    _ when _isObject(value) => _objects[value] ?? 0,
+    _ when _isArray(value) =>
+      _arrays.where((other) => phpIdentical(value, other)).length,
+    // A record is identical to nothing.
+    _ => 0,
   };
 
   /// How many of the values, as PHP writes them in a string, equal
