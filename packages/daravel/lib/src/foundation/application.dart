@@ -798,6 +798,7 @@ final class Application {
     ),
     commandRunner: commandRunner,
     logger: logger,
+    container: container,
   );
 
   static Future<Authenticatable?> _currentUser(AuthManager auth) async {

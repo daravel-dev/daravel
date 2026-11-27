@@ -797,11 +797,13 @@ void main() {
       return least;
     }
 
+    // Eight times the items: linear work is 8 times, quadratic 64. With
+    // four times and a bound of 10 (against 16), a busy Windows runner once
+    // measured 11.2 for linear work; 24 against 64 leaves room for that.
     test('distinct integers', () async {
-      final small = await best([for (var i = 0; i < 10000; i++) i]);
+      final small = await best([for (var i = 0; i < 5000; i++) i]);
       final large = await best([for (var i = 0; i < 40000; i++) i]);
-      // Four times the items: linear work is 4 times, quadratic 16.
-      expect(large, lessThan(10 * small), reason: '$small us -> $large us');
+      expect(large, lessThan(24 * small), reason: '$small us -> $large us');
     });
 
     test('distinct strings of 200 characters', () async {
@@ -809,10 +811,9 @@ void main() {
         for (var i = 0; i < n; i++)
           '${'x' * 195}${i.toString().padLeft(5, '0')}',
       ];
-      final small = await best(strings(10000));
+      final small = await best(strings(5000));
       final large = await best(strings(40000));
-      // Four times the items: linear work is 4 times, quadratic 16.
-      expect(large, lessThan(10 * small), reason: '$small us -> $large us');
+      expect(large, lessThan(24 * small), reason: '$small us -> $large us');
     });
   });
 }
