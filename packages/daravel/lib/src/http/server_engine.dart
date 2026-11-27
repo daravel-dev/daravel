@@ -261,10 +261,10 @@ final class ServeOptions {
   /// The body limit every request starts with (`HTTP_MAX_BODY`, 50 MiB):
   /// a declared `Content-Length` above it is refused with `413` before
   /// the body is read, and a body that grows past it while read is cut
-  /// off. `BodyLimitsMiddleware` and `RouteEntry.bodyLimit` replace it per
-  /// content type or route; without them an application still never
-  /// buffers an unbounded body in memory. `null` (`HTTP_MAX_BODY=0`) sets
-  /// no limit.
+  /// off. `BodyLimitsMiddleware` lowers it per content type and never
+  /// exceeds it; a route's `RouteEntry.bodyLimit` replaces it and may be
+  /// larger. Without them an application still never buffers an unbounded
+  /// body in memory. `null` (`HTTP_MAX_BODY=0`) sets no limit.
   final int? maxBodyBytes;
 
   /// The most bytes the request line and headers of a request may hold

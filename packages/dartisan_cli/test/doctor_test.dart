@@ -413,6 +413,37 @@ void main() {
       ),
       ['Body limits: JSON 512 KiB, form 2 KiB, other 512 KiB'],
     );
+    // BodyLimitsMiddleware replaces the engine's JSON and form limits, and
+    // is never above HTTP_MAX_BODY either.
+    Future<List<DoctorCheck>> withMiddleware(Map<String, String> env) =>
+        inProject(
+          () => DoctorCommand(
+            () => Application.configure(basePath: root.path)
+                .withEnv({
+                  'APP_ENV': 'local',
+                  'APP_KEY': 'base64:${base64.encode(List<int>.filled(32, 7))}',
+                  'APP_PORT': '0',
+                  'DB_DATABASE': p.join(root.path, 'database.sqlite'),
+                  ...env,
+                })
+                .withMiddleware(
+                  (m) => m.use(const [BodyLimitsMiddleware(json: 5 << 20)]),
+                )
+                .create(),
+          ).diagnose(),
+        );
+    expect(limits(await withMiddleware(const {})), [
+      'Body limits (BodyLimitsMiddleware): JSON 5 MiB, form 1 MiB, '
+          'other 50 MiB',
+    ]);
+    expect(limits(await withMiddleware(const {'HTTP_MAX_BODY': '524288'})), [
+      'Body limits (BodyLimitsMiddleware): JSON 512 KiB, form 512 KiB, '
+          'other 512 KiB',
+    ]);
+    expect(limits(await withMiddleware(const {'HTTP_MAX_BODY': '0'})), [
+      'Body limits (BodyLimitsMiddleware): JSON 5 MiB, form 1 MiB, '
+          'other 50 MiB',
+    ]);
     expect(
       titled(
         await diagnose(const {
