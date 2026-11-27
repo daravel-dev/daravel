@@ -9,6 +9,7 @@ publisher `framework.daravel.dev`.
 
 | Version | Highlights |
 | :-- | :-- |
+| `1.27.8` | Fixes: BodyLimitsMiddleware only lowers HTTP_MAX_BODY and a route's bodyLimit decides; distinct:strict and distinct:ignore_case are read and compare as Laravel does; each scheduled task runs in its own scope; failed jobs are looked up by uuid without matching the id column; the queue-delay timer stops while the server is idle |
 | `1.27.7` | Fixes: validated() keeps the input's shape, canonical list indexes and empty keys in the validator; distinct compares what its pattern matches; token abilities fail closed and a JWT is verified before it is revoked; a failed database open reaches every waiting request; logs redact every map and iterable, readiness errors kept out of the body; query and form input variables bounded |
 | `1.27.6` | Fixes: xlsx cell references bounded to XFD and written at their column; Midtrans notifications confirmed through the status API, amounts and currencies compared, identifiers bounded; refused WebSocket upgrades answered through the ordinary response lifecycle; form method overrides read a body only where a matching route exists |
 | `1.27.5` | Security fixes: WebSocket messages limited as a whole and control frames rate limited per connection; Encrypter checks payload field types; RedisEventStream reads Last-Event-ID safely; mass assignment matches guarded columns as Laravel does |

@@ -1,0 +1,419 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:daravel/daravel.dart';
+import 'package:test/test.dart';
+
+/// A scoped binding: one instance per scope.
+final class Marker {}
+
+final class FakeUser implements Authenticatable {
+  FakeUser(this.authIdentifier);
+  @override
+  final Object authIdentifier;
+  @override
+  String get authIdentifierName => 'id';
+  @override
+  String? get authPassword => null;
+  @override
+  String get authPasswordName => 'password';
+  @override
+  String? get rememberToken => null;
+}
+
+/// Records the context it was dispatched with.
+final class CaptureContext extends Job {
+  const CaptureContext();
+  static const String jobName_ = 'capture-context';
+  static Map<String, Object?>? seen;
+  static Map<String, Object?>? seenHidden;
+  @override
+  String get jobName => jobName_;
+  @override
+  Map<String, Object?> toJson() => const {};
+  @override
+  Future<void> handle(JobContext ctx) async {
+    seen = Context.all();
+    seenHidden = Context.allHidden();
+  }
+}
+
+void main() {
+  late Application app;
+  final at = DateTime.utc(2026, 10, 24, 3, 0);
+
+  setUp(() async {
+    CaptureContext.seen = null;
+    CaptureContext.seenHidden = null;
+    app = Application.configure(basePath: Directory.systemTemp.path)
+        .withEnv({
+          'APP_ENV': 'testing',
+          'DB_DATABASE': ':memory:',
+          'QUEUE_CONNECTION': 'sync',
+        })
+        .withJobs([
+          JobDefinition(CaptureContext.jobName_, (_) => const CaptureContext()),
+        ])
+        .withBindings((c) => c.scoped<Marker>((_) => Marker()))
+        .withAuth(
+          (auth) => auth.register(
+            'token',
+            ClosureGuard<FakeUser>(name: 'token', resolver: (_) => null),
+          ),
+        )
+        .create();
+    await app.boot();
+  });
+
+  tearDown(() => app.shutdown());
+
+  test('a task does not see the context an earlier task added', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      Map<String, Object?>? seen;
+      Map<String, Object?>? seenHidden;
+      schedule
+          .call(() {
+            Context.add('tenant', 7);
+            Context.addHidden('secret', 'x');
+          })
+          .everyMinute()
+          .named('first');
+      schedule
+          .call(() {
+            seen = Context.all();
+            seenHidden = Context.allHidden();
+          })
+          .everyMinute()
+          .named('second');
+      final results = await app.scheduler().run(at);
+      expect(results.map((r) => r.ran), [true, true]);
+      expect(seen, isEmpty);
+      expect(seenHidden, isEmpty);
+    });
+  });
+
+  test('a job dispatched by a task does not carry an earlier task\'s '
+      'context', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      schedule
+          .call(() {
+            Context.add('tenant', 7);
+            Context.addHidden('secret', 'x');
+          })
+          .everyMinute()
+          .named('first');
+      schedule.job(const CaptureContext()).everyMinute();
+      final results = await app.scheduler().run(at);
+      expect(results.map((r) => r.ran), [true, true]);
+      expect(CaptureContext.seen, isNotNull, reason: 'the job ran');
+      expect(CaptureContext.seen, isEmpty);
+      expect(CaptureContext.seenHidden, isEmpty);
+    });
+  });
+
+  test('a task does not see the log context an earlier task added', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      Map<String, Object?>? seen;
+      schedule
+          .call(() => Log.withContext({'run': 'first'}))
+          .everyMinute()
+          .named('first');
+      schedule
+          .call(() => seen = Map.of(Log.logger.scopeContext))
+          .everyMinute()
+          .named('second');
+      await app.scheduler().run(at);
+      expect(seen, isEmpty);
+      expect(Log.logger.sharedContext, isNot(contains('run')));
+    });
+  });
+
+  test('a task does not see the user an earlier task set', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      Authenticatable? inFirst;
+      Authenticatable? inSecond = FakeUser(0);
+      schedule
+          .call(() async {
+            Auth.setUser(FakeUser(1));
+            inFirst = await Auth.user();
+          })
+          .everyMinute()
+          .named('first');
+      schedule
+          .call(() async => inSecond = await Auth.user())
+          .everyMinute()
+          .named('second');
+      final results = await app.scheduler().run(at);
+      expect(results.map((r) => r.error), [null, null]);
+      expect(inFirst?.authIdentifier, 1, reason: 'the user was set');
+      expect(inSecond, isNull);
+    });
+  });
+
+  test('scoped instances: one per task, shared by its hooks', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      final first = <String, Marker>{};
+      final second = <String, Marker>{};
+      schedule
+          .call(() => first['action'] = App.make<Marker>())
+          .everyMinute()
+          .before(() => first['before'] = App.make<Marker>())
+          .after(() => first['after'] = App.make<Marker>())
+          .named('first');
+      schedule
+          .call(() => second['action'] = App.make<Marker>())
+          .everyMinute()
+          .before(() => second['before'] = App.make<Marker>())
+          .after(() => second['after'] = App.make<Marker>())
+          .named('second');
+      await app.scheduler().run(at);
+      expect(first.keys, ['before', 'action', 'after']);
+      expect(second.keys, ['before', 'action', 'after']);
+      expect(first.values.toSet(), hasLength(1));
+      expect(second.values.toSet(), hasLength(1));
+      expect(identical(first['action'], second['action']), isFalse);
+      expect(
+        identical(first['action'], App.make<Marker>()),
+        isFalse,
+        reason: 'the surrounding scope keeps its own instance',
+      );
+    });
+  });
+
+  test('a failing task: its onFailure hook runs in its scope, the next task '
+      'gets a fresh one', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      Marker? inAction;
+      Marker? inFailure;
+      Object? tenantInFailure;
+      Marker? inSecond;
+      Map<String, Object?>? contextInSecond;
+      schedule
+          .call(() {
+            inAction = App.make<Marker>();
+            Context.add('tenant', 7);
+            throw StateError('boom');
+          })
+          .everyMinute()
+          .onFailure((_) {
+            inFailure = App.make<Marker>();
+            tenantInFailure = Context.get<Object>('tenant');
+          })
+          .named('broken');
+      schedule
+          .call(() {
+            inSecond = App.make<Marker>();
+            contextInSecond = Context.all();
+          })
+          .everyMinute()
+          .named('second');
+      final results = await app.scheduler().run(at);
+      expect(results.first.error, isA<StateError>());
+      expect(results.last.ran, isTrue);
+      expect(inAction, isNotNull);
+      expect(identical(inFailure, inAction), isTrue);
+      expect(tenantInFailure, 7);
+      expect(identical(inSecond, inAction), isFalse);
+      expect(contextInSecond, isEmpty);
+    });
+  });
+
+  test('a scheduler without a container runs tasks in the caller\'s '
+      'scope, as before', () async {
+    await app.run(() async {
+      final schedule = Schedule();
+      final markers = <Marker>[];
+      schedule.call(() => markers.add(App.make<Marker>())).everyMinute();
+      schedule.call(() => markers.add(App.make<Marker>())).everyMinute();
+      final scheduler = Scheduler(schedule, environment: 'testing');
+      final results = await scheduler.run(at);
+      expect(results.map((r) => r.ran), [true, true]);
+      expect(markers, hasLength(2));
+      expect(identical(markers[0], App.make<Marker>()), isTrue);
+      expect(identical(markers[1], App.make<Marker>()), isTrue);
+    });
+  });
+
+  test('a stray asynchronous error of a task does not end the task early: '
+      'it goes to the zone the scheduler runs in', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      var finished = false;
+      schedule
+          .call(() async {
+            // Fire and forget: fails while the task is still running.
+            unawaited(
+              Future<void>.delayed(
+                const Duration(milliseconds: 10),
+                () => throw StateError('stray'),
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            finished = true;
+          })
+          .everyMinute()
+          .named('stray');
+      final caught = <Object>[];
+      late final List<TaskRunResult> results;
+      var finishedAtReturn = false;
+      await runZonedGuarded(() async {
+        results = await app.scheduler().run(at);
+        finishedAtReturn = finished;
+      }, (error, _) => caught.add(error));
+      expect(finishedAtReturn, isTrue, reason: 'run() waited for the task');
+      expect(results.single.ran, isTrue);
+      expect(results.single.error, isNull);
+      expect(caught, [isA<StateError>()]);
+    });
+  });
+
+  test('a disposer of the task scope that throws is the task\'s error: it '
+      'does not end the run, the other tasks finish and the lock is '
+      'released', () async {
+    // As `schedule:run` does: app.run() has no handler for uncaught errors,
+    // so one that reaches its zone fails it.
+    var secondFinished = false;
+    late final List<TaskRunResult> results;
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      schedule
+          .call(() {
+            Container.current.currentScope!.onDispose(
+              () => throw StateError('disposer'),
+            );
+          })
+          .everyMinute()
+          .withoutOverlapping()
+          .named('bad-disposer');
+      schedule
+          .call(() async {
+            await Future<void>.delayed(const Duration(milliseconds: 30));
+            secondFinished = true;
+          })
+          .everyMinute()
+          .named('after-it');
+      results = await app.scheduler().run(at);
+      expect(secondFinished, isTrue);
+      final lock = Cache.store('process')
+          .lock('schedule:bad-disposer:* * * * *', owner: 'probe');
+      expect(await lock.acquire(), isTrue, reason: 'the lock was released');
+      await lock.release();
+    });
+    expect(results.map((r) => r.ran), [true, true]);
+    expect(results.first.error, isA<ScopeDisposeException>());
+    expect(results.last.error, isNull);
+  });
+
+  test('a task does not see the locale or a once() value '
+      'of an earlier task', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      final before = currentLocale();
+      String? locale;
+      String? memo;
+      schedule
+          .call(() {
+            setCurrentLocale('id');
+            once('scope-test-memo', () => 'first');
+          })
+          .everyMinute()
+          .named('first');
+      schedule
+          .call(() {
+            locale = currentLocale();
+            memo = once('scope-test-memo', () => 'second');
+          })
+          .everyMinute()
+          .named('second');
+      await app.scheduler().run(at);
+      expect(before, isNot('id'));
+      expect(locale, before);
+      expect(memo, 'second');
+      expect(currentLocale(), before, reason: 'the caller keeps its own');
+    });
+  });
+
+  test('a background task keeps its scope and its overlap lock until it '
+      'ends, after run() has returned', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      final release = Completer<void>();
+      Marker? atStart;
+      Marker? afterWait;
+      Object? contextAfterWait;
+      final done = Completer<void>();
+      schedule
+          .call(() async {
+            atStart = App.make<Marker>();
+            Context.add('bg', 'kept');
+            await release.future;
+            afterWait = App.make<Marker>();
+            contextAfterWait = Context.all()['bg'];
+          })
+          .everyMinute()
+          .withoutOverlapping()
+          .runInBackground()
+          .after(done.complete)
+          .named('background');
+      final scheduler = app.scheduler();
+      final results = await scheduler.run(at);
+      expect(results.single.ran, isTrue);
+      expect(scheduler.runningTasks, 1);
+      final probe = Cache.store('process')
+          .lock('schedule:background:* * * * *', owner: 'probe');
+      expect(await probe.acquire(), isFalse, reason: 'still held');
+      release.complete();
+      await done.future;
+      // The lock is released after the scope is disposed.
+      for (var i = 0; i < 50 && scheduler.runningTasks > 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(scheduler.runningTasks, 0);
+      expect(identical(atStart, afterWait), isTrue);
+      expect(contextAfterWait, 'kept');
+      expect(await probe.acquire(), isTrue, reason: 'released at the end');
+      await probe.release();
+    });
+  });
+
+  test('the overlap lock is released after a task ran in its scope, also '
+      'when it failed', () async {
+    await app.run(() async {
+      final schedule = App.make<Schedule>();
+      var runs = 0;
+      var failures = 0;
+      schedule
+          .call(() => runs++)
+          .everyMinute()
+          .withoutOverlapping()
+          .named('locked');
+      schedule
+          .call(() {
+            failures++;
+            throw StateError('boom');
+          })
+          .everyMinute()
+          .withoutOverlapping()
+          .named('locked-failing');
+      final scheduler = app.scheduler();
+      final first = await scheduler.run(at);
+      final second = await scheduler.run(at.add(const Duration(minutes: 1)));
+      expect(first.map((r) => r.skipped), [null, null]);
+      expect(second.map((r) => r.skipped), [null, null]);
+      expect(runs, 2);
+      expect(failures, 2);
+      for (final name in ['locked', 'locked-failing']) {
+        final lock = Cache.store('process')
+            .lock('schedule:$name:* * * * *', owner: 'probe');
+        expect(await lock.acquire(), isTrue, reason: '$name was released');
+        await lock.release();
+      }
+    });
+  });
+}

@@ -135,15 +135,12 @@ void main() {
     expect(await post(engine, '/echo', 16, 16), contains('{"length":16}'));
   });
 
-  test(
-    'the engine limit is a floor the route or middleware replaces',
-    () async {
-      final engine = await serve(maxBodyBytes: 8);
-      expect(await post(engine, '/echo', 16, 16), startsWith('HTTP/1.1 413'));
-      // RouteEntry.bodyLimit (1 MiB) replaces the engine's 8 bytes.
-      expect(await post(engine, '/wide', 16, 16), contains('{"length":16}'));
-    },
-  );
+  test('a route bodyLimit replaces the engine limit', () async {
+    final engine = await serve(maxBodyBytes: 8);
+    expect(await post(engine, '/echo', 16, 16), startsWith('HTTP/1.1 413'));
+    // RouteEntry.bodyLimit (1 MiB) replaces the engine's 8 bytes.
+    expect(await post(engine, '/wide', 16, 16), contains('{"length":16}'));
+  });
 
   test('HTTP_MAX_BODY configures it; 0 means no limit', () async {
     final limited = await serve(env: Env.fromMap({'HTTP_MAX_BODY': '4'}));
