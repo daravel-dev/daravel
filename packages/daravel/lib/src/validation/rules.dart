@@ -1719,6 +1719,14 @@ final class InRule extends Rule {
 /// [strict], and, for a string, ignoring case with [ignoreCase]
 /// (`preg_grep` with `/iu`; a list or map among the values is never equal
 /// there, where Laravel's request fails on PHP's array-to-string warning).
+/// A value that is not a string (a number, a bool, null, an object) is
+/// compared as without [ignoreCase], so [strict] decides for it when both
+/// are given.
+///
+/// A list or map that is not empty is walked for its own keys, never
+/// compared, and nothing below the pattern's last part is read: a value
+/// nested deep, or one that contains itself, costs nothing more. An object
+/// (an uploaded file) equals itself only, the same instance.
 final class DistinctRule extends Rule {
   /// The distinct rule; use [Rules.distinct].
   const DistinctRule({this.strict = false, this.ignoreCase = false});
@@ -1803,15 +1811,29 @@ Map<String, Object?> _leavesMatching(
   // [path] is null at the root only: an empty key is joined like any other
   // (`$prefix.$key`, `Arr.php` 12.x :188-193), so `{"": {"a": 1}}` is
   // `.a` and never stands in for the field `a`.
-  void walk(Object? node, String? path) {
+  //
+  // Without [crossDots] a `*` never takes a dot, so a matching key has as
+  // many parts as the pattern, and a value [depth] keys below the root has
+  // at least [depth] parts: nothing below the pattern's last part can
+  // match, and the walk stops there. Its depth and the length of a path
+  // then follow the pattern, which the application writes, not the input:
+  // a value nested thousands of levels deep, or one that contains itself,
+  // overflowed the stack here.
+  final deepest = crossDots ? null : pattern.split('.').length;
+  void walk(Object? node, String? path, int depth) {
+    final descend = deepest == null || depth < deepest;
     switch (node) {
       case Map<Object?, Object?>() when node.isNotEmpty:
-        for (final MapEntry(:key, :value) in node.entries) {
-          walk(value, path == null ? '$key' : '$path.$key');
+        if (descend) {
+          for (final MapEntry(:key, :value) in node.entries) {
+            walk(value, path == null ? '$key' : '$path.$key', depth + 1);
+          }
         }
       case List<Object?>() when node.isNotEmpty:
-        for (var i = 0; i < node.length; i++) {
-          walk(node[i], path == null ? '$i' : '$path.$i');
+        if (descend) {
+          for (var i = 0; i < node.length; i++) {
+            walk(node[i], path == null ? '$i' : '$path.$i', depth + 1);
+          }
         }
       default:
         final key = path ?? '';
@@ -1821,7 +1843,7 @@ Map<String, Object?> _leavesMatching(
     }
   }
 
-  walk(data, null);
+  walk(data, null, 0);
   return leaves;
 }
 
