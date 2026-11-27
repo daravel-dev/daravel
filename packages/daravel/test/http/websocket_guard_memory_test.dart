@@ -155,24 +155,31 @@ void main() {
     // The highest level before the 4x round, not the level just before it:
     // memory given back to the OS after a round lowers that one, and the
     // next round taking some of it again is not growth.
-    var grown = four - max(warm, once);
-    var highest = max(once, four);
-    // A level can also step up without the attack being kept (the heap
-    // growing: 10 MiB on a Linux runner, and twice in a row there, 12 and
-    // then 8.5 MiB). What is kept grows again with EVERY round, by about
-    // three times the 1x attack, so further 4x rounds tell the two apart:
-    // each is measured against the highest level reached before it, and
-    // the first round that stays within the bound ends them. A server that
-    // keeps the attack fails all of them.
-    for (var extra = 2; grown >= 8 << 20 && extra <= 4; extra++) {
-      await attack(4);
-      final again = await rss();
-      print('$name: after 4x round $extra: ${again >> 20} MiB');
-      grown = again - highest;
-      highest = max(highest, again);
+    final grown = four - max(warm, once);
+    var highest = max(max(warm, once), four);
+    if (grown >= 8 << 20) {
+      // A level can also step up without the attack being kept (the heap
+      // growing: on a Linux runner 12 MiB and then 8.5 MiB more in the next
+      // round), and a round's own growth cannot tell that from a server
+      // that keeps a little of every round: the heap gives a real leak a
+      // quiet round too (26, 15 and then 6 MiB with 300 bytes kept for
+      // every eighth ping). What tells them apart is where the level ends:
+      // three more 4x rounds always run, and the total is held to the
+      // fence below. Kept memory adds up over them (87 MiB and more above
+      // the start after two of them for the smallest leak tried); a heap
+      // that stepped stops (39 MiB above the start on that runner).
+      for (var round = 2; round <= 4; round++) {
+        await attack(4);
+        final again = await rss();
+        print('$name: after 4x round $round: ${again >> 20} MiB');
+        highest = max(highest, again);
+      }
     }
-    expect(grown, lessThan(8 << 20), reason: 'grows with the attack');
-    expect(highest - start, lessThan(96 << 20));
+    expect(
+      highest - start,
+      lessThan(64 << 20),
+      reason: 'grows with the attack',
+    );
   }
 
   test('fragments without end: closed at the limit, the server does not grow '
