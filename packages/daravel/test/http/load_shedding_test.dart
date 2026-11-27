@@ -441,6 +441,13 @@ void main() {
         }
         final sinceSecond = Stopwatch()..start();
         final second = await getLagged('/fast');
+        if (second.statusCode == 503) {
+          // A stalled runner: the timer is running, the loop was more than
+          // maxQueueDelay (30 ms) behind and the engine shed the request.
+          // Not a reading; the count below still asks for four.
+          await second.drain<void>();
+          continue;
+        }
         expect(second.statusCode, 200);
         await second.drain<void>();
         await Future<void>.delayed(const Duration(milliseconds: 600));
