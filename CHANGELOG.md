@@ -11,6 +11,16 @@ match Laravel more closely.
 
 ## Unreleased
 
+### Added
+
+### Changed
+
+**Upgrading can change what an application sees:**
+
+### Fixed
+
+## 1.27.8
+
 A patch: fixes only, with the API they need. Upgrade every application
 that sets `HTTP_MAX_BODY` or gives a route a `.bodyLimit`, that validates
 with `distinct:strict` or `distinct:ignore_case`, that runs scheduled
@@ -18,7 +28,19 @@ tasks, that retries or forgets failed jobs by UUID, or that sets
 `HTTP_MAX_QUEUE_DELAY`. `BodyLimitsMiddleware` now only lowers the body
 limit: a limit of the middleware above `HTTP_MAX_BODY` no longer applies.
 
-### Added
+### Security
+
+- `BodyLimitsMiddleware` replaced the body limit a request arrived with by its content-type limit, so an `HTTP_MAX_BODY` below 1 MiB was raised to 1 MiB for JSON and form bodies, and one below 50 MiB to 50 MiB for every other body (with `HTTP_MAX_BODY=65536` a JSON body of 150 000 bytes was accepted). The middleware now only lowers the limit.
+
+### Fixed
+
+- `distinct:ignore_case` was read as `distinct`: it ignored its parameter, so `"a"` beside `"A"` passed. It now compares as Laravel 12.x `validateDistinct` does (`preg_grep('/^'.preg_quote($value, '/').'$/iu', $data)`): each value is written as PHP writes it in a string (a float as `(string) $float` with `precision` 14: `0.1 + 0.2` is `"0.3"`, `1e20` is `"1.0E+20"`) and the strings are compared with simple Unicode case folding. Items are grouped as before, and the work stays linear in the size of the input.
+- `distinct:strict` was read as `distinct`: it ignored its parameter. It now compares values by PHP's `===`, as Laravel 12.x `validateDistinct` does (`in_array($value, array_values($data), in_array('strict', $parameters))`): `1`, `1.0`, `"1"` and `true` are four different values, `-0.0` equals `0.0`, `NaN` equals nothing, a list equals a map with the same keys in the same order, and any other object equals only itself, however deep it sits in the compared values. Any other parameter is still ignored, and `STRICT` is not `strict`. Items are grouped as before, and the work stays linear in the size of the input.
+- With `HTTP_MAX_QUEUE_DELAY` set, each HTTP isolate woke 200 times a second while idle to measure event-loop lag. The timer now runs only while requests are being handled and for one second after the last one.
+- `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
+- `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
+- Scheduled tasks ran in one scope for the life of the scheduler, so what one task left in it (context and hidden context, log context, the locale, the authenticated user and the gate, scoped instances) was still there for the next task and for the jobs it dispatched. Each task execution now runs in its own scope, like a request or a queued job: its starting and finished events, its hooks and its action share that scope. Filters and the overlap and single-server locks still run in the scheduler's scope.
+- With `BodyLimitsMiddleware` as global middleware, a route's `.bodyLimit(n)` above the content-type limit did not apply to a body sent with a `Content-Length`: the middleware answered `413` before the route was known. The route's limit now decides: the body is served within it and answered `413` above it. A form on a path where `_method` is read is read for it when a route on that path allows the declared length.
 
 ### Changed
 
@@ -35,17 +57,6 @@ limit: a limit of the middleware above `HTTP_MAX_BODY` no longer applies.
 - New public name: `Scheduler.container` (and the constructor parameter).
 - `BodyLimitsMiddleware` only lowers the body limit a request arrived with (`HTTP_MAX_BODY`, 50 MiB when unset; the test client and `Request.fake` start at 50 MiB too): the smaller of the two applies. An application whose `BodyLimitsMiddleware(other: ...)` (or `json:`, `form:`) is larger than `HTTP_MAX_BODY` is now held to `HTTP_MAX_BODY`: bodies between the two were accepted and are answered `413`. Raise `HTTP_MAX_BODY`, or set `.bodyLimit(n)` on the upload route: a route's `.bodyLimit(n)` replaces both limits and may be larger than `HTTP_MAX_BODY`. An application that set `HTTP_MAX_BODY` below 1 MiB and relied on JSON or form bodies up to 1 MiB passing must raise `HTTP_MAX_BODY`.
 - With `BodyLimitsMiddleware` as global middleware, a declared `Content-Length` over the limit is answered `413` after the route is looked up and the global middleware after `BodyLimitsMiddleware` has run, where it was answered before them. The answer is the same, and it still comes before the route's middleware and handler, the 404, the 405, the `OPTIONS` answer and `withUpstream`. A route whose `.bodyLimit(n)` allows the declared length is served. A global middleware of the application's own that reads the body before routing reads it under the lowered limit, so a route's larger `.bodyLimit(n)` does not apply to its read (the same holds, as before, for a form sent without a `Content-Length` to a path where `_method` is read).
-
-### Fixed
-
-- `distinct:ignore_case` was read as `distinct`: it ignored its parameter, so `"a"` beside `"A"` passed. It now compares as Laravel 12.x `validateDistinct` does (`preg_grep('/^'.preg_quote($value, '/').'$/iu', $data)`): each value is written as PHP writes it in a string (a float as `(string) $float` with `precision` 14: `0.1 + 0.2` is `"0.3"`, `1e20` is `"1.0E+20"`) and the strings are compared with simple Unicode case folding. Items are grouped as before, and the work stays linear in the size of the input.
-- `distinct:strict` was read as `distinct`: it ignored its parameter. It now compares values by PHP's `===`, as Laravel 12.x `validateDistinct` does (`in_array($value, array_values($data), in_array('strict', $parameters))`): `1`, `1.0`, `"1"` and `true` are four different values, `-0.0` equals `0.0`, `NaN` equals nothing, a list equals a map with the same keys in the same order, and any other object equals only itself, however deep it sits in the compared values. Any other parameter is still ignored, and `STRICT` is not `strict`. Items are grouped as before, and the work stays linear in the size of the input.
-- With `HTTP_MAX_QUEUE_DELAY` set, each HTTP isolate woke 200 times a second while idle to measure event-loop lag. The timer now runs only while requests are being handled and for one second after the last one.
-- `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
-- `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
-- Scheduled tasks ran in one scope for the life of the scheduler, so what one task left in it (context and hidden context, log context, the locale, the authenticated user and the gate, scoped instances) was still there for the next task and for the jobs it dispatched. Each task execution now runs in its own scope, like a request or a queued job: its starting and finished events, its hooks and its action share that scope. Filters and the overlap and single-server locks still run in the scheduler's scope.
-- Security: `BodyLimitsMiddleware` replaced the body limit a request arrived with by its content-type limit, so an `HTTP_MAX_BODY` below 1 MiB was raised to 1 MiB for JSON and form bodies, and one below 50 MiB to 50 MiB for every other body (with `HTTP_MAX_BODY=65536` a JSON body of 150 000 bytes was accepted). The middleware now only lowers the limit.
-- With `BodyLimitsMiddleware` as global middleware, a route's `.bodyLimit(n)` above the content-type limit did not apply to a body sent with a `Content-Length`: the middleware answered `413` before the route was known. The route's limit now decides: the body is served within it and answered `413` above it. A form on a path where `_method` is read is read for it when a route on that path allows the declared length.
 
 ## 1.27.7
 
