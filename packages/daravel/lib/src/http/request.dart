@@ -240,14 +240,19 @@ final class Request {
     return value == 0 ? null : value;
   }
 
-  /// Maximum body size accepted by [bytes]; `null` means unlimited.
+  /// Maximum body size accepted by [bytes]; `null` means unlimited. A
+  /// request starts with `HTTP_MAX_BODY`; the kernel lowers it for JSON and
+  /// form bodies, `BodyLimitsMiddleware` replaces that with its own limit
+  /// (never above `HTTP_MAX_BODY`), and a route's `bodyLimit` replaces
+  /// them all and may be larger.
   int? maxBodyBytes = defaultMaxBodyBytes;
 
   /// The body limit every request starts with, served or synthetic
   /// (`Request.fake`, the test client), so both paths behave the same:
   /// 50 MiB, the widest limit `BodyLimitsMiddleware` applies. The engine
-  /// replaces it with `ServeOptions.maxBodyBytes` (`HTTP_MAX_BODY`), the
-  /// middleware and `RouteEntry.bodyLimit` with theirs.
+  /// replaces it with `ServeOptions.maxBodyBytes` (`HTTP_MAX_BODY`). The
+  /// middleware's limits never exceed the limit a request arrived with; a
+  /// route's `RouteEntry.bodyLimit` replaces it and may be larger.
   static const int defaultMaxBodyBytes = 50 << 20;
 
   /// The request being handled, from anywhere in its zone (Laravel's

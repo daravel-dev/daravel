@@ -192,8 +192,9 @@ DoctorCheck? idleTransactionTimeoutCheck(ConnectionConfig? connection) {
 /// The body limits a request of each type gets in [app] (served with
 /// [serve]), as `dartisan doctor` shows them: the global
 /// `BodyLimitsMiddleware`'s when the application uses one, otherwise the
-/// engine's (`HTTP_MAX_JSON_BODY`, `HTTP_MAX_FORM_BODY`, each never above
-/// `HTTP_MAX_BODY`). A route's `bodyLimit` still replaces them.
+/// engine's (`HTTP_MAX_JSON_BODY`, `HTTP_MAX_FORM_BODY`), each never above
+/// `HTTP_MAX_BODY`. A route's `bodyLimit` still replaces them and may be
+/// larger.
 DoctorCheck bodyLimitsCheck(Application app, ServeOptions serve) {
   String size(int? bytes) => switch (bytes) {
     null => 'no limit',
@@ -205,14 +206,16 @@ DoctorCheck bodyLimitsCheck(Application app, ServeOptions serve) {
   final middleware = app.kernel.middleware.orderedGlobal
       .whereType<BodyLimitsMiddleware>()
       .firstOrNull;
+  final other = serve.maxBodyBytes;
   if (middleware != null) {
     return DoctorCheck(
       CheckStatus.ok,
-      'Body limits (BodyLimitsMiddleware): JSON ${size(middleware.json)}, '
-      'form ${size(middleware.form)}, other ${size(middleware.other)}',
+      'Body limits (BodyLimitsMiddleware): '
+      'JSON ${size(lower(middleware.json, other))}, '
+      'form ${size(lower(middleware.form, other))}, '
+      'other ${size(lower(middleware.other, other))}',
     );
   }
-  final other = serve.maxBodyBytes;
   return DoctorCheck(
     CheckStatus.ok,
     'Body limits: JSON ${size(lower(app.kernel.jsonBodyLimit, other))}, '

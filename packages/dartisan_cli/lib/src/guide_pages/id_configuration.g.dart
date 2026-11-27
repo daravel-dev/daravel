@@ -3,7 +3,7 @@
 
 /// `docs/guide/id/configuration.md`.
 const String pageIdConfiguration =
-    r'''<!-- source: configuration.md sha256:6f18f02ada43 -->
+    r'''<!-- source: configuration.md sha256:0d5878e3642c -->
 # Konfigurasi
 
 ## File environment
@@ -118,8 +118,8 @@ setelah boot.
 | `HTTP_ACCESS_LOG` | `true` | Satu baris `info` per request (method, path, status, waktu); `false` bila proxy di depan sudah mencatat request. Output log console, JSON, dan file harian tidak pernah memblokir worker: lewat dari 8 MiB yang menunggu, baris dibuang dan dihitung (`log_lines_dropped_total`) |
 | `SHUTDOWN_TIMEOUT`, `HTTP_REQUEST_TIMEOUT` | `30s`, `30s` | Graceful shutdown dan timeout handler |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Koneksi keep-alive yang menganggur selama ini di antara request ditutup oleh server. Di dalam request, body yang tidak dibaca aplikasi tidak ditunggu: server langsung menjawab (setelah paling lama 1 detik untuk body sampai 256 KiB, agar koneksi tetap terbuka) dan menutup koneksi jika body belum tiba |
-| `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas). Body JSON dan form mendapat batas sendiri yang lebih rendah, di bawah |
-| `HTTP_MAX_JSON_BODY` | `1048576` (1 MiB) | Body JSON terbesar (`application/json` dan `+json`), sejak 1.28.0; tidak pernah di atas `HTTP_MAX_BODY`. `bodyLimit` milik route atau `BodyLimitsMiddleware` menggantikannya. `0` membuat JSON tanpa batas sendiri (hanya `HTTP_MAX_BODY`), seperti sebelum 1.28.0: satu body besar lalu membuat worker mengurai dan memvalidasi seluruhnya (lihat catatan rilis) |
+| `HTTP_MAX_BODY` | `52428800` (50 MiB) | Batas body yang dimiliki setiap request sejak awal (`413` di atasnya; `0` untuk tanpa batas). Body JSON dan form mendapat batas sendiri yang lebih rendah, di bawah. `BodyLimitsMiddleware` tidak pernah melampauinya; `bodyLimit` pada route boleh |
+| `HTTP_MAX_JSON_BODY` | `1048576` (1 MiB) | Body JSON terbesar (`application/json` dan `+json`), sejak 1.28.0; tidak pernah di atas `HTTP_MAX_BODY`. `BodyLimitsMiddleware` menggantinya dengan batasnya sendiri (juga yang lebih besar, tetapi tidak pernah di atas `HTTP_MAX_BODY`); `bodyLimit` pada route mengganti semuanya dan boleh lebih besar daripada `HTTP_MAX_BODY`. `0` membuat JSON tanpa batas sendiri (hanya `HTTP_MAX_BODY`), seperti sebelum 1.28.0: satu body besar lalu membuat worker mengurai dan memvalidasi seluruhnya (lihat catatan rilis) |
 | `HTTP_MAX_FORM_BODY` | `1048576` (1 MiB) | Sama, untuk body `application/x-www-form-urlencoded` |
 | `HTTP_MAX_INPUT_VARS` | `1000` | Jumlah maksimum pasangan tidak kosong pada query string dan form URL-encoded, dihitung terpisah; input berlebih ditolak dengan `400` saat dibaca. `0` berarti tanpa batas; nilai negatif adalah galat saat boot. Multipart memakai `HTTP_MULTIPART_MAX_PARTS` |
 | `HTTP_JSON_MAX_DEPTH` | `512` | Kedalaman body JSON, dengan arti `$depth` pada `json_decode` PHP, sehingga body terbaca seperti di Laravel: array dan objek yang bersarang 511 tingkat terbaca, 512 tingkat atau lebih menjadi input kosong (validasi berjalan atas input kosong, `422` untuk `required`), bukan `400`. Dihitung pada byte sebelum di-decode; body form dan multipart tidak terpengaruh. Body JSON yang rusak menjadi `400` (`Malformed JSON body`), perbedaan yang disengaja: Laravel membacanya sebagai input kosong. `0` untuk tanpa batas |

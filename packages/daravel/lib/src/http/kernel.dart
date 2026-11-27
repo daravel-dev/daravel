@@ -7,6 +7,7 @@ import '../logging/logger.dart';
 import '../routing/route_entry.dart';
 import '../routing/router.dart';
 import '../validation/form_request.dart';
+import 'body_limit_refusal.dart';
 import 'exception_handler.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
@@ -80,8 +81,9 @@ final class HttpKernel {
   /// The largest JSON body, given to every JSON request before the
   /// middleware runs (`HTTP_MAX_JSON_BODY`, 1 MiB; `null` none of its
   /// own). It lowers the request's limit and never raises it, so a smaller
-  /// `HTTP_MAX_BODY` still applies; a route's `bodyLimit` and
-  /// `BodyLimitsMiddleware`, set later, replace it.
+  /// `HTTP_MAX_BODY` still applies. `BodyLimitsMiddleware`, set later,
+  /// replaces it with its own limit, which never exceeds `HTTP_MAX_BODY`
+  /// either; a route's `bodyLimit` replaces them all and may be larger.
   final int? jsonBodyLimit;
 
   /// The largest form body (`HTTP_MAX_FORM_BODY`), as [jsonBodyLimit].
@@ -107,6 +109,9 @@ final class HttpKernel {
     request.multipartLimits = multipartLimits;
     request.maxInputVars = maxInputVars;
     request.jsonMaxDepth = jsonMaxDepth;
+    // What the request arrived with (HTTP_MAX_BODY) is the ceiling of
+    // BodyLimitsMiddleware: kept before the type limits lower it.
+    recordArrivedBodyLimit(request);
     // JSON and form bodies get their own limit (1 MiB by default), for a
     // served request and one from the test client alike; enforced when the
     // body is read (the declared length first, then while reading).
@@ -189,7 +194,13 @@ final class HttpKernel {
         request.path,
         host: request.host,
       );
+      // BodyLimitsMiddleware as global middleware saw a body over its limit
+      // and left the answer to the route's bodyLimit.
+      final overLimit = bodyRefusalDeferred(request);
       if (match == null) {
+        if (overLimit) {
+          return payloadTooLargeResponse();
+        }
         final forward = unmatched;
         if (forward != null) {
           return await forward(request);
@@ -223,6 +234,13 @@ final class HttpKernel {
       final limit = route.bodyLimitBytes;
       if (limit != null) {
         request.maxBodyBytes = limit;
+      }
+      if (overLimit) {
+        final declared = request.contentLength;
+        final allowed = request.maxBodyBytes;
+        if (declared != null && allowed != null && declared > allowed) {
+          return payloadTooLargeResponse();
+        }
       }
       // A body read before routing (the global middleware: a form parsed
       // for its `_method`) was read under the limits then; it must fit the
