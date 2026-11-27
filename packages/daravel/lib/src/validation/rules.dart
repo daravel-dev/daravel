@@ -1799,6 +1799,13 @@ final class DistinctRule extends Rule {
 /// matches [pattern]: each `*` is one key (`[^.]+`, `getDistinctValues`),
 /// or with [crossDots] any text, dots and line breaks included (`Str::is`
 /// with `su`, `in_array`'s parameter).
+///
+/// The walk keeps its own stack, so its depth is not the call stack's: a
+/// value nested tens of thousands of levels deep is read like any other.
+/// With [crossDots] every level is read, and a list or map met again
+/// inside itself is not walked again and gives no value (a PHP array
+/// cannot contain itself, so Laravel has no answer there); one met twice
+/// side by side is walked twice.
 Map<String, Object?> _leavesMatching(
   Map<String, Object?> data,
   String pattern, {
@@ -1808,43 +1815,146 @@ Map<String, Object?> _leavesMatching(
   // quadratically on a long key, which the client writes ([KeyPattern]).
   final keys = KeyPattern(pattern, crossDots: crossDots);
   final leaves = <String, Object?>{};
-  // [path] is null at the root only: an empty key is joined like any other
-  // (`$prefix.$key`, `Arr.php` 12.x :188-193), so `{"": {"a": 1}}` is
-  // `.a` and never stands in for the field `a`.
-  //
+  if (data.isEmpty) {
+    // `Arr::dot` of nothing: the one leaf is the empty input, at ``.
+    if (keys.matches('')) {
+      leaves[''] = data;
+    }
+    return leaves;
+  }
   // Without [crossDots] a `*` never takes a dot, so a matching key has as
-  // many parts as the pattern, and a value [depth] keys below the root has
-  // at least [depth] parts: nothing below the pattern's last part can
+  // many parts as the pattern, and a value some keys below the root has at
+  // least that many parts: nothing below the pattern's last part can
   // match, and the walk stops there. Its depth and the length of a path
-  // then follow the pattern, which the application writes, not the input:
-  // a value nested thousands of levels deep, or one that contains itself,
-  // overflowed the stack here.
+  // then follow the pattern, which the application writes, not the input.
   final deepest = crossDots ? null : pattern.split('.').length;
-  void walk(Object? node, String? path, int depth) {
-    final descend = deepest == null || depth < deepest;
-    switch (node) {
-      case Map<Object?, Object?>() when node.isNotEmpty:
-        if (descend) {
-          for (final MapEntry(:key, :value) in node.entries) {
-            walk(value, path == null ? '$key' : '$path.$key', depth + 1);
-          }
-        }
-      case List<Object?>() when node.isNotEmpty:
-        if (descend) {
-          for (var i = 0; i < node.length; i++) {
-            walk(node[i], path == null ? '$i' : '$path.$i', depth + 1);
-          }
-        }
-      default:
-        final key = path ?? '';
-        if (keys.matches(key)) {
-          leaves[key] = node;
-        }
+  // The lists and maps being walked, the root first: one frame each.
+  final stack = <_WalkFrame>[_WalkFrame(data, null)..hasPath = true];
+  // The same ones by instance, to know one met again inside itself. Only
+  // where the walk has no other end: with [deepest] it ends there.
+  final walking = deepest == null ? (Set<Object>.identity()..add(data)) : null;
+
+  // The dotted key of the frame at [index], null for the root: an empty
+  // key is joined like any other (`$prefix.$key`, `Arr.php` 12.x
+  // :188-193), so `{"": {"a": 1}}` is `.a` and never stands in for the
+  // field `a`. Written when a leaf directly inside that frame asks for it,
+  // from the nearest frame above that has its own, and kept: a chain of
+  // lists with one leaf at the bottom writes one key, not one per level
+  // (which held text growing with the square of the depth).
+  String? pathOf(int index) {
+    final frame = stack[index];
+    if (frame.hasPath) {
+      return frame.path;
+    }
+    final above = stack[index - 1];
+    if (above.hasPath) {
+      final base = above.path;
+      frame
+        ..path = base == null ? '${frame.key}' : '$base.${frame.key}'
+        ..hasPath = true;
+      return frame.path;
+    }
+    var from = index - 2;
+    while (!stack[from].hasPath) {
+      from--;
+    }
+    final base = stack[from].path;
+    final out = StringBuffer();
+    var first = base == null;
+    if (base != null) {
+      out.write(base);
+    }
+    for (var i = from + 1; i <= index; i++) {
+      if (!first) {
+        out.write('.');
+      }
+      first = false;
+      out.write(stack[i].key);
+    }
+    frame
+      ..path = out.toString()
+      ..hasPath = true;
+    return frame.path;
+  }
+
+  // Whether [value] is a list or map to walk into: one that is not empty,
+  // not below the pattern's last part, and not met again inside itself.
+  // The value is [stack.length] keys below the root.
+  bool enters(Object? value) => switch (value) {
+    Map<Object?, Object?>() when value.isNotEmpty =>
+      walking != null ? walking.add(value) : stack.length < deepest!,
+    List<Object?>() when value.isNotEmpty =>
+      walking != null ? walking.add(value) : stack.length < deepest!,
+    _ => false,
+  };
+
+  bool isLeaf(Object? value) => switch (value) {
+    Map<Object?, Object?>() => value.isEmpty,
+    List<Object?>() => value.isEmpty,
+    _ => true,
+  };
+
+  void leaf(Object? key, Object? value) {
+    final path = pathOf(stack.length - 1);
+    final dotted = path == null ? '$key' : '$path.$key';
+    if (keys.matches(dotted)) {
+      leaves[dotted] = value;
     }
   }
 
-  walk(data, null, 0);
+  walk:
+  while (stack.isNotEmpty) {
+    final frame = stack.last;
+    final list = frame.list;
+    if (list != null) {
+      while (frame.index < list.length) {
+        final index = frame.index++;
+        final value = list[index];
+        if (isLeaf(value)) {
+          leaf(index, value);
+        } else if (enters(value)) {
+          stack.add(_WalkFrame(value!, index));
+          continue walk;
+        }
+      }
+    } else {
+      final entries = frame.entries!;
+      while (entries.moveNext()) {
+        final MapEntry(:key, :value) = entries.current;
+        if (isLeaf(value)) {
+          leaf(key, value);
+        } else if (enters(value)) {
+          stack.add(_WalkFrame(value!, key));
+          continue walk;
+        }
+      }
+    }
+    walking?.remove(frame.node);
+    stack.removeLast();
+  }
   return leaves;
+}
+
+// A list or map that is not empty, being walked by [_leavesMatching].
+final class _WalkFrame {
+  _WalkFrame(this.node, this.key)
+    : list = node is List<Object?> ? node : null,
+      entries = node is Map<Object?, Object?> ? node.entries.iterator : null;
+
+  final Object node;
+
+  // Its key in the list or map that holds it (an index in a list); null
+  // for the root.
+  final Object? key;
+
+  // How far the walk is: the index in [list], or the [entries] of a map.
+  final List<Object?>? list;
+  final Iterator<MapEntry<Object?, Object?>>? entries;
+  int index = 0;
+
+  // Its dotted key, once [hasPath]; null for the root.
+  String? path;
+  bool hasPath = false;
 }
 
 /// `confirmed`: see [Rules.confirmed].
@@ -3478,6 +3588,15 @@ final class DoesntAffixRule extends Rule {
 }
 
 /// `in_array`: see [Rules.inArray].
+///
+/// As Laravel 13's `validateInArray`: the value must be, by `===`, one of
+/// the leaves of the input whose dotted key matches [other], where a `*`
+/// is any text, dots included (`Str::is`). So `others.*` takes every leaf
+/// below `others`, however deep, and all of it is read, on a stack of the
+/// rule's own: a value nested tens of thousands of levels deep is read
+/// like any other. A list or map met again inside itself is not walked
+/// again and gives no value (a PHP array cannot contain itself, so Laravel
+/// has no answer there).
 final class InArrayRule extends Rule {
   /// One of the values at [other].
   const InArrayRule(this.other);
