@@ -157,16 +157,18 @@ void main() {
     // next round taking some of it again is not growth.
     var grown = four - max(warm, once);
     var highest = max(once, four);
-    if (grown >= 8 << 20) {
-      // A level can also step up once without the attack being kept (the
-      // heap growing: 10 MiB on a Linux runner). What is kept grows again
-      // with every round, by about three times the 1x attack, so one more
-      // 4x round tells the two apart: it is measured against the level
-      // the first one reached.
+    // A level can also step up without the attack being kept (the heap
+    // growing: 10 MiB on a Linux runner, and twice in a row there, 12 and
+    // then 8.5 MiB). What is kept grows again with EVERY round, by about
+    // three times the 1x attack, so further 4x rounds tell the two apart:
+    // each is measured against the highest level reached before it, and
+    // the first round that stays within the bound ends them. A server that
+    // keeps the attack fails all of them.
+    for (var extra = 2; grown >= 8 << 20 && extra <= 4; extra++) {
       await attack(4);
       final again = await rss();
-      print('$name: after a second 4x ${again >> 20} MiB');
-      grown = again - four;
+      print('$name: after 4x round $extra: ${again >> 20} MiB');
+      grown = again - highest;
       highest = max(highest, again);
     }
     expect(grown, lessThan(8 << 20), reason: 'grows with the attack');
