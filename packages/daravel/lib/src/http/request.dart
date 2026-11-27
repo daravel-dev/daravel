@@ -283,13 +283,16 @@ final class Request {
   ///
   /// The nesting is counted on the bytes before they are decoded, in one
   /// pass without recursion. A body past it never reaches code that walks
-  /// the input recursively: measured on Dart 3.13 with the limit off,
-  /// `distinct` over `a.*` overflowed the stack (a 500) from 2 345 nested
-  /// levels and a response echoing the input from 3 433, so `dartisan
-  /// doctor` warns in production above 1 024. Counting costs about 1 ms
-  /// per MiB (AOT), a tenth of decoding a typical body; a body shorter
-  /// than the limit, which cannot nest that deep, and a request with no
-  /// limit are not counted.
+  /// the input recursively, such as a rule that walks a whole value
+  /// (`in_array`) or a response echoing the input. Measured on Dart 3.13
+  /// with the limit off, when `distinct` still walked that way: `distinct`
+  /// over `a.*` overflowed the stack (a 500) from 2 345 nested levels and
+  /// a response echoing the input from 3 433; later, on Linux,
+  /// `in_array:items.*` passed at 4 000 levels and overflowed at 8 000. So
+  /// `dartisan doctor` warns in production above 1 024. Counting costs
+  /// about 1 ms per MiB (AOT), a tenth of decoding a typical body; a body
+  /// shorter than the limit, which cannot nest that deep, and a request
+  /// with no limit are not counted.
   ///
   /// The default, [defaultJsonMaxDepth], applies to every request, served
   /// or synthetic; the kernel sets the application's (`HTTP_JSON_MAX_DEPTH`,

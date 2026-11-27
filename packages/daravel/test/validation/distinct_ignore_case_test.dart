@@ -94,10 +94,14 @@ void main() {
   // `(string) $float` (precision = 14) of 405 doubles, printed by
   // `sprintf('%.17g')` (the double, exactly) and `(string)` (the text):
   // PHP 8.4.28 according to the 1.x file, not run again here. Three rows of
-  // that file are left out, because PHP's text for them is not verified
-  // and `phpNumberString` writes another one (no trailing zero):
-  // 339499579592405.0 ('3.3949957959240E+14'), 100000000000005.0
-  // ('1.0000000000000E+14') and 200000000000005.0 ('2.0000000000000E+14').
+  // that file are left out, because `phpNumberString` writes these three
+  // differently from PHP 8.4.28 (measured by a reviewer of this change on
+  // 2026-11-27, not by this test): PHP keeps a trailing zero and writes
+  // 339499579592405.0 as '3.3949957959240E+14', 100000000000005.0 as
+  // '1.0000000000000E+14' and 200000000000005.0 as '2.0000000000000E+14',
+  // where `phpNumberString` writes '3.394995795924E+14', '1.0E+14' and
+  // '2.0E+14'. That is a difference in `phpNumberString`, not in
+  // `distinct`, and is left as it is here.
   const phpFloats = <(double, String)>[
     (1.0e-10, '1.0E-10'),
     (9.9000000000000007e-11, '9.9E-11'),

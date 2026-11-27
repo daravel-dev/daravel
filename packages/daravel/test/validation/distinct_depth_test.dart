@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math';
 
 import 'package:daravel/daravel.dart';
@@ -328,6 +329,177 @@ void main() {
       });
     }
   });
+
+  group('nothing below the pattern\'s last part is read', () {
+    // The entries of a list or map at the pattern's last part can match
+    // nothing, so the rule never asks for them (it asks whether the value
+    // is empty, to tell a leaf). Called directly, as the validator itself
+    // may read a value for other reasons.
+    Set<String> duplicates(Map<String, Object?> data, String pattern) => {
+      for (final rule in const [
+        DistinctRule(),
+        DistinctRule(strict: true),
+        DistinctRule(ignoreCase: true),
+      ])
+        for (final attribute in Validator.expandPattern(data, pattern))
+          if (rule.passes(
+                ValidationContext(
+                  attribute: attribute,
+                  pattern: pattern,
+                  value: ValidationContext.dig(data, attribute),
+                  present: true,
+                  data: data,
+                ),
+              ) !=
+              null)
+            attribute,
+    };
+
+    test('a list and a map at the last part', () {
+      final list = _CountingList(30000);
+      final map = _CountingMap(30000);
+      final data = {
+        'items': ['a', list, map, 'a'],
+      };
+      list.reads = 0;
+      map.reads = 0;
+      expect(duplicates(data, 'items.*'), {'items.0', 'items.3'});
+      expect(list.reads, 0);
+      expect(map.reads, 0);
+    });
+
+    test('with two wildcards, one level further down', () {
+      final list = _CountingList(30000);
+      final map = _CountingMap(30000);
+      final data = {
+        'items': [
+          ['a', list],
+          {'k': map, 'l': 'a'},
+        ],
+      };
+      list.reads = 0;
+      map.reads = 0;
+      expect(duplicates(data, 'items.*.*'), {'items.0.0', 'items.1.l'});
+      expect(list.reads, 0);
+      expect(map.reads, 0);
+    });
+  });
+
+  group('records', () {
+    // A record is no PHP value: it equals nothing, itself included, and
+    // costs constant time. Kept in a list and scanned for every item, 4 000
+    // of them took seconds.
+    test('a record equals true only, as any value that is not empty', () async {
+      expect(await failing('distinct', [(1,), true]), both);
+      expect(await failing('distinct', [(1,), false]), isEmpty);
+      expect(await failing('distinct', [(1,), 1, 'a', null]), isEmpty);
+      expect(await failing('distinct:strict', [(1,), true]), isEmpty);
+      const same = (1, 2);
+      for (final rule in rules) {
+        expect(await failing(rule, [same, same]), isEmpty, reason: '$rule');
+      }
+    });
+
+    test('in_array never finds a record', () async {
+      const same = (1, 2);
+      final errors = await Validator(
+        {
+          'value': same,
+          'others': [same, true],
+        },
+        {'value': 'in_array:others.*'},
+      ).run();
+      expect(errors.keys, ['value']);
+    });
+
+    // Growth, not a wall-clock bound: 16 000 records over 1 000, each the
+    // fastest of three. Linear is about 16, a scan per item about 256.
+    for (final rule in ['distinct', 'distinct:strict', 'in_array:items.*']) {
+      test('linear in the number of records: $rule', () async {
+        Future<int> fastest(int n) async {
+          final data = {
+            'items': [for (var i = 0; i < n; i++) (i,)],
+          };
+          var best = 1 << 62;
+          for (var i = 0; i < 3; i++) {
+            final watch = Stopwatch()..start();
+            await Validator(data, {'items.*': rule}).run();
+            best = min(best, watch.elapsedMicroseconds);
+          }
+          return best;
+        }
+
+        await fastest(100);
+        final small = await fastest(1000);
+        final large = await fastest(16000);
+        expect(
+          // Under 5 ms the ratio is timer noise: linear either way.
+          large < 5000 || large / max(small, 1) < 100,
+          isTrue,
+          reason: '1 000: $small us, 16 000: $large us',
+        );
+      });
+    }
+  });
+}
+
+/// A list that counts every read of an element.
+final class _CountingList extends ListBase<Object?> {
+  _CountingList(this.length);
+
+  int reads = 0;
+
+  @override
+  int length;
+
+  @override
+  Object? operator [](int index) {
+    reads++;
+    return index;
+  }
+
+  @override
+  void operator []=(int index, Object? value) =>
+      throw UnsupportedError('fixed');
+}
+
+/// A map that counts every read of its keys, values or entries; asking
+/// whether it is empty reads none.
+final class _CountingMap extends MapBase<String, Object?> {
+  _CountingMap(this.length);
+
+  int reads = 0;
+
+  @override
+  final int length;
+
+  @override
+  bool get isEmpty => length == 0;
+
+  @override
+  bool get isNotEmpty => length != 0;
+
+  @override
+  Iterable<String> get keys {
+    reads++;
+    return [for (var i = 0; i < length; i++) 'k$i'];
+  }
+
+  @override
+  Object? operator [](Object? key) {
+    reads++;
+    return key;
+  }
+
+  @override
+  void operator []=(String key, Object? value) =>
+      throw UnsupportedError('fixed');
+
+  @override
+  void clear() => throw UnsupportedError('fixed');
+
+  @override
+  Object? remove(Object? key) => throw UnsupportedError('fixed');
 }
 
 /// Equal to every other instance by `==`, as a class may choose to be.

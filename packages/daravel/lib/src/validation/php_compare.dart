@@ -370,9 +370,12 @@ final class PhpValueIndex {
           // Counted by instance: scanning a list of them for every item
           // took time quadratic in their number.
           _count(_objects, value);
-        } else {
+        } else if (_isArray(value)) {
           _arrays.add(value);
         }
+      // Anything else (a record) equals nothing, itself included, and is
+      // kept nowhere: among [_arrays] each one was scanned against all the
+      // others, in time quadratic in their number.
     }
     if (_identityKey(value) case final key?) {
       _count(_identical, key);
@@ -421,16 +424,22 @@ final class PhpValueIndex {
     },
     _ when _isEmptyArray(value) => _falseBools + _nulls + _emptyArrays,
     _ when _isObject(value) => _trueBools + (_objects[value] ?? 0),
-    _ =>
+    _ when _isArray(value) =>
       _trueBools +
           _arrays.where((other) => phpLooseEquals(value, other)).length,
+    // A record: true like any value that is not empty (so it equals
+    // `true`, as `true` equals it), and nothing else.
+    _ => _trueBools,
   };
 
   /// How many of the values `===` [value].
   int identical(Object? value) => switch (_identityKey(value)) {
     final key? => _identical[key] ?? 0,
     _ when _isObject(value) => _objects[value] ?? 0,
-    _ => _arrays.where((other) => phpIdentical(value, other)).length,
+    _ when _isArray(value) =>
+      _arrays.where((other) => phpIdentical(value, other)).length,
+    // A record is identical to nothing.
+    _ => 0,
   };
 
   /// How many of the values, as PHP writes them in a string, equal
