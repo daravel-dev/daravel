@@ -11,6 +11,13 @@ match Laravel more closely.
 
 ## Unreleased
 
+A patch: fixes only, with the API they need. Upgrade every application
+that sets `HTTP_MAX_BODY` or gives a route a `.bodyLimit`, that validates
+with `distinct:strict` or `distinct:ignore_case`, that runs scheduled
+tasks, that retries or forgets failed jobs by UUID, or that sets
+`HTTP_MAX_QUEUE_DELAY`. `BodyLimitsMiddleware` now only lowers the body
+limit: a limit of the middleware above `HTTP_MAX_BODY` no longer applies.
+
 ### Added
 
 ### Changed
@@ -37,7 +44,7 @@ match Laravel more closely.
 - `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
 - `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
 - Scheduled tasks ran in one scope for the life of the scheduler, so what one task left in it (context and hidden context, log context, the locale, the authenticated user and the gate, scoped instances) was still there for the next task and for the jobs it dispatched. Each task execution now runs in its own scope, like a request or a queued job: its starting and finished events, its hooks and its action share that scope. Filters and the overlap and single-server locks still run in the scheduler's scope.
-- `BodyLimitsMiddleware` replaced the body limit a request arrived with by its content-type limit, so an `HTTP_MAX_BODY` below 1 MiB was raised to 1 MiB for JSON and form bodies, and one below 50 MiB to 50 MiB for every other body (with `HTTP_MAX_BODY=65536` a JSON body of 150 000 bytes was accepted). The middleware now only lowers the limit.
+- Security: `BodyLimitsMiddleware` replaced the body limit a request arrived with by its content-type limit, so an `HTTP_MAX_BODY` below 1 MiB was raised to 1 MiB for JSON and form bodies, and one below 50 MiB to 50 MiB for every other body (with `HTTP_MAX_BODY=65536` a JSON body of 150 000 bytes was accepted). The middleware now only lowers the limit.
 - With `BodyLimitsMiddleware` as global middleware, a route's `.bodyLimit(n)` above the content-type limit did not apply to a body sent with a `Content-Length`: the middleware answered `413` before the route was known. The route's limit now decides: the body is served within it and answered `413` above it. A form on a path where `_method` is read is read for it when a route on that path allows the declared length.
 
 ## 1.27.7
