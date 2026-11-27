@@ -110,7 +110,12 @@ bool phpTruthy(Object? value) => switch (value) {
 /// A number as PHP's `(string)` writes it: an int in full, a float with
 /// the `precision` setting's 14 significant digits (`zend_gcvt`), so `1.0`
 /// is `'1'`, `0.1 + 0.2` is `'0.3'`, `-0.0` is `'-0'`, `1e14` is
-/// `'1.0E+14'` and `1e-5` is `'1.0E-5'`.
+/// `'1.0E+14'` and `1e-5` is `'1.0E-5'`. Zeros at the end of the digits
+/// are dropped, but for one kind of float, where PHP keeps them:
+/// `100000000000005.0` is `'1.0000000000000E+14'` (see [_significant14]).
+///
+/// Checked against PHP 8.4 over 27 000 doubles
+/// (`test/validation/php_float_string_rows_test.dart`).
 String phpNumberString(num value) => switch (value) {
   final int i => '$i',
   final double d => _phpFloatString(d),
@@ -148,6 +153,14 @@ String _phpFloatString(double value) {
 /// [value] (positive, finite) rounded to 14 significant digits, half to
 /// even as `zend_dtoa` rounds an exact tie, trailing zeros dropped; and
 /// the position of the decimal point (`value` = 0.digits × 10^point).
+///
+/// The zeros stay in one case, as in PHP: an integer of 15 digits whose
+/// last digit is 5 and whose 14th is even, so the tie is rounded down.
+/// `zend_dtoa` (mode 2) first tries floating-point arithmetic, which
+/// gives up on a digit too close to a half; an integer below 10^15 then
+/// takes the "small integer" path, which stops after the 14th digit
+/// without dropping the zeros it wrote (`zend_strtod.c` at php-8.4.28,
+/// from line 4079); every other float is rounded where they are dropped.
 (String, int) _significant14(double value) {
   // The shortest digits that read back as [value]: when there are 14 or
   // fewer, rounding the exact value to 14 digits gives them too, for a
@@ -176,6 +189,11 @@ String _phpFloatString(double value) {
   final rest = text.substring(14);
   final half = rest.codeUnitAt(0) - 0x30;
   final beyond = rest.substring(1).split('').any((d) => d != '0');
+  if (point == 15 && half == 5 && !beyond && kept.isEven) {
+    // Exactly `kept` and a 5, 15 digits before the point: the integer
+    // whose tie is rounded down. All 14 digits, zeros included.
+    return (kept.toString(), point);
+  }
   if (half > 5 || (half == 5 && (beyond || kept.isOdd))) {
     kept += BigInt.one;
   }

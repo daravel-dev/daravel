@@ -91,17 +91,11 @@ void main() {
     '0000000000000000000000000001',
   ];
 
-  // `(string) $float` (precision = 14) of 405 doubles, printed by
+  // `(string) $float` (precision = 14) of 408 doubles, printed by
   // `sprintf('%.17g')` (the double, exactly) and `(string)` (the text):
-  // PHP 8.4.28 according to the 1.x file, not run again here. Three rows of
-  // that file are left out, because `phpNumberString` writes these three
-  // differently from PHP 8.4.28 (measured by a reviewer of this change on
-  // 2026-11-27, not by this test): PHP keeps a trailing zero and writes
-  // 339499579592405.0 as '3.3949957959240E+14', 100000000000005.0 as
-  // '1.0000000000000E+14' and 200000000000005.0 as '2.0000000000000E+14',
-  // where `phpNumberString` writes '3.394995795924E+14', '1.0E+14' and
-  // '2.0E+14'. That is a difference in `phpNumberString`, not in
-  // `distinct`, and is left as it is here.
+  // PHP 8.4.28 according to the 1.x file. The same doubles are rows of
+  // `fixtures/php_float_string_rows.json`, written by PHP 8.4.28 for
+  // `php_float_string_rows_test.dart`, with the same text.
   const phpFloats = <(double, String)>[
     (1.0e-10, '1.0E-10'),
     (9.9000000000000007e-11, '9.9E-11'),
@@ -442,6 +436,7 @@ void main() {
     (978684707219345.0, '9.7868470721934E+14'),
     (9786847072193450.0, '9.7868470721934E+15'),
     (97868470721934496.0, '9.7868470721934E+16'),
+    (339499579592405.0, '3.3949957959240E+14'),
     (218435439865425.0, '2.1843543986542E+14'),
     (143235823643785.0, '1.4323582364378E+14'),
     (720357367103115.0, '7.2035736710312E+14'),
@@ -459,7 +454,9 @@ void main() {
     (633456111000965.0, '6.3345611100096E+14'),
     (567587788229685.0, '5.6758778822968E+14'),
     (920240594180625.0, '9.2024059418062E+14'),
+    (100000000000005.0, '1.0000000000000E+14'),
     (100000000000015.0, '1.0000000000002E+14'),
+    (200000000000005.0, '2.0000000000000E+14'),
     (999999999999995.0, '1.0E+15'),
     (100000000000025.0, '1.0000000000002E+14'),
     (100000000000045.0, '1.0000000000004E+14'),
