@@ -24,6 +24,8 @@ match Laravel more closely.
 - With `HTTP_MAX_QUEUE_DELAY` set, work that blocks the event loop while no request is in flight and the lag timer is stopped (a scheduled task, a WebSocket handler) is no longer counted as queue delay for the first requests after it: lag is measured again from the first request on.
 - New public name: `ServerEngine.lagTimerActive` and `ServerEngine.lagIdleStop`.
 - New public name: `DistinctRule.distinctKeyDepth`.
+- Each scheduled task execution runs in its own scope (see Fixed). A task that relied on what an earlier task left in the scope (context, log context, the locale, the authenticated user, scoped instances) no longer sees it, and neither does it see what the code that started the scheduler (`app.run`, a test) or a filter (`when`, `skip`) put in theirs. A callback the task registers for the commit of a transaction opened outside the scheduler runs after the task's scope is gone. A disposer of the task's scope (`Scope.onDispose`) that throws is logged and reported as the task's error (`TaskRunResult.error`); the other tasks still run.
+- New public name: `Scheduler.container` (and the constructor parameter).
 
 ### Fixed
 
@@ -32,6 +34,7 @@ match Laravel more closely.
 - With `HTTP_MAX_QUEUE_DELAY` set, each HTTP isolate woke 200 times a second while idle to measure event-loop lag. The timer now runs only while requests are being handled and for one second after the last one.
 - `distinct:strict` and `distinct:ignore_case` no longer overflow the stack on a value nested thousands of levels deep or on a list or map that contains itself. A list or map nested deeper than 512 levels, or one that contains itself, equals only itself.
 - `DatabaseFailedJobProvider.find` and `forget` (`queue:retry`, `queue:forget`) compared any value with the integer `id` column as well as with `uuid`. A UUID starting with digits (`123abc00-…`) then failed with a database error on PostgreSQL and, on MySQL and MariaDB, found or deleted the failed job whose id is its leading digits. A value is now compared with `id` only when it is a row id (an `int`, or text an `int` writes back exactly: `'123'`, not `'0123'` or `'+123'`), and with `uuid` always, as Laravel's `DatabaseUuidFailedJobProvider` does.
+- Scheduled tasks ran in one scope for the life of the scheduler, so what one task left in it (context and hidden context, log context, the locale, the authenticated user and the gate, scoped instances) was still there for the next task and for the jobs it dispatched. Each task execution now runs in its own scope, like a request or a queued job: its starting and finished events, its hooks and its action share that scope. Filters and the overlap and single-server locks still run in the scheduler's scope.
 
 ## 1.27.7
 
