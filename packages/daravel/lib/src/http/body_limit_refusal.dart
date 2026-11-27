@@ -20,9 +20,16 @@ final class _Arrived {
 /// Keeps the body limit [request] has now as the one it arrived with: what
 /// the engine set from `HTTP_MAX_BODY`, or what a synthetic request
 /// carries. The kernel calls it before it gives JSON and form bodies their
-/// own limit. Only the first call for a request counts.
-void recordArrivedBodyLimit(Request request) =>
-    _arrived[request] ??= _Arrived(request.maxBodyBytes);
+/// own limit, once at the start of each pass of a request through it.
+///
+/// Every call starts afresh: it replaces what an earlier call kept and
+/// clears the mark of [deferBodyRefusal], so a request handed to a kernel a
+/// second time has the ceiling it carries then and no refusal left over
+/// from the first pass.
+void recordArrivedBodyLimit(Request request) {
+  _arrived[request] = _Arrived(request.maxBodyBytes);
+  _awaitingRoute[request] = null;
+}
 
 /// The body limit [request] arrived with ([recordArrivedBodyLimit]), the
 /// ceiling of `BodyLimitsMiddleware`; `null` means no limit. For a request

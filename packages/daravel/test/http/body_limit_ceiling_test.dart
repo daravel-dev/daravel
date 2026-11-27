@@ -656,6 +656,69 @@ void main() {
     });
   });
 
+  // Each pass starts with the limit the request carries then, and without
+  // a refusal left to the kernel by an earlier pass.
+  group('the same request through the kernel twice', () {
+    /// A 2 MiB JSON body served by `/wide` (bodyLimit 4 MiB) under the
+    /// global middleware, which left its refusal to the kernel.
+    Future<Request> servedOnce() async {
+      final first = await _app();
+      final request = _post('/wide', 2 * _mib);
+      await _expectLength(await first.handle(request), 2 * _mib);
+      return request;
+    }
+
+    test('a kernel without the middleware answers no stale 413', () async {
+      // No route: the 404, not a 413.
+      final empty = await _app(
+        global: const [],
+        routes: (router) => router.get('/other', (_) => 'other'),
+      );
+      expect((await empty.handle(await servedOnce())).status, 404);
+      // A route that leaves the body unread, after a first pass that left
+      // it unread too: nothing refuses it. (A body the first pass read is
+      // held to the second route's limit, as any body read before routing.)
+      Future<Application> unread({
+        required List<Middleware> global,
+        int? bodyLimit,
+      }) => _app(
+        global: global,
+        routes: (router) {
+          final route = router.post('/wide', (_) => 'unread');
+          if (bodyLimit != null) {
+            route.bodyLimit(bodyLimit);
+          }
+        },
+      );
+      final first = await unread(
+        global: const [BodyLimitsMiddleware()],
+        bodyLimit: 4 * _mib,
+      );
+      final request = _post('/wide', 2 * _mib);
+      expect(await (await first.handle(request)).bodyText(), 'unread');
+      final second = await unread(global: const []);
+      final response = await second.handle(request);
+      expect(response.status, 200, reason: await response.bodyText());
+      expect(await response.bodyText(), 'unread');
+      // What the note above says: read in the first pass, over the JSON
+      // limit of the second route.
+      await _expectRefused(await second.handle(await servedOnce()));
+    });
+
+    test('a limit lowered between the passes is the ceiling of the '
+        'second', () async {
+      final app = await _app();
+      final request = _post('/echo', 150000, arrived: null);
+      await _expectLength(await app.handle(request), 150000);
+      request.maxBodyBytes = _kib64;
+      await _expectRefused(await app.handle(request));
+      expect(request.maxBodyBytes, _kib64);
+      // And raised again it is served again.
+      request.maxBodyBytes = null;
+      await _expectLength(await app.handle(request), 150000);
+    });
+  });
+
   group('the middleware replaces the engine type limits', () {
     const wide = BodyLimitsMiddleware(json: 5 * _mib, form: 3 * _mib);
 
