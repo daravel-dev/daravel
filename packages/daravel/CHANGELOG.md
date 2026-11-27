@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.27.8
+
+A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
+
+- Security: `BodyLimitsMiddleware` only lowers the body limit a request arrived with (`HTTP_MAX_BODY`); it raised a lower one to its own content-type limit.
+- A route's `.bodyLimit(n)` decides for its route, also above the content-type limit and above `HTTP_MAX_BODY`: as global middleware, `BodyLimitsMiddleware` no longer answers `413` before the route is known.
+- `distinct:strict` and `distinct:ignore_case` are read (they were plain `distinct`), compare as Laravel 12.x does, and no longer overflow the stack on deeply nested values (`Rules.distinct(strict:, ignoreCase:)`, `DistinctRule.distinctKeyDepth`).
+- Each scheduled task execution runs in its own scope, like a request or a queued job (`Scheduler.container`).
+- `DatabaseFailedJobProvider.find` and `forget` compare a value with the `id` column only when it is a row id, and with `uuid` always.
+- With `HTTP_MAX_QUEUE_DELAY` set, the lag timer runs only while requests are handled and for one second after the last one (`ServerEngine.lagTimerActive`, `ServerEngine.lagIdleStop`).
+
 ## 1.27.7
 
 A patch; see the [changelog](https://github.com/daravel-dev/daravel/blob/main/CHANGELOG.md).
