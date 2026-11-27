@@ -7,6 +7,7 @@ import '../logging/logger.dart';
 import '../routing/route_entry.dart';
 import '../routing/router.dart';
 import '../validation/form_request.dart';
+import 'body_limit_refusal.dart';
 import 'exception_handler.dart';
 import 'headers.dart';
 import 'http_exceptions.dart';
@@ -147,7 +148,13 @@ final class HttpKernel {
         request.path,
         host: request.host,
       );
+      // BodyLimitsMiddleware as global middleware saw a declared length over
+      // its limit and left the answer to the route's bodyLimit.
+      final overLimit = bodyRefusalDeferred(request);
       if (match == null) {
+        if (overLimit) {
+          return payloadTooLargeResponse();
+        }
         final forward = unmatched;
         if (forward != null) {
           return await forward(request);
@@ -181,6 +188,13 @@ final class HttpKernel {
       final limit = route.bodyLimitBytes;
       if (limit != null) {
         request.maxBodyBytes = limit;
+      }
+      if (overLimit) {
+        final declared = request.contentLength;
+        final allowed = request.maxBodyBytes;
+        if (declared != null && allowed != null && declared > allowed) {
+          return payloadTooLargeResponse();
+        }
       }
       // Without binders the route's list is used as it is: no extra layer.
       Future<Response> run() => MiddlewarePipeline.run(

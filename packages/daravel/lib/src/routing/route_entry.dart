@@ -204,7 +204,9 @@ final class RouteEntry {
   /// Per-route handler timeout (overrides the server default).
   Duration? get timeoutDuration => _timeout;
 
-  /// Per-route body limit in bytes (overrides `BodyLimitsMiddleware`).
+  /// Per-route body limit in bytes: it replaces the limit of
+  /// `BodyLimitsMiddleware` and the one the request arrived with
+  /// (`HTTP_MAX_BODY`), and may be larger than both.
   int? get bodyLimitBytes => _bodyLimitBytes;
 
   /// Whether this is the fallback route.
@@ -295,7 +297,9 @@ final class RouteEntry {
     return this;
   }
 
-  /// Sets the maximum body size accepted by this route.
+  /// Sets the maximum body size accepted by this route, in bytes. It
+  /// replaces the limit of `BodyLimitsMiddleware` and `HTTP_MAX_BODY` for
+  /// this route, also when it is larger than they are (an upload route).
   RouteEntry bodyLimit(int bytes) {
     _bodyLimitBytes = bytes;
     return this;
